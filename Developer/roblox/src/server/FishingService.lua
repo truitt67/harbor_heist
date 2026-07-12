@@ -76,6 +76,7 @@ local function awardCatch(session, accuracyLevel, dock, deps)
 	if questService then
 		questService.onFishCaught(session, rarityIndex)
 	end
+	return rarityIndex
 end
 
 function FishingService.init(deps)
@@ -84,17 +85,23 @@ function FishingService.init(deps)
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
 	local questService = deps.questService
+	local rodService = deps.rodService
 
 	local pendingCasts = {} -- [player] = { deadline, hitZoneWidth, dock }
 
 	local function failCast(player, reason)
+		-- RELIABILITY: Always clear the pending entry, even when the session is
+		-- already gone (player left) - otherwise the Player key leaks in the table.
+		pendingCasts[player] = nil
+		if rodService then
+			rodService.endCast(player, false)
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return
 		end
 		session.casting = false
 		session.castDeadline = 0
-		pendingCasts[player] = nil
 		remotes.CastState:FireClient(player, false, 0, nil)
 		if reason and session.player and session.player.Parent then
 			remotes.notify(player, reason, Color3.fromRGB(255, 120, 120))
@@ -139,9 +146,18 @@ function FishingService.init(deps)
 		session.castDeadline = os.clock() + castTime
 		session.castHitZoneStart = hitZoneStart
 		session.castHitZoneEnd = hitZoneEnd
-		pendingCasts[player] = { deadline = session.castDeadline, hitZoneWidth = hitZoneWidth, dock = dock }
+		pendingCasts[player] = {
+			deadline = session.castDeadline,
+			startClock = os.clock(),
+			castTime = castTime,
+			hitZoneWidth = hitZoneWidth,
+			dock = dock,
+		}
 
 		remotes.CastState:FireClient(player, true, castTime, { hitZoneStart = hitZoneStart, hitZoneEnd = hitZoneEnd })
+		if rodService then
+			rodService.startCast(player, dock, castTime)
+		end
 
 		task.delay(castTime, function()
 			local pending = pendingCasts[player]
@@ -169,6 +185,18 @@ function FishingService.init(deps)
 			return
 		end
 
+		-- SECURITY: The accuracy value is client-supplied; cross-check it against
+		-- the server's own clock so an exploiter can't just fire 0.5 ("perfect")
+		-- the moment the cast starts. The client always clicks BEFORE the server
+		-- hears about it, so the reported accuracy may lag behind the server's
+		-- elapsed fraction by up to the latency allowance, but never lead it.
+		local serverAccuracy = math.clamp((os.clock() - pending.startClock) / pending.castTime, 0, 1)
+		local latencyAllowance = 1.0 / pending.castTime
+		if accuracy > serverAccuracy + 0.02 or accuracy < serverAccuracy - latencyAllowance then
+			failCast(player, "You missed the timing! The fish got away.")
+			return
+		end
+
 		local accuracyLevel = gradeAccuracy(accuracy, pending.hitZoneWidth)
 		local dock = pending.dock
 		pendingCasts[player] = nil
@@ -177,18 +205,27 @@ function FishingService.init(deps)
 		remotes.CastState:FireClient(player, false, 0, nil)
 
 		if accuracyLevel == "miss" then
+			if rodService then
+				rodService.endCast(player, false)
+			end
 			remotes.notify(player, "You missed the timing! The fish got away.", Color3.fromRGB(255, 120, 120))
 			stateSync.push(session)
 			return
 		end
 
 		if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
+			if rodService then
+				rodService.endCast(player, false)
+			end
 			remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
 			stateSync.push(session)
 			return
 		end
 
-		awardCatch(session, accuracyLevel, dock, deps)
+		local caughtIndex = awardCatch(session, accuracyLevel, dock, deps)
+		if rodService then
+			rodService.endCast(player, caughtIndex ~= nil, caughtIndex and GameConfig.Rarities[caughtIndex] or nil)
+		end
 		stateSync.push(session)
 	end)
 end

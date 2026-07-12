@@ -10,6 +10,7 @@ local AquariumService = require(script.AquariumService)
 local ShopService = require(script.ShopService)
 local QuestService = require(script.QuestService)
 local BoatService = require(script.BoatService)
+local RodService = require(script.RodService)
 
 Players.CharacterAutoLoads = false
 
@@ -24,6 +25,8 @@ local deps = {
 	dockManager = DockManager,
 	stateSync = StateSync,
 	worldFolder = worldFolder,
+	questService = QuestService,
+	rodService = RodService,
 }
 
 FishingService.init(deps)
@@ -51,22 +54,27 @@ end)
 local boatPrompt = worldFolder.BoatDock.PrimaryPart.BoatPrompt
 boatPrompt.Triggered:Connect(function(player)
 	local session = DataManager.get(player)
-	if session and not session.boatModel then
-		local dockModel = worldFolder.BoatDock
-		local spawnPart = dockModel:FindFirstChild("SpawnPoint")
-		if spawnPart then
-			local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 4)
-			local r = BoatService.spawnBoat(player, spawnCFrame)
-			if r.ok and player.Character then
-				local root = player.Character:FindFirstChild("HumanoidRootPart")
-				if root then
-					root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
-				end
-				Remotes.notify(player, "Boat launched! Drive to other docks to steal.", Color3.fromRGB(120, 220, 255))
-			end
-		end
-	else
+	if not session then
+		return
+	end
+	if BoatService.getModel(player) then
 		Remotes.notify(player, "You already have a boat!", Color3.fromRGB(255, 170, 80))
+		return
+	end
+	local dockModel = worldFolder.BoatDock
+	local spawnPart = dockModel:FindFirstChild("SpawnPoint")
+	if spawnPart then
+		-- Spawn in open water past the platform edge, bow facing out to sea
+		-- (kept in sync with the SpawnBoat remote in BoatService).
+		local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 12) * CFrame.Angles(0, math.rad(180), 0)
+		local r = BoatService.spawnBoat(player, spawnCFrame)
+		if r.ok and player.Character then
+			local root = player.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
+			end
+			Remotes.notify(player, "Boat launched! Drive to other docks to steal.", Color3.fromRGB(120, 220, 255))
+		end
 	end
 end)
 
@@ -87,6 +95,12 @@ end
 
 local function onPlayerAdded(player)
 	local session = DataManager.load(player)
+	-- RELIABILITY: The load can yield for several seconds; the player may have
+	-- left in the meantime. Clean up so we don't leak a session for a gone player.
+	if not player.Parent then
+		DataManager.remove(player)
+		return
+	end
 	StateSync.setupLeaderstats(player, session)
 
 	QuestService.initializeQuests(session)
@@ -117,6 +131,7 @@ local function onPlayerAdded(player)
 		if targetDock then
 			character:PivotTo(targetDock.spawnCFrame)
 		end
+		RodService.equip(player, DataManager.get(player))
 	end)
 	session.characterConnection = characterConnection
 
@@ -139,6 +154,7 @@ local function onPlayerRemoving(player)
 	DataManager.save(player)
 	DockManager.release(player)
 	BoatService.onPlayerRemoving(player)
+	RodService.onPlayerRemoving(player)
 	DataManager.remove(player)
 end
 

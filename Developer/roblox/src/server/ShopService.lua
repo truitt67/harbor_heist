@@ -69,6 +69,10 @@ function ShopService.init(deps)
 
 		session.cash -= item.cost
 		session[field] = level
+		if kind == "rod" and deps.rodService then
+			-- Refresh the held rod model so the new tier shows immediately.
+			deps.rodService.equip(player, session)
+		end
 		remotes.notify(
 			player,
 			string.format("Purchased %s!", item.name),
