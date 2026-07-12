@@ -11,7 +11,67 @@ local function makePart(props)
 	return part
 end
 
+function WorldBuilder.setupEnvironment()
+	local lighting = game:GetService("Lighting")
+	lighting.ClockTime = 15.6
+	lighting.Brightness = 2.4
+	lighting.ExposureCompensation = 0.15
+	lighting.EnvironmentDiffuseScale = 0.6
+	lighting.EnvironmentSpecularScale = 0.8
+	lighting.GlobalShadows = true
+	lighting.ShadowSoftness = 0.35
+	lighting.Ambient = Color3.fromRGB(96, 110, 128)
+	lighting.OutdoorAmbient = Color3.fromRGB(128, 140, 156)
+
+	local atmosphere = lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmosphere.Density = 0.32
+	atmosphere.Offset = 0.6
+	atmosphere.Color = Color3.fromRGB(199, 214, 230)
+	atmosphere.Decay = Color3.fromRGB(106, 132, 165)
+	atmosphere.Glare = 0.25
+	atmosphere.Haze = 1.6
+	atmosphere.Parent = lighting
+
+	local bloom = lighting:FindFirstChild("HarborBloom") or Instance.new("BloomEffect")
+	bloom.Name = "HarborBloom"
+	bloom.Intensity = 0.6
+	bloom.Size = 32
+	bloom.Threshold = 1.05
+	bloom.Parent = lighting
+
+	local color = lighting:FindFirstChild("HarborColor") or Instance.new("ColorCorrectionEffect")
+	color.Name = "HarborColor"
+	color.Brightness = 0.02
+	color.Contrast = 0.08
+	color.Saturation = 0.12
+	color.TintColor = Color3.fromRGB(255, 250, 242)
+	color.Parent = lighting
+
+	local sunRays = lighting:FindFirstChild("HarborSunRays") or Instance.new("SunRaysEffect")
+	sunRays.Name = "HarborSunRays"
+	sunRays.Intensity = 0.08
+	sunRays.Spread = 0.6
+	sunRays.Parent = lighting
+
+	if not workspace.Terrain:FindFirstChildOfClass("Clouds") then
+		local clouds = Instance.new("Clouds")
+		clouds.Cover = 0.42
+		clouds.Density = 0.28
+		clouds.Color = Color3.fromRGB(235, 240, 248)
+		clouds.Parent = workspace.Terrain
+	end
+
+	local terrain = workspace.Terrain
+	terrain.WaterColor = Color3.fromRGB(28, 92, 128)
+	terrain.WaterReflectance = 0.6
+	terrain.WaterTransparency = 0.7
+	terrain.WaterWaveSize = 0.12
+	terrain.WaterWaveSpeed = 12
+end
+
 function WorldBuilder.build()
+	WorldBuilder.setupEnvironment()
+
 	local worldFolder = Instance.new("Folder")
 	worldFolder.Name = "HarborWorld"
 	worldFolder.Parent = workspace
