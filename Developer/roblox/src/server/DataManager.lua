@@ -22,7 +22,39 @@ local function defaultData()
 		capacityLevel = 0,
 		lockLevel = 0,
 		alarmLevel = 0,
+		dailyQuestKey = nil,
+		dailyQuests = {},
+		weeklyQuestKey = nil,
+		weeklyQuests = {},
 	}
+end
+
+-- SECURITY: Quests are persisted so rewards can't be re-claimed by rejoining.
+-- Validate structure since DataStore contents may be corrupt.
+local function sanitizeQuestList(list)
+	local clean = {}
+	if type(list) ~= "table" then
+		return clean
+	end
+	for _, q in ipairs(list) do
+		if type(q) == "table"
+			and type(q.type) == "string"
+			and type(q.target) == "number" and q.target > 0
+			and type(q.reward) == "number" and q.reward >= 0
+		then
+			table.insert(clean, {
+				id = type(q.id) == "string" and q.id or "",
+				type = q.type,
+				target = q.target,
+				rarity = type(q.rarity) == "number" and q.rarity or nil,
+				progress = type(q.progress) == "number" and math.clamp(q.progress, 0, q.target) or 0,
+				claimed = q.claimed == true,
+				reward = q.reward,
+				desc = type(q.desc) == "string" and q.desc or "",
+			})
+		end
+	end
+	return clean
 end
 
 local function sanitize(data)
@@ -30,9 +62,9 @@ local function sanitize(data)
 	if type(data) ~= "table" then
 		return clean
 	end
-	-- Validate cash - ensure it's never negative (exploit prevention)
-	if type(data.cash) == "number" and data.cash >= 0 and data.cash < 999999999 then
-		clean.cash = data.cash
+	-- Validate cash - never negative; clamp (not reset) at the storage ceiling
+	if type(data.cash) == "number" and data.cash >= 0 then
+		clean.cash = math.min(data.cash, 999999999)
 	end
 	if type(data.rodLevel) == "number" and GameConfig.Rods[data.rodLevel] then
 		clean.rodLevel = data.rodLevel
@@ -57,6 +89,14 @@ local function sanitize(data)
 			end
 		end
 	end
+	if type(data.dailyQuestKey) == "string" then
+		clean.dailyQuestKey = data.dailyQuestKey
+	end
+	if type(data.weeklyQuestKey) == "string" then
+		clean.weeklyQuestKey = data.weeklyQuestKey
+	end
+	clean.dailyQuests = sanitizeQuestList(data.dailyQuests)
+	clean.weeklyQuests = sanitizeQuestList(data.weeklyQuests)
 	return clean
 end
 
@@ -116,10 +156,10 @@ function DataManager.load(player)
 		stunUntil = 0,
 		dockIndex = nil,
 		isSaving = false, -- SECURITY: Lock flag to prevent concurrent saves
-		dailyQuestKey = nil,
-		dailyQuests = {},
-		weeklyQuestKey = nil,
-		weeklyQuests = {},
+		dailyQuestKey = data.dailyQuestKey,
+		dailyQuests = data.dailyQuests,
+		weeklyQuestKey = data.weeklyQuestKey,
+		weeklyQuests = data.weeklyQuests,
 		boatModel = nil,
 		boatDespawnTask = nil,
 		seatConnection = nil,
@@ -139,22 +179,23 @@ function DataManager.save(player)
 	if not session or not dataStore then
 		return
 	end
-	
-	-- SECURITY: Prevent concurrent saves (race condition protection)
+
+	-- RELIABILITY: If a save is already in flight (e.g. autosave), WAIT for it
+	-- instead of skipping - skipping the final save on leave/shutdown loses data.
+	local waited = 0
+	while session.isSaving and waited < 15 do
+		task.wait(0.1)
+		waited += 0.1
+	end
 	if session.isSaving then
-		warn("[HarborHeist] Save already in progress for " .. player.Name)
+		warn("[HarborHeist] Timed out waiting for in-flight save for " .. player.Name)
 		return
 	end
-	
+
 	session.isSaving = true
 	
 	local ok, err = withRetries(function()
-		-- SECURITY: Use UpdateAsync instead of SetAsync to avoid overwriting concurrent writes
-		-- This is critical for multi-server environments
-		return dataStore:UpdateAsync(keyFor(player), function(oldData)
-			-- Validate and sanitize old data in case of corruption
-			local existing = sanitize(oldData)
-			
+		return dataStore:UpdateAsync(keyFor(player), function()
 			-- Calculate cash including carried items
 			local cash = session.cash
 			for _, rarityIndex in ipairs(session.carried) do
@@ -162,7 +203,7 @@ function DataManager.save(player)
 					cash += GameConfig.Rarities[rarityIndex].value
 				end
 			end
-			
+
 			-- Build new payload
 			local payload = {
 				cash = math.floor(math.max(0, cash)), -- Prevent negative cash
@@ -172,6 +213,10 @@ function DataManager.save(player)
 				capacityLevel = session.capacityLevel,
 				lockLevel = session.lockLevel,
 				alarmLevel = session.alarmLevel,
+				dailyQuestKey = session.dailyQuestKey,
+				dailyQuests = session.dailyQuests,
+				weeklyQuestKey = session.weeklyQuestKey,
+				weeklyQuests = session.weeklyQuests,
 			}
 
 			return payload
@@ -198,8 +243,19 @@ function DataManager.startAutosave()
 	task.spawn(function()
 		while true do
 			task.wait(60)
+			-- RELIABILITY: save() yields, and players joining mid-loop would add
+			-- new keys to `sessions` during pairs() traversal (undefined behavior
+			-- that can error and kill this loop). Snapshot the list first.
+			local players = {}
 			for player in pairs(sessions) do
-				DataManager.save(player)
+				table.insert(players, player)
+			end
+			for _, player in ipairs(players) do
+				if sessions[player] then
+					task.spawn(function()
+						DataManager.save(player)
+					end)
+				end
 			end
 		end
 	end)
@@ -210,8 +266,20 @@ function DataManager.bindToClose()
 		if RunService:IsStudio() and not storeOk then
 			return
 		end
+		-- RELIABILITY: Save all players in parallel - sequential saves (each with
+		-- retries) could easily blow past the 30s BindToClose budget.
+		local remaining = 0
 		for player in pairs(sessions) do
-			DataManager.save(player)
+			remaining += 1
+			task.spawn(function()
+				-- RELIABILITY: pcall so an unexpected error can never leave the
+				-- `remaining` counter stuck and hang BindToClose for the full 30s.
+				pcall(DataManager.save, player)
+				remaining -= 1
+			end)
+		end
+		while remaining > 0 do
+			task.wait(0.1)
 		end
 	end)
 end

@@ -18,7 +18,10 @@ end
 function StateSync.incomePerSec(session)
 	local total = 0
 	for _, rarityIndex in ipairs(session.liveWell) do
-		total += GameConfig.Rarities[rarityIndex].incomePerSec
+		local rarity = GameConfig.Rarities[rarityIndex]
+		if rarity and rarity.incomePerSec then
+			total += rarity.incomePerSec
+		end
 	end
 	return total
 end
@@ -52,6 +55,11 @@ end
 
 function StateSync.push(session)
 	local player = session.player
+	-- RELIABILITY: Callers include deferred task.delay callbacks; the player may
+	-- have left by the time this runs.
+	if not player or not player.Parent then
+		return
+	end
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		local cashValue = leaderstats:FindFirstChild("Cash")

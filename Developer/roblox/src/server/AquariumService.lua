@@ -60,10 +60,16 @@ function AquariumService.init(deps)
 		end
 		local payout = 0
 		for _, rarityIndex in ipairs(session.liveWell) do
-			payout += GameConfig.Rarities[rarityIndex].value
+			local rarity = GameConfig.Rarities[rarityIndex]
+			if rarity then
+				payout += rarity.value
+			end
 		end
 		for _, rarityIndex in ipairs(session.carried) do
-			payout += GameConfig.Rarities[rarityIndex].value
+			local rarity = GameConfig.Rarities[rarityIndex]
+			if rarity then
+				payout += rarity.value
+			end
 		end
 		if payout <= 0 then
 			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
@@ -138,7 +144,7 @@ function AquariumService.handleSteal(deps, attacker, dock)
 
 	local victim = dock.owner
 	-- SECURITY: Re-verify victim ownership and that it's not attacker
-	if not victim or victim == attacker or dock.owner ~= victim then
+	if not victim or victim == attacker then
 		return
 	end
 	local attackerSession = dataManager.get(attacker)
@@ -161,6 +167,16 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	end
 
 	local now = os.clock()
+	-- SECURITY: A stunned thief must not be able to keep stealing; the stun was
+	-- previously only a client-side WalkSpeed tweak with no server enforcement.
+	if (attackerSession.stunUntil or 0) > now then
+		remotes.notify(
+			attacker,
+			string.format("You're stunned for %ds!", math.ceil(attackerSession.stunUntil - now)),
+			Color3.fromRGB(255, 100, 100)
+		)
+		return
+	end
 	if attackerSession.stealCooldownUntil > now then
 		remotes.notify(
 			attacker,
@@ -250,6 +266,12 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		)
 		if alarmConfig and alarmConfig.stunDuration > 0 then
 			attackerSession.stunUntil = now + alarmConfig.stunDuration
+			-- SECURITY: Apply the slow on the server too instead of relying on
+			-- the client to slow itself down.
+			local humanoid = attacker.Character and attacker.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.WalkSpeed = 8
+			end
 			remotes.notify(
 				attacker,
 				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
@@ -257,6 +279,10 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			)
 			task.delay(alarmConfig.stunDuration, function()
 				if attackerSession.player and attackerSession.player.Parent then
+					local hum = attacker.Character and attacker.Character:FindFirstChildOfClass("Humanoid")
+					if hum then
+						hum.WalkSpeed = 16
+					end
 					stateSync.push(attackerSession)
 				end
 			end)
@@ -275,7 +301,11 @@ function AquariumService.startIncomeLoop(deps)
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
-			for _, session in pairs(dataManager.allSessions()) do
+			local sessionsSnapshot = {}
+			for k, session in pairs(dataManager.allSessions()) do
+				sessionsSnapshot[k] = session
+			end
+			for _, session in pairs(sessionsSnapshot) do
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
 					session.cash += income
@@ -283,7 +313,9 @@ function AquariumService.startIncomeLoop(deps)
 						questService.onIncomeEarned(session, income)
 					end
 				end
-				stateSync.push(session)
+				if session.player and session.player.Parent then
+					stateSync.push(session)
+				end
 			end
 		end
 	end)

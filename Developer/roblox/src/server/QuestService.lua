@@ -12,8 +12,8 @@ local POOL = {
 	{ type = "income_earned", target = 1500, reward = 450, desc = "Earn $1,500 from passive income" },
 	{ type = "store_count",  target = 10, reward = 150, desc = "Store 10 fish in your aquarium" },
 	{ type = "store_count",  target = 25, reward = 300, desc = "Store 25 fish in your aquarium" },
-	{ type = "sell_value",   target = 1000, reward = 200, desc = "Sell fish worth $1,000 in one sale" },
-	{ type = "sell_value",   target = 2500, reward = 400, desc = "Sell fish worth $2,500 in one sale" },
+	{ type = "sell_value",   target = 1000, reward = 200, desc = "Sell $1,000 worth of fish in total" },
+	{ type = "sell_value",   target = 2500, reward = 400, desc = "Sell $2,500 worth of fish in total" },
 }
 
 -- Module-level deps captured in init(); used by event callbacks below.
