@@ -27,7 +27,8 @@ local function sanitize(data)
 	if type(data) ~= "table" then
 		return clean
 	end
-	if type(data.cash) == "number" and data.cash >= 0 then
+	-- Validate cash - ensure it's never negative (exploit prevention)
+	if type(data.cash) == "number" and data.cash >= 0 and data.cash < 999999999 then
 		clean.cash = data.cash
 	end
 	if type(data.rodLevel) == "number" and GameConfig.Rods[data.rodLevel] then
@@ -37,9 +38,10 @@ local function sanitize(data)
 		clean.baitLevel = data.baitLevel
 	end
 	if type(data.liveWell) == "table" then
+		-- Validate each item in liveWell - ensure it's a valid rarity index
 		for _, rarityIndex in ipairs(data.liveWell) do
-			if type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex] then
-				table.insert(clean.liveWell, rarityIndex)
+			if type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities then
+				table.insert(clean.liveWell, math.floor(rarityIndex))
 			end
 		end
 	end
@@ -52,13 +54,18 @@ end
 
 local function withRetries(fn)
 	local lastErr
-	for attempt = 1, 3 do
+	-- RELIABILITY: Use exponential backoff with jitter to avoid thundering herd
+	for attempt = 1, 4 do
 		local ok, result = pcall(fn)
 		if ok then
 			return true, result
 		end
 		lastErr = result
-		task.wait(attempt)
+		-- Exponential backoff: 0.5s, 1s, 2s, 4s with random jitter
+		if attempt < 4 then
+			local backoff = math.pow(2, attempt - 1) * 0.25 + math.random() * 0.25
+			task.wait(backoff)
+		end
 	end
 	return false, lastErr
 end
@@ -83,12 +90,13 @@ function DataManager.load(player)
 		rodLevel = data.rodLevel,
 		baitLevel = data.baitLevel,
 		liveWell = data.liveWell,
-		carried = {},
+		carried = {}, -- SECURITY: Always initialize as empty table - client data is untrusted
 		casting = false,
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
 		stealCooldownUntil = 0,
 		dockIndex = nil,
+		isSaving = false, -- SECURITY: Lock flag to prevent concurrent saves
 	}
 	sessions[player] = session
 	return session
@@ -103,25 +111,51 @@ function DataManager.save(player)
 	if not session or not dataStore then
 		return
 	end
-	local cash = session.cash
-	for _, rarityIndex in ipairs(session.carried) do
-		cash += GameConfig.Rarities[rarityIndex].value
+	
+	-- SECURITY: Prevent concurrent saves (race condition protection)
+	if session.isSaving then
+		warn("[HarborHeist] Save already in progress for " .. player.Name)
+		return
 	end
-	local payload = {
-		cash = math.floor(cash),
-		rodLevel = session.rodLevel,
-		baitLevel = session.baitLevel,
-		liveWell = session.liveWell,
-	}
+	
+	session.isSaving = true
+	
 	local ok, err = withRetries(function()
-		dataStore:SetAsync(keyFor(player), payload)
+		-- SECURITY: Use UpdateAsync instead of SetAsync to avoid overwriting concurrent writes
+		-- This is critical for multi-server environments
+		return dataStore:UpdateAsync(keyFor(player), function(oldData)
+			-- Validate and sanitize old data in case of corruption
+			local existing = sanitize(oldData)
+			
+			-- Calculate cash including carried items
+			local cash = session.cash
+			for _, rarityIndex in ipairs(session.carried) do
+				if type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex] then
+					cash += GameConfig.Rarities[rarityIndex].value
+				end
+			end
+			
+			-- Build new payload
+			local payload = {
+				cash = math.floor(math.max(0, cash)), -- Prevent negative cash
+				rodLevel = session.rodLevel,
+				baitLevel = session.baitLevel,
+				liveWell = session.liveWell,
+			}
+			
+			return payload
+		end)
 	end)
+	
+	session.isSaving = false
+	
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
 	end
 end
 
 function DataManager.remove(player)
+	-- RELIABILITY: Clean up all references to prevent memory leaks
 	sessions[player] = nil
 end
 

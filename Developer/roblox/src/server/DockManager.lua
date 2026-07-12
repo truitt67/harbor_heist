@@ -213,14 +213,34 @@ function DockManager.claim(player)
 end
 
 function DockManager.release(player)
+	-- RELIABILITY: Clean up dock when player leaves to reset state
 	for _, dock in ipairs(docks) do
 		if dock.owner == player then
 			dock.owner = nil
-			local sign = dock.aquarium.PrimaryPart.InfoSign
-			sign.OwnerLabel.Text = "Unclaimed Dock"
-			sign.StatusLabel.Text = ""
-			dock.aquarium.PrimaryPart.AquariumPrompt.Enabled = false
-			dock.aquarium.FishDisplay:ClearAllChildren()
+			-- SECURITY: Verify sign exists before accessing children
+			local aquariumBase = dock.aquarium.PrimaryPart
+			if aquariumBase then
+				local sign = aquariumBase:FindFirstChild("InfoSign")
+				if sign then
+					local ownerLabel = sign:FindFirstChild("OwnerLabel")
+					if ownerLabel then
+						ownerLabel.Text = "Unclaimed Dock"
+					end
+					local statusLabel = sign:FindFirstChild("StatusLabel")
+					if statusLabel then
+						statusLabel.Text = ""
+					end
+				end
+				local prompt = aquariumBase:FindFirstChild("AquariumPrompt")
+				if prompt then
+					prompt.Enabled = false
+				end
+			end
+			-- SECURITY: Clear fish display instances
+			local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
+			if fishDisplay then
+				fishDisplay:ClearAllChildren()
+			end
 			return
 		end
 	end
@@ -258,6 +278,11 @@ function DockManager.isInFishingZone(dock, character)
 end
 
 function DockManager.updateAquariumVisual(dock, session, capacity)
+	-- SECURITY: Verify dock and session exist
+	if not dock or not session then
+		return
+	end
+	
 	local rng = Random.new(dock.index * 1000 + #session.liveWell)
 	local display = dock.aquarium.FishDisplay
 	display:ClearAllChildren()
@@ -265,8 +290,21 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local GameConfigRarities = GameConfig.Rarities
 	local waterCFrame = dock.aquarium.Water.CFrame
 	local shown = math.min(#session.liveWell, GameConfig.Aquarium.maxVisibleFish)
+	
+	-- SECURITY: Validate each rarity index before creating visual representation
 	for i = 1, shown do
-		local rarity = GameConfigRarities[session.liveWell[i]]
+		local rarityIndex = session.liveWell[i]
+		-- Validate rarity index is within bounds
+		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfigRarities) then
+			warn("[HarborHeist] Invalid rarity index in visual update: " .. tostring(rarityIndex))
+			continue
+		end
+		
+		local rarity = GameConfigRarities[rarityIndex]
+		if not rarity then
+			continue
+		end
+		
 		local fish = Instance.new("Part")
 		fish.Name = "Fish"
 		fish.Shape = Enum.PartType.Ball
@@ -281,14 +319,20 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		fish.Parent = display
 	end
 
-	local sign = dock.aquarium.PrimaryPart.InfoSign
+	-- SECURITY: Verify sign elements exist before updating
+	local sign = dock.aquarium.PrimaryPart and dock.aquarium.PrimaryPart:FindFirstChild("InfoSign")
+	if not sign or not sign:FindFirstChild("StatusLabel") then
+		return
+	end
+	
+	local statusLabel = sign.StatusLabel
 	local locked = session.lockedUntil > os.clock()
 	if locked then
-		sign.StatusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.liveWell, capacity)
-		sign.StatusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+		statusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.liveWell, capacity)
+		statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
 	else
-		sign.StatusLabel.Text = string.format("%d/%d fish", #session.liveWell, capacity)
-		sign.StatusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
+		statusLabel.Text = string.format("%d/%d fish", #session.liveWell, capacity)
+		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
 end
 

@@ -12,9 +12,14 @@ function FishingService.init(deps)
 
 	remotes.Cast.OnServerEvent:Connect(function(player)
 		local session = dataManager.get(player)
-		if not session or session.casting then
+		-- SECURITY: Verify player session exists and player is still in game
+		if not session or not player.Parent then
 			return
 		end
+		if session.casting then
+			return
+		end
+		-- SECURITY: Double-check carried array is within bounds
 		if #session.carried >= GameConfig.MaxCarried then
 			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 			return
@@ -23,30 +28,48 @@ function FishingService.init(deps)
 		if not dock then
 			return
 		end
-		if not dockManager.isInFishingZone(dock, player.Character) then
+		-- SECURITY: Verify character exists before checking fishing zone
+		if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
 			remotes.notify(player, "Stand in the glowing Fishing Zone at the end of your dock!", Color3.fromRGB(255, 170, 80))
 			return
 		end
 
 		session.casting = true
 		local rod = GameConfig.Rods[session.rodLevel]
+		if not rod then
+			session.casting = false
+			return
+		end
 		local castTime = rod.castTime + rng:NextNumber(0, 2)
 		remotes.CastState:FireClient(player, true, castTime)
 
 		task.delay(castTime, function()
-			if not session.player.Parent then
+			-- SECURITY: Verify player still exists before processing catch
+			if not session.player.Parent or not player.Parent then
+				session.casting = false
 				return
 			end
 			session.casting = false
 			remotes.CastState:FireClient(player, false, 0)
 
-			if not dockManager.isInFishingZone(dock, player.Character) then
+			-- SECURITY: Re-check fishing zone and carried capacity before adding fish
+			if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
 				remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
+				return
+			end
+			
+			if #session.carried >= GameConfig.MaxCarried then
+				remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 				return
 			end
 
 			local luck = rod.luck + GameConfig.Baits[session.baitLevel].luck
 			local rarityIndex = GameConfig.rollRarity(luck, rng)
+			-- SECURITY: Validate rarity exists before adding to carried
+			if not (type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex]) then
+				warn("[HarborHeist] Invalid rarityIndex caught: " .. tostring(rarityIndex))
+				return
+			end
 			local rarity = GameConfig.Rarities[rarityIndex]
 			table.insert(session.carried, rarityIndex)
 

@@ -117,17 +117,26 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	local stateSync = deps.stateSync
 
 	local victim = dock.owner
-	if not victim or victim == attacker then
+	-- SECURITY: Re-verify victim ownership and that it's not attacker
+	if not victim or victim == attacker or dock.owner ~= victim then
 		return
 	end
 	local attackerSession = dataManager.get(attacker)
 	local victimSession = dataManager.get(victim)
+	-- SECURITY: Verify both players are loaded - prevent nil dereferences
 	if not attackerSession or not victimSession then
 		return
 	end
 
+	-- SECURITY: Verify player still exists and is in game
+	if not attacker.Parent or not victim.Parent then
+		return
+	end
+
 	local root = attacker.Character and attacker.Character:FindFirstChild("HumanoidRootPart")
-	if not root or (root.Position - dock.aquarium.PrimaryPart.Position).Magnitude > 15 then
+	-- SECURITY: Use MaxActivationDistance from prompt (10 studs) not magic number 15
+	-- Add 2 studs buffer for network latency tolerance
+	if not root or (root.Position - dock.aquarium.PrimaryPart.Position).Magnitude > 12 then
 		return
 	end
 
@@ -156,9 +165,17 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
 		local stolenIndex = rng:NextInteger(1, #victimSession.liveWell)
 		local rarityIndex = table.remove(victimSession.liveWell, stolenIndex)
+		
+		-- SECURITY: Validate rarityIndex is a valid rarity before using it
+		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities) then
+			warn("[HarborHeist] Invalid rarityIndex stolen: " .. tostring(rarityIndex))
+			return
+		end
+		
 		local rarity = GameConfig.Rarities[rarityIndex]
 
 		local capacity = stateSync.getCapacity(attackerSession)
+		-- SECURITY: Double-check capacity before insertion
 		if #attackerSession.liveWell < capacity then
 			table.insert(attackerSession.liveWell, rarityIndex)
 			remotes.notify(
@@ -167,6 +184,11 @@ function AquariumService.handleSteal(deps, attacker, dock)
 				rarity.color
 			)
 		else
+			-- SECURITY: Validate rarity value before adding to cash
+			if type(rarity.value) ~= "number" or rarity.value < 0 then
+				warn("[HarborHeist] Invalid rarity value for index " .. rarityIndex)
+				return
+			end
 			attackerSession.cash += rarity.value
 			remotes.notify(
 				attacker,

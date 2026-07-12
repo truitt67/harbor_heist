@@ -70,13 +70,25 @@ local function onPlayerAdded(player)
 		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", Color3.fromRGB(255, 170, 80))
 	end
 
-	player.CharacterAdded:Connect(function(character)
+	-- RELIABILITY: Store connection so we can disconnect it later to prevent memory leaks
+	local characterConnection
+	characterConnection = player.CharacterAdded:Connect(function(character)
+		-- SECURITY: Verify player still exists before accessing dock
+		if not player.Parent then
+			characterConnection:Disconnect()
+			return
+		end
 		task.wait(0.1)
+		-- SECURITY: Verify character still exists and is parented
+		if not character.Parent then
+			return
+		end
 		local targetDock = DockManager.getDock(player)
-		if targetDock and character.Parent then
+		if targetDock then
 			character:PivotTo(targetDock.spawnCFrame)
 		end
 	end)
+	session.characterConnection = characterConnection
 
 	player:LoadCharacter()
 	StateSync.push(session)
@@ -88,6 +100,12 @@ local function onPlayerAdded(player)
 end
 
 local function onPlayerRemoving(player)
+	-- RELIABILITY: Save data before cleanup to prevent loss
+	-- SECURITY: Ensure player is fully cleaned up to prevent reference leaks
+	local session = DataManager.get(player)
+	if session and session.characterConnection then
+		session.characterConnection:Disconnect()
+	end
 	DataManager.save(player)
 	DockManager.release(player)
 	DataManager.remove(player)
