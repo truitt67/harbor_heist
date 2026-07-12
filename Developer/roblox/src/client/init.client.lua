@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
@@ -14,45 +15,104 @@ end
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- ============================================================
+-- Device profile: hyper-optimize layout per modality.
+-- ============================================================
+local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- ============================================================
+-- Design system
+-- ============================================================
+local UI = {
+	bg = Color3.fromRGB(13, 20, 31),
+	surface = Color3.fromRGB(20, 30, 46),
+	surfaceHi = Color3.fromRGB(30, 43, 63),
+	stroke = Color3.fromRGB(255, 255, 255),
+	accent = Color3.fromRGB(56, 152, 255),
+	accentSoft = Color3.fromRGB(120, 190, 255),
+	good = Color3.fromRGB(52, 199, 123),
+	bad = Color3.fromRGB(255, 92, 92),
+	warn = Color3.fromRGB(255, 184, 64),
+	quest = Color3.fromRGB(255, 205, 92),
+	boat = Color3.fromRGB(94, 200, 235),
+	purple = Color3.fromRGB(167, 139, 250),
+	text = Color3.fromRGB(238, 243, 250),
+	textDim = Color3.fromRGB(148, 163, 184),
+	textFaint = Color3.fromRGB(100, 116, 139),
+	ink = Color3.fromRGB(10, 16, 26),
+}
+
+local FONT_HEAD = Enum.Font.GothamBlack
+local FONT_BOLD = Enum.Font.GothamBold
+local FONT_MED = Enum.Font.GothamMedium
+local FONT_BODY = Enum.Font.Gotham
+
+local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
 local state = nil
 local casting = false
 local castHitZone = { start_ = 0.35, finish = 0.65 }
 local castDeadline = 0
 local castInputConn = nil
-local castTimeoutConn = nil
 local questData = nil
-
-local COLORS = {
-	panel = Color3.fromRGB(25, 40, 55),
-	panelLight = Color3.fromRGB(40, 60, 80),
-	accent = Color3.fromRGB(80, 180, 255),
-	good = Color3.fromRGB(90, 220, 120),
-	bad = Color3.fromRGB(255, 100, 100),
-	warn = Color3.fromRGB(255, 190, 80),
-	text = Color3.fromRGB(240, 245, 250),
-	quest = Color3.fromRGB(255, 215, 100),
-	boat = Color3.fromRGB(100, 180, 220),
-}
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HarborHeistUI"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
+local inset = GuiService:GetGuiInset()
+local SAFE_TOP = math.max(inset.Y, IS_MOBILE and 12 or 8)
+
+-- ============================================================
+-- Primitive helpers
+-- ============================================================
 local function corner(parent, radius)
 	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius or 10)
+	c.CornerRadius = UDim.new(0, radius or 12)
 	c.Parent = parent
 	return c
+end
+
+local function stroke(parent, transparency, color, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color or UI.stroke
+	s.Transparency = transparency or 0.88
+	s.Thickness = thickness or 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function padding(parent, all)
+	local p = Instance.new("UIPadding")
+	p.PaddingTop = UDim.new(0, all)
+	p.PaddingBottom = UDim.new(0, all)
+	p.PaddingLeft = UDim.new(0, all)
+	p.PaddingRight = UDim.new(0, all)
+	p.Parent = parent
+	return p
+end
+
+local function vGradient(parent, topColor, bottomColor)
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Color = ColorSequence.new(topColor, bottomColor)
+	g.Parent = parent
+	return g
 end
 
 local function makeLabel(parent, props)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
-	label.TextColor3 = COLORS.text
-	label.Font = Enum.Font.FredokaOne
-	label.TextScaled = true
+	label.TextColor3 = UI.text
+	label.Font = FONT_BODY
+	label.TextScaled = false
+	label.TextSize = 15
 	for key, value in pairs(props) do
 		label[key] = value
 	end
@@ -60,216 +120,458 @@ local function makeLabel(parent, props)
 	return label
 end
 
+local function pressFeedback(button)
+	local scale = Instance.new("UIScale")
+	scale.Parent = button
+	button.MouseButton1Down:Connect(function()
+		TweenService:Create(scale, EASE_FAST, { Scale = 0.96 }):Play()
+	end)
+	button.MouseButton1Up:Connect(function()
+		TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
+	end)
+	button.MouseLeave:Connect(function()
+		TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
+	end)
+	if not IS_MOBILE then
+		button.MouseEnter:Connect(function()
+			TweenService:Create(scale, EASE_FAST, { Scale = 1.025 }):Play()
+		end)
+	end
+end
+
 local function makeButton(parent, props)
 	local button = Instance.new("TextButton")
-	button.BackgroundColor3 = COLORS.accent
-	button.TextColor3 = Color3.fromRGB(15, 25, 35)
-	button.Font = Enum.Font.FredokaOne
-	button.TextScaled = true
-	button.AutoButtonColor = true
+	button.BackgroundColor3 = UI.accent
+	button.TextColor3 = UI.ink
+	button.Font = FONT_BOLD
+	button.TextSize = IS_MOBILE and 16 or 15
+	button.AutoButtonColor = false
+	local cornerRadius = props.CornerRadius
+	props.CornerRadius = nil
 	for key, value in pairs(props) do
 		button[key] = value
 	end
 	button.Parent = parent
-	corner(button, 10)
+	corner(button, cornerRadius or 12)
+	pressFeedback(button)
 	return button
 end
 
--- ============ HUD: cash display ============
-local cashFrame = Instance.new("Frame")
-cashFrame.Size = UDim2.new(0, 220, 0, 74)
-cashFrame.Position = UDim2.new(0, 12, 0, 12)
-cashFrame.BackgroundColor3 = COLORS.panel
-cashFrame.BackgroundTransparency = 0.15
-cashFrame.Parent = screenGui
-corner(cashFrame)
+local function formatCash(n)
+	local s = tostring(math.floor(n + 0.5))
+	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	return formatted
+end
 
-local cashLabel = makeLabel(cashFrame, {
-	Size = UDim2.new(1, -16, 0.55, 0),
-	Position = UDim2.new(0, 8, 0, 4),
+-- ============================================================
+-- HUD: cash card (top-left) — glass card with animated counter
+-- ============================================================
+local hud = Instance.new("Frame")
+hud.Name = "HUD"
+hud.Size = IS_MOBILE and UDim2.new(0, 178, 0, 64) or UDim2.new(0, 224, 0, 78)
+hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
+hud.BackgroundColor3 = UI.bg
+hud.BackgroundTransparency = 0.18
+hud.Parent = screenGui
+corner(hud, 16)
+stroke(hud, 0.85)
+vGradient(hud, Color3.fromRGB(24, 36, 54), UI.bg)
+
+makeLabel(hud, {
+	Size = UDim2.new(0, 76, 0, 12),
+	Position = UDim2.new(0, 14, 0, IS_MOBILE and 6 or 8),
+	Text = "BALANCE",
+	Font = FONT_BOLD,
+	TextSize = 9,
+	TextColor3 = UI.textDim,
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
+
+local cashLabel = makeLabel(hud, {
+	Size = UDim2.new(1, -24, 0, IS_MOBILE and 28 or 34),
+	Position = UDim2.new(0, 14, 0, IS_MOBILE and 14 or 17),
 	Text = "$0",
-	TextColor3 = Color3.fromRGB(140, 255, 150),
+	Font = FONT_HEAD,
+	TextSize = IS_MOBILE and 24 or 30,
+	TextColor3 = Color3.fromRGB(134, 239, 172),
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
-local incomeLabel = makeLabel(cashFrame, {
-	Size = UDim2.new(1, -16, 0.32, 0),
-	Position = UDim2.new(0, 8, 0.58, 0),
-	Text = "+$0.0/sec",
-	TextColor3 = Color3.fromRGB(150, 210, 255),
+local incomeLabel = makeLabel(hud, {
+	Size = UDim2.new(1, -24, 0, 16),
+	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
+	Text = "+$0.0 / sec",
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 12 or 13,
+	TextColor3 = UI.textDim,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	Font = Enum.Font.GothamBold,
 })
 
--- ============ Bottom action bar ============
-local actionBar = Instance.new("Frame")
-actionBar.Size = UDim2.new(0, 640, 0, 64)
-actionBar.Position = UDim2.new(0.5, -320, 1, -84)
-actionBar.BackgroundTransparency = 1
-actionBar.Parent = screenGui
-
-local layout = Instance.new("UIListLayout")
-layout.FillDirection = Enum.FillDirection.Horizontal
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.Padding = UDim.new(0, 10)
-layout.Parent = actionBar
-
-local fishButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 120, 1, 0),
-	Text = "FISH (F)",
-	BackgroundColor3 = COLORS.good,
-})
-
-local storeButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 130, 1, 0),
-	Text = "STORE (0)",
-	BackgroundColor3 = COLORS.accent,
-})
-
-local aquariumButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 130, 1, 0),
-	Text = "AQUARIUM",
-	BackgroundColor3 = Color3.fromRGB(180, 140, 255),
-})
-
-local questButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 120, 1, 0),
-	Text = "QUESTS (Q)",
-	BackgroundColor3 = COLORS.quest,
-})
-
-local boatButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 110, 1, 0),
-	Text = "BOAT (B)",
-	BackgroundColor3 = COLORS.boat,
-})
-
--- ============ Notifications ============
-local notifyFrame = Instance.new("Frame")
-notifyFrame.Size = UDim2.new(0, 420, 0, 260)
-notifyFrame.Position = UDim2.new(0.5, -210, 0, 90)
-notifyFrame.BackgroundTransparency = 1
-notifyFrame.Parent = screenGui
-
-local notifyLayout = Instance.new("UIListLayout")
-notifyLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-notifyLayout.Padding = UDim.new(0, 6)
-notifyLayout.Parent = notifyFrame
-
-local function showNotification(message, color)
-	local note = Instance.new("TextLabel")
-	note.Size = UDim2.new(1, 0, 0, 34)
-	note.BackgroundColor3 = COLORS.panel
-	note.BackgroundTransparency = 0.2
-	note.Text = message
-	note.TextColor3 = color or COLORS.text
-	note.Font = Enum.Font.FredokaOne
-	note.TextScaled = true
-	note.TextWrapped = true
-	note.Parent = notifyFrame
-	corner(note, 8)
-	task.delay(4, function()
-		if not note.Parent then return end
-		local tween = TweenService:Create(note, TweenInfo.new(0.5), { BackgroundTransparency = 1, TextTransparency = 1 })
-		tween:Play()
-		tween.Completed:Wait()
-		note:Destroy()
+-- Animated cash counting
+local displayedCash = 0
+local cashTweenConn = nil
+local lastCash = nil
+local function animateCashTo(target)
+	if lastCash and target > lastCash then
+		local gain = makeLabel(hud, {
+			Size = UDim2.new(0, 100, 0, 20),
+			Position = UDim2.new(1, -110, 0, 8),
+			Text = "+$" .. formatCash(target - lastCash),
+			Font = FONT_BOLD,
+			TextSize = 12,
+			TextColor3 = UI.good,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			ZIndex = 5,
+		})
+		TweenService:Create(gain, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Position = UDim2.new(1, -110, 0, -10),
+			TextTransparency = 1,
+		}):Play()
+		task.delay(0.85, function()
+			gain:Destroy()
+		end)
+	end
+	lastCash = target
+	if cashTweenConn then
+		cashTweenConn:Disconnect()
+		cashTweenConn = nil
+	end
+	local from = displayedCash
+	if from == target then
+		cashLabel.Text = "$" .. formatCash(target)
+		return
+	end
+	local t0 = os.clock()
+	local dur = 0.45
+	cashTweenConn = game:GetService("RunService").RenderStepped:Connect(function()
+		local a = math.clamp((os.clock() - t0) / dur, 0, 1)
+		a = 1 - (1 - a) ^ 3
+		displayedCash = from + (target - from) * a
+		cashLabel.Text = "$" .. formatCash(displayedCash)
+		if a >= 1 then
+			displayedCash = target
+			cashTweenConn:Disconnect()
+			cashTweenConn = nil
+		end
 	end)
 end
 
--- ============ Aquarium panel ============
-local aquariumPanel = Instance.new("Frame")
-aquariumPanel.Size = UDim2.new(0, 340, 0, 360)
-aquariumPanel.Position = UDim2.new(0.5, -170, 0.5, -180)
-aquariumPanel.BackgroundColor3 = COLORS.panel
-aquariumPanel.Visible = false
-aquariumPanel.Parent = screenGui
-corner(aquariumPanel, 14)
+-- Carried-fish pill under the cash card
+local carryPill = Instance.new("Frame")
+carryPill.Size = IS_MOBILE and UDim2.new(0, 178, 0, 30) or UDim2.new(0, 224, 0, 34)
+carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
+carryPill.BackgroundColor3 = UI.bg
+carryPill.BackgroundTransparency = 0.25
+carryPill.Parent = screenGui
+corner(carryPill, 999)
+stroke(carryPill, 0.88)
 
-makeLabel(aquariumPanel, {
-	Size = UDim2.new(1, -60, 0, 36),
-	Position = UDim2.new(0, 14, 0, 8),
-	Text = "MY AQUARIUM",
+local carryLabel = makeLabel(carryPill, {
+	Size = UDim2.new(1, -20, 1, 0),
+	Position = UDim2.new(0, 12, 0, 0),
+	Text = "On line: 0 / 3 fish",
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 12 or 13,
+	TextColor3 = UI.accentSoft,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3 = COLORS.accent,
 })
 
-local aquariumClose = makeButton(aquariumPanel, {
-	Size = UDim2.new(0, 32, 0, 32),
-	Position = UDim2.new(1, -42, 0, 10),
-	Text = "X",
-	BackgroundColor3 = COLORS.bad,
-})
+-- ============================================================
+-- Toast notifications (top-center, slide + fade, accent bar)
+-- ============================================================
+local toastHost = Instance.new("Frame")
+toastHost.Name = "Toasts"
+toastHost.AnchorPoint = Vector2.new(0.5, 0)
+toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, 300)
+toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 8)
+toastHost.BackgroundTransparency = 1
+toastHost.ZIndex = 50
+toastHost.Parent = screenGui
 
-local aquariumStats = makeLabel(aquariumPanel, {
-	Size = UDim2.new(1, -28, 0, 70),
-	Position = UDim2.new(0, 14, 0, 48),
+local toastLayout = Instance.new("UIListLayout")
+toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+toastLayout.Padding = UDim.new(0, 6)
+toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
+toastLayout.Parent = toastHost
+
+local toastOrder = 0
+local function showNotification(message, color)
+	color = color or UI.accentSoft
+	toastOrder += 1
+
+	local toast = Instance.new("Frame")
+	toast.Size = UDim2.new(1, 0, 0, IS_MOBILE and 40 or 42)
+	toast.BackgroundColor3 = UI.bg
+	toast.BackgroundTransparency = 1
+	toast.LayoutOrder = toastOrder
+	toast.ZIndex = 51
+	toast.Parent = toastHost
+	corner(toast, 12)
+	local tStroke = stroke(toast, 1)
+
+	local accentBar = Instance.new("Frame")
+	accentBar.Size = UDim2.new(0, 4, 1, -14)
+	accentBar.Position = UDim2.new(0, 8, 0, 7)
+	accentBar.BackgroundColor3 = color
+	accentBar.BackgroundTransparency = 1
+	accentBar.ZIndex = 52
+	accentBar.Parent = toast
+	corner(accentBar, 2)
+
+	local text = makeLabel(toast, {
+		Size = UDim2.new(1, -32, 1, 0),
+		Position = UDim2.new(0, 22, 0, 0),
+		Text = message,
+		Font = FONT_MED,
+		TextSize = IS_MOBILE and 13 or 14,
+		TextTransparency = 1,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 52,
+	})
+
+	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
+	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
+	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()
+	TweenService:Create(text, EASE_OUT, { TextTransparency = 0 }):Play()
+
+	task.delay(3.6, function()
+		if not toast.Parent then
+			return
+		end
+		local fade = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
+		TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
+		local t = TweenService:Create(text, fade, { TextTransparency = 1 })
+		t:Play()
+		t.Completed:Wait()
+		toast:Destroy()
+	end)
+end
+
+-- ============================================================
+-- Modal framework: dim backdrop + animated panel (desktop card /
+-- mobile bottom sheet)
+-- ============================================================
+local backdrop = Instance.new("TextButton")
+backdrop.Name = "Backdrop"
+backdrop.Size = UDim2.new(1, 0, 1, 0)
+backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+backdrop.BackgroundTransparency = 1
+backdrop.Text = ""
+backdrop.AutoButtonColor = false
+backdrop.Visible = false
+backdrop.ZIndex = 20
+backdrop.Parent = screenGui
+
+local activePanel = nil
+
+local function makePanel(title, titleColor, desktopSize)
+	local panel = Instance.new("Frame")
+	panel.Name = title
+	panel.BackgroundColor3 = UI.bg
+	panel.BackgroundTransparency = 0.04
+	panel.Visible = false
+	panel.ZIndex = 25
+	if IS_MOBILE then
+		panel.AnchorPoint = Vector2.new(0.5, 1)
+		panel.Position = UDim2.new(0.5, 0, 1, 0)
+		panel.Size = UDim2.new(1, -12, 0.78, 0)
+	else
+		panel.AnchorPoint = Vector2.new(0.5, 0.5)
+		panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+		panel.Size = desktopSize
+	end
+	panel.Parent = screenGui
+	corner(panel, IS_MOBILE and 20 or 16)
+	stroke(panel, 0.82)
+	vGradient(panel, Color3.fromRGB(26, 38, 57), UI.bg)
+
+	if IS_MOBILE then
+		local grabber = Instance.new("Frame")
+		grabber.Size = UDim2.new(0, 44, 0, 4)
+		grabber.AnchorPoint = Vector2.new(0.5, 0)
+		grabber.Position = UDim2.new(0.5, 0, 0, 8)
+		grabber.BackgroundColor3 = UI.textFaint
+		grabber.BackgroundTransparency = 0.4
+		grabber.ZIndex = 26
+		grabber.Parent = panel
+		corner(grabber, 2)
+	end
+
+	local headerY = IS_MOBILE and 20 or 14
+	makeLabel(panel, {
+		Size = UDim2.new(1, -80, 0, 30),
+		Position = UDim2.new(0, 18, 0, headerY),
+		Text = title,
+		Font = FONT_HEAD,
+		TextSize = IS_MOBILE and 18 or 20,
+		TextColor3 = titleColor,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 26,
+	})
+
+	local close = makeButton(panel, {
+		Size = UDim2.new(0, IS_MOBILE and 40 or 32, 0, IS_MOBILE and 40 or 32),
+		Position = UDim2.new(1, IS_MOBILE and -52 or -44, 0, headerY - (IS_MOBILE and 6 or 2)),
+		Text = "✕",
+		TextSize = IS_MOBILE and 18 or 15,
+		BackgroundColor3 = UI.surfaceHi,
+		TextColor3 = UI.textDim,
+		ZIndex = 26,
+		CornerRadius = 999,
+	})
+
+	local content = Instance.new("Frame")
+	content.Name = "Content"
+	content.BackgroundTransparency = 1
+	content.Size = UDim2.new(1, -32, 1, -(headerY + 44 + (IS_MOBILE and 12 or 4)))
+	content.Position = UDim2.new(0, 16, 0, headerY + 40)
+	content.ZIndex = 26
+	content.Parent = panel
+
+	return panel, content, close
+end
+
+local function hidePanels()
+	if activePanel then
+		local panel = activePanel
+		activePanel = nil
+		if IS_MOBILE then
+			local slide = TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
+			slide:Play()
+			slide.Completed:Once(function()
+				panel.Visible = false
+			end)
+		else
+			panel.Visible = false
+		end
+	end
+	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 1 }):Play()
+	task.delay(0.24, function()
+		if not activePanel then
+			backdrop.Visible = false
+		end
+	end)
+end
+
+local function showPanel(panel)
+	if activePanel == panel then
+		hidePanels()
+		return
+	end
+	if activePanel then
+		activePanel.Visible = false
+	end
+	activePanel = panel
+	backdrop.Visible = true
+	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
+	panel.Visible = true
+	if IS_MOBILE then
+		panel.Position = UDim2.new(0.5, 0, 1.35, 0)
+		TweenService:Create(panel, EASE_POP, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
+	else
+		local scale = panel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		scale.Parent = panel
+		scale.Scale = 0.92
+		panel.BackgroundTransparency = 0.3
+		TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
+		TweenService:Create(panel, EASE_OUT, { BackgroundTransparency = 0.04 }):Play()
+	end
+end
+
+backdrop.Activated:Connect(hidePanels)
+
+-- ============================================================
+-- Aquarium panel
+-- ============================================================
+local aquariumPanel, aquariumContent, aquariumClose = makePanel("MY AQUARIUM", UI.purple, UDim2.new(0, 360, 0, 420))
+
+local aquariumStats = makeLabel(aquariumContent, {
+	Size = UDim2.new(1, 0, 0, 66),
+	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
-	Font = Enum.Font.GothamBold,
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 15 or 14,
+	TextColor3 = UI.textDim,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
-	TextScaled = false,
-	TextSize = 18,
-})
-
-local rarityList = makeLabel(aquariumPanel, {
-	Size = UDim2.new(1, -28, 0, 130),
-	Position = UDim2.new(0, 14, 0, 120),
-	Text = "",
-	Font = Enum.Font.Gotham,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextYAlignment = Enum.TextYAlignment.Top,
-	TextScaled = false,
-	TextSize = 16,
 	RichText = true,
+	ZIndex = 26,
 })
 
-local sellButton = makeButton(aquariumPanel, {
-	Size = UDim2.new(0.5, -20, 0, 46),
-	Position = UDim2.new(0, 14, 1, -60),
-	Text = "SELL ALL",
-	BackgroundColor3 = COLORS.good,
-})
+local capacityBar = Instance.new("Frame")
+capacityBar.Size = UDim2.new(1, 0, 0, 10)
+capacityBar.Position = UDim2.new(0, 0, 0, 68)
+capacityBar.BackgroundColor3 = UI.surfaceHi
+capacityBar.ZIndex = 26
+capacityBar.Parent = aquariumContent
+corner(capacityBar, 5)
+stroke(capacityBar, 0.9)
 
-local lockButton = makeButton(aquariumPanel, {
-	Size = UDim2.new(0.5, -20, 0, 46),
-	Position = UDim2.new(0.5, 6, 1, -60),
-	Text = "LOCK",
-	BackgroundColor3 = COLORS.warn,
-})
+local capacityFill = Instance.new("Frame")
+capacityFill.Size = UDim2.new(0, 0, 1, 0)
+capacityFill.BackgroundColor3 = UI.purple
+capacityFill.ZIndex = 27
+capacityFill.Parent = capacityBar
+corner(capacityFill, 5)
+vGradient(capacityFill, Color3.fromRGB(196, 181, 253), UI.purple)
 
--- ============ Shop panel ============
-local shopPanel = Instance.new("Frame")
-shopPanel.Size = UDim2.new(0, 380, 0, 480)
-shopPanel.Position = UDim2.new(0.5, -190, 0.5, -240)
-shopPanel.BackgroundColor3 = COLORS.panel
-shopPanel.Visible = false
-shopPanel.Parent = screenGui
-corner(shopPanel, 14)
-
-makeLabel(shopPanel, {
-	Size = UDim2.new(1, -60, 0, 36),
-	Position = UDim2.new(0, 14, 0, 8),
-	Text = "BAIT & TACKLE SHOP",
+makeLabel(aquariumContent, {
+	Size = UDim2.new(1, 0, 0, 16),
+	Position = UDim2.new(0, 0, 0, 88),
+	Text = "LIVE-WELL BREAKDOWN",
+	Font = FONT_BOLD,
+	TextSize = 10,
+	TextColor3 = UI.textFaint,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3 = COLORS.warn,
+	ZIndex = 26,
 })
 
-local shopClose = makeButton(shopPanel, {
-	Size = UDim2.new(0, 32, 0, 32),
-	Position = UDim2.new(1, -42, 0, 10),
-	Text = "X",
-	BackgroundColor3 = COLORS.bad,
+local rarityList = makeLabel(aquariumContent, {
+	Size = UDim2.new(1, 0, 1, -178),
+	Position = UDim2.new(0, 0, 0, 110),
+	Text = "",
+	Font = FONT_BODY,
+	TextSize = IS_MOBILE and 15 or 14,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Top,
+	RichText = true,
+	ZIndex = 26,
 })
+
+local buttonH = IS_MOBILE and 52 or 46
+local sellButton = makeButton(aquariumContent, {
+	Size = UDim2.new(0.5, -6, 0, buttonH),
+	Position = UDim2.new(0, 0, 1, -buttonH - 4),
+	Text = "SELL ALL",
+	BackgroundColor3 = UI.good,
+	ZIndex = 26,
+})
+
+local lockButton = makeButton(aquariumContent, {
+	Size = UDim2.new(0.5, -6, 0, buttonH),
+	Position = UDim2.new(0.5, 6, 1, -buttonH - 4),
+	Text = "LOCK",
+	BackgroundColor3 = UI.warn,
+	ZIndex = 26,
+})
+
+-- ============================================================
+-- Shop panel
+-- ============================================================
+local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", UI.warn, UDim2.new(0, 420, 0, 520))
 
 local shopList = Instance.new("ScrollingFrame")
-shopList.Size = UDim2.new(1, -28, 1, -66)
-shopList.Position = UDim2.new(0, 14, 0, 52)
+shopList.Size = UDim2.new(1, 0, 1, 0)
 shopList.BackgroundTransparency = 1
-shopList.ScrollBarThickness = 6
+shopList.ScrollBarThickness = 4
+shopList.ScrollBarImageColor3 = UI.textFaint
 shopList.CanvasSize = UDim2.new(0, 0, 0, 0)
 shopList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-shopList.Parent = shopPanel
+shopList.ZIndex = 26
+shopList.Parent = shopContent
 
 local shopLayout = Instance.new("UIListLayout")
 shopLayout.Padding = UDim.new(0, 8)
@@ -289,7 +591,17 @@ addCatalog("bait", GameConfig.Baits, 10)
 addCatalog("capacity", GameConfig.Upgrades.Capacity, 20)
 addCatalog("lock", GameConfig.Upgrades.Lock, 30)
 addCatalog("alarm", GameConfig.Upgrades.Alarm, 40)
-table.sort(SHOP_CATALOG, function(a, b) return a.order < b.order end)
+table.sort(SHOP_CATALOG, function(a, b)
+	return a.order < b.order
+end)
+
+local KIND_META = {
+	rod = { tag = "ROD", color = UI.accent },
+	bait = { tag = "BAIT", color = UI.good },
+	capacity = { tag = "TANK", color = UI.purple },
+	lock = { tag = "LOCK", color = UI.warn },
+	alarm = { tag = "ALARM", color = UI.bad },
+}
 
 local function itemDisplayName(entry)
 	return entry.item.name or entry.item.desc or entry.kind
@@ -298,52 +610,86 @@ end
 local function itemSubText(entry)
 	local it = entry.item
 	if entry.kind == "rod" or entry.kind == "bait" then
-		return (it.desc or "") .. "  (+" .. (it.luck or 0) .. " luck)"
+		return (it.desc or "") .. "  •  +" .. (it.luck or 0) .. " luck"
 	elseif entry.kind == "capacity" then
-		return "Capacity: " .. (it.capacity or 0) .. " fish"
+		return "Holds " .. (it.capacity or 0) .. " fish"
 	elseif entry.kind == "lock" then
-		return "Lock " .. (it.lockDuration or 0) .. "s, recharge " .. (it.lockCooldown or 0) .. "s"
+		return "Lock " .. (it.lockDuration or 0) .. "s • recharge " .. (it.lockCooldown or 0) .. "s"
 	elseif entry.kind == "alarm" then
-		return "Stun thief " .. (it.stunDuration or 0) .. "s on failed heist"
+		return "Stuns thieves " .. (it.stunDuration or 0) .. "s"
 	end
 	return it.desc or ""
 end
 
+local refreshShop
+
 local function buildShopRow(entry)
+	local rowH = IS_MOBILE and 74 or 66
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -8, 0, 64)
-	row.BackgroundColor3 = COLORS.panelLight
+	row.Size = UDim2.new(1, -6, 0, rowH)
+	row.BackgroundColor3 = UI.surface
+	row.BackgroundTransparency = 0.15
 	row.LayoutOrder = entry.order
+	row.ZIndex = 26
 	row.Parent = shopList
-	corner(row, 10)
+	corner(row, 12)
+	stroke(row, 0.9)
+
+	local meta = KIND_META[entry.kind]
+	local tag = Instance.new("Frame")
+	tag.Size = UDim2.new(0, 46, 0, 18)
+	tag.Position = UDim2.new(0, 10, 0, 8)
+	tag.BackgroundColor3 = meta.color
+	tag.BackgroundTransparency = 0.75
+	tag.ZIndex = 27
+	tag.Parent = row
+	corner(tag, 5)
+	makeLabel(tag, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = meta.tag,
+		Font = FONT_BOLD,
+		TextSize = 10,
+		TextColor3 = meta.color,
+		ZIndex = 28,
+	})
 
 	makeLabel(row, {
-		Size = UDim2.new(0.62, -10, 0.5, 0),
-		Position = UDim2.new(0, 10, 0, 4),
+		Size = UDim2.new(0.62, -70, 0, 20),
+		Position = UDim2.new(0, 62, 0, 7),
 		Text = itemDisplayName(entry),
+		Font = FONT_BOLD,
+		TextSize = IS_MOBILE and 15 or 15,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextScaled = false,
-		TextSize = 18,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
 	})
 
 	makeLabel(row, {
-		Size = UDim2.new(0.62, -10, 0.4, 0),
-		Position = UDim2.new(0, 10, 0.52, 0),
+		Size = UDim2.new(0.64, -20, 0, 30),
+		Position = UDim2.new(0, 10, 0, 30),
 		Text = itemSubText(entry),
-		Font = Enum.Font.Gotham,
+		Font = FONT_BODY,
+		TextSize = IS_MOBILE and 12 or 12,
+		TextColor3 = UI.textDim,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextScaled = false,
-		TextSize = 13,
-		TextColor3 = Color3.fromRGB(180, 200, 220),
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 27,
 	})
 
+	local buyH = IS_MOBILE and 44 or 38
 	local buyButton = makeButton(row, {
-		Size = UDim2.new(0.32, 0, 0, 40),
-		Position = UDim2.new(0.66, 0, 0.5, -20),
-		Text = "$" .. (entry.item.cost or 0),
+		Size = UDim2.new(0.3, 0, 0, buyH),
+		Position = UDim2.new(0.68, 0, 0.5, -buyH / 2),
+		Text = "$" .. formatCash(entry.item.cost or 0),
+		TextSize = IS_MOBILE and 15 or 14,
+		ZIndex = 27,
 	})
 
 	buyButton.Activated:Connect(function()
+		if not buyButton.Active then
+			return
+		end
 		local result = Remotes.BuyItem:InvokeServer(entry.kind, entry.level)
 		if result and result.ok then
 			refreshShop()
@@ -359,23 +705,32 @@ function refreshShop()
 	end
 	for _, entry in pairs(shopRows) do
 		local currentLevel
-		if entry.kind == "rod" then currentLevel = state.rodLevel
-		elseif entry.kind == "bait" then currentLevel = state.baitLevel
-		elseif entry.kind == "capacity" then currentLevel = state.capacityLevel or 0
-		elseif entry.kind == "lock" then currentLevel = state.lockLevel or 0
-		elseif entry.kind == "alarm" then currentLevel = state.alarmLevel or 0
+		if entry.kind == "rod" then
+			currentLevel = state.rodLevel
+		elseif entry.kind == "bait" then
+			currentLevel = state.baitLevel
+		elseif entry.kind == "capacity" then
+			currentLevel = state.capacityLevel or 0
+		elseif entry.kind == "lock" then
+			currentLevel = state.lockLevel or 0
+		elseif entry.kind == "alarm" then
+			currentLevel = state.alarmLevel or 0
 		end
 		if entry.level <= currentLevel then
 			entry.buyButton.Text = "OWNED"
-			entry.buyButton.BackgroundColor3 = Color3.fromRGB(100, 110, 120)
+			entry.buyButton.BackgroundColor3 = UI.surfaceHi
+			entry.buyButton.TextColor3 = UI.textFaint
 			entry.buyButton.Active = false
 		elseif entry.level == currentLevel + 1 then
-			entry.buyButton.Text = "$" .. entry.item.cost
-			entry.buyButton.BackgroundColor3 = COLORS.good
+			local affordable = state.cash >= (entry.item.cost or 0)
+			entry.buyButton.Text = "$" .. formatCash(entry.item.cost)
+			entry.buyButton.BackgroundColor3 = affordable and UI.good or UI.surfaceHi
+			entry.buyButton.TextColor3 = affordable and UI.ink or UI.textDim
 			entry.buyButton.Active = true
 		else
 			entry.buyButton.Text = "LOCKED"
-			entry.buyButton.BackgroundColor3 = Color3.fromRGB(70, 80, 90)
+			entry.buyButton.BackgroundColor3 = UI.surface
+			entry.buyButton.TextColor3 = UI.textFaint
 			entry.buyButton.Active = false
 		end
 	end
@@ -385,38 +740,20 @@ for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
 end
 
--- ============ Quest panel ============
-local questPanel = Instance.new("Frame")
-questPanel.Size = UDim2.new(0, 380, 0, 460)
-questPanel.Position = UDim2.new(0.5, -190, 0.5, -230)
-questPanel.BackgroundColor3 = COLORS.panel
-questPanel.Visible = false
-questPanel.Parent = screenGui
-corner(questPanel, 14)
-
-makeLabel(questPanel, {
-	Size = UDim2.new(1, -60, 0, 36),
-	Position = UDim2.new(0, 14, 0, 8),
-	Text = "QUESTS",
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextColor3 = COLORS.quest,
-})
-
-local questClose = makeButton(questPanel, {
-	Size = UDim2.new(0, 32, 0, 32),
-	Position = UDim2.new(1, -42, 0, 10),
-	Text = "X",
-	BackgroundColor3 = COLORS.bad,
-})
+-- ============================================================
+-- Quest panel
+-- ============================================================
+local questPanel, questContent, questClose = makePanel("QUESTS", UI.quest, UDim2.new(0, 420, 0, 500))
 
 local questList = Instance.new("ScrollingFrame")
-questList.Size = UDim2.new(1, -28, 1, -66)
-questList.Position = UDim2.new(0, 14, 0, 52)
+questList.Size = UDim2.new(1, 0, 1, 0)
 questList.BackgroundTransparency = 1
-questList.ScrollBarThickness = 6
+questList.ScrollBarThickness = 4
+questList.ScrollBarImageColor3 = UI.textFaint
 questList.CanvasSize = UDim2.new(0, 0, 0, 0)
 questList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-questList.Parent = questPanel
+questList.ZIndex = 26
+questList.Parent = questContent
 
 local questLayout = Instance.new("UIListLayout")
 questLayout.Padding = UDim.new(0, 8)
@@ -424,125 +761,311 @@ questLayout.SortOrder = Enum.SortOrder.LayoutOrder
 questLayout.Parent = questList
 
 local function makeQuestRow(parent, quest, order)
+	local rowH = IS_MOBILE and 72 or 64
 	local row = Instance.new("Frame")
-	row.Size = UDim2.new(1, -8, 0, 64)
-	row.BackgroundColor3 = COLORS.panelLight
+	row.Size = UDim2.new(1, -6, 0, rowH)
+	row.BackgroundColor3 = UI.surface
+	row.BackgroundTransparency = 0.15
 	row.LayoutOrder = order
+	row.ZIndex = 26
 	row.Parent = parent
-	corner(row, 10)
+	corner(row, 12)
+	stroke(row, 0.9)
 
-	local titleColor = quest.claimed and Color3.fromRGB(140, 220, 140) or COLORS.text
 	makeLabel(row, {
-		Size = UDim2.new(1, -16, 0.5, 0),
-		Position = UDim2.new(0, 8, 0, 4),
+		Size = UDim2.new(1, -110, 0, 20),
+		Position = UDim2.new(0, 12, 0, 8),
 		Text = quest.desc or "Quest",
+		Font = FONT_BOLD,
+		TextSize = 14,
+		TextColor3 = quest.claimed and UI.good or UI.text,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextScaled = false,
-		TextSize = 16,
-		TextColor3 = titleColor,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
 	})
 
-	local progressVal = math.min(quest.progress or 0, quest.target or 1)
+	local target = math.max(1, quest.target or 1)
+	local progressVal = math.min(quest.progress or 0, target)
+
 	local progressBar = Instance.new("Frame")
-	progressBar.Size = UDim2.new(0.6, -16, 0, 10)
-	progressBar.Position = UDim2.new(0, 8, 0.62, 0)
-	progressBar.BackgroundColor3 = Color3.fromRGB(50, 60, 70)
+	progressBar.Size = UDim2.new(1, -120, 0, 8)
+	progressBar.Position = UDim2.new(0, 12, 1, -20)
+	progressBar.BackgroundColor3 = UI.surfaceHi
+	progressBar.ZIndex = 27
 	progressBar.Parent = row
-	corner(progressBar, 5)
+	corner(progressBar, 4)
 
 	local fill = Instance.new("Frame")
-	fill.Size = UDim2.new(progressVal / math.max(1, quest.target or 1), 0, 1, 0)
-	fill.BackgroundColor3 = quest.claimed and COLORS.good or COLORS.quest
+	fill.Size = UDim2.new(progressVal / target, 0, 1, 0)
+	fill.BackgroundColor3 = quest.claimed and UI.good or UI.quest
+	fill.ZIndex = 28
 	fill.Parent = progressBar
-	corner(fill, 5)
+	corner(fill, 4)
 
-	local progressText = quest.claimed and "CLAIMED" or string.format("%d/%d  ($%d)", progressVal, quest.target, quest.reward)
-	makeLabel(row, {
-		Size = UDim2.new(0.4, -8, 0.4, 0),
-		Position = UDim2.new(0.6, 4, 0.6, 0),
-		Text = progressText,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		TextScaled = false,
-		TextSize = 14,
-		TextColor3 = Color3.fromRGB(180, 220, 255),
-		Font = Enum.Font.GothamBold,
+	local chip = Instance.new("Frame")
+	chip.Size = UDim2.new(0, 92, 0, 24)
+	chip.Position = UDim2.new(1, -102, 0.5, -12)
+	chip.BackgroundColor3 = quest.claimed and UI.good or UI.surfaceHi
+	chip.BackgroundTransparency = quest.claimed and 0.75 or 0.3
+	chip.ZIndex = 27
+	chip.Parent = row
+	corner(chip, 999)
+
+	makeLabel(chip, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = quest.claimed and "CLAIMED" or string.format("%d/%d • $%d", progressVal, target, quest.reward or 0),
+		Font = FONT_BOLD,
+		TextSize = 11,
+		TextColor3 = quest.claimed and UI.good or UI.accentSoft,
+		ZIndex = 28,
 	})
 end
 
-local sectionOrder = 0
 local function renderQuestPanel(data)
-	questList:ClearAllChildren()
-	questLayout.Parent = questList
-	sectionOrder = 0
+	for _, child in ipairs(questList:GetChildren()) do
+		if not child:IsA("UIListLayout") then
+			child:Destroy()
+		end
+	end
 
 	makeLabel(questList, {
-		Size = UDim2.new(1, 0, 0, 26),
+		Size = UDim2.new(1, 0, 0, 24),
 		Text = "DAILY",
-		TextColor3 = COLORS.warn,
-		Font = Enum.Font.GothamBold,
-		TextSize = 16,
+		Font = FONT_BOLD,
+		TextSize = 12,
+		TextColor3 = UI.warn,
 		LayoutOrder = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 26,
 	})
 	for i, q in ipairs(data and data.dailyQuests or {}) do
 		makeQuestRow(questList, q, 10 + i)
 	end
 
 	makeLabel(questList, {
-		Size = UDim2.new(1, 0, 0, 26),
+		Size = UDim2.new(1, 0, 0, 24),
 		Text = "WEEKLY",
-		TextColor3 = COLORS.accent,
-		Font = Enum.Font.GothamBold,
-		TextSize = 16,
+		Font = FONT_BOLD,
+		TextSize = 12,
+		TextColor3 = UI.accent,
 		LayoutOrder = 100,
 		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 26,
 	})
 	for i, q in ipairs(data and data.weeklyQuests or {}) do
 		makeQuestRow(questList, q, 110 + i)
 	end
 end
 
--- ============ Fishing mini-game overlay ============
-local castOverlay = Instance.new("Frame")
-castOverlay.Size = UDim2.new(0, 340, 0, 80)
-castOverlay.Position = UDim2.new(0.5, -170, 0.55, -40)
-castOverlay.BackgroundColor3 = COLORS.panel
-castOverlay.BackgroundTransparency = 0.1
-castOverlay.Visible = false
-castOverlay.Parent = screenGui
-corner(castOverlay, 12)
+-- ============================================================
+-- Action bar
+--   Desktop: bottom-center pill bar with keyboard hint chips.
+--   Mobile: right-edge thumb-zone stack of large round buttons.
+-- ============================================================
+local ACTIONS = {
+	{ id = "fish", label = "FISH", short = "FISH", key = "F", color = UI.good },
+	{ id = "store", label = "STORE", short = "STORE", key = "G", color = UI.accent },
+	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = UI.purple },
+	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = UI.quest },
+	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
+}
 
-makeLabel(castOverlay, {
-	Size = UDim2.new(1, -16, 0, 22),
-	Position = UDim2.new(0, 8, 0, 6),
-	Text = "CLICK / TAP TO HOOK!",
-	TextColor3 = COLORS.warn,
-	Font = Enum.Font.FredokaOne,
-	TextScaled = true,
+local actionButtons = {}
+
+if IS_MOBILE then
+	local stack = Instance.new("Frame")
+	stack.AnchorPoint = Vector2.new(1, 1)
+	stack.Position = UDim2.new(1, -12, 1, -90)
+	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * 70)
+	stack.BackgroundTransparency = 1
+	stack.Parent = screenGui
+
+	local stackLayout = Instance.new("UIListLayout")
+	stackLayout.FillDirection = Enum.FillDirection.Vertical
+	stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+	stackLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
+	stackLayout.Padding = UDim.new(0, 10)
+	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	stackLayout.Parent = stack
+
+	for i, action in ipairs(ACTIONS) do
+		local holder = Instance.new("Frame")
+		holder.Size = UDim2.new(0, 60, 0, 60)
+		holder.BackgroundTransparency = 1
+		holder.LayoutOrder = i
+		holder.Parent = stack
+
+		local btn = makeButton(holder, {
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = "",
+			BackgroundColor3 = UI.bg,
+			TextColor3 = action.color,
+			CornerRadius = 18,
+		})
+		btn.BackgroundTransparency = 0.16
+		stroke(btn, 0.58, action.color, 1.5)
+		makeLabel(btn, {
+			Size = UDim2.new(1, 0, 0, 26),
+			Position = UDim2.new(0, 0, 0, 9),
+			Text = action.key,
+			Font = FONT_HEAD,
+			TextSize = 20,
+			TextColor3 = action.color,
+		})
+		local mobileLabel = makeLabel(btn, {
+			Size = UDim2.new(1, 0, 0, 16),
+			Position = UDim2.new(0, 0, 1, -20),
+			Text = action.short,
+			Font = FONT_BOLD,
+			TextSize = 9,
+			TextColor3 = UI.text,
+		})
+		actionButtons[action.id] = btn
+		actionButtons[action.id .. "_label"] = mobileLabel
+	end
+else
+	local bar = Instance.new("Frame")
+	bar.AnchorPoint = Vector2.new(0.5, 1)
+	bar.Position = UDim2.new(0.5, 0, 1, -18)
+	bar.Size = UDim2.new(0, 620, 0, 58)
+	bar.BackgroundColor3 = UI.bg
+	bar.BackgroundTransparency = 0.2
+	bar.Parent = screenGui
+	corner(bar, 16)
+	stroke(bar, 0.85)
+
+	local barLayout = Instance.new("UIListLayout")
+	barLayout.FillDirection = Enum.FillDirection.Horizontal
+	barLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	barLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	barLayout.Padding = UDim.new(0, 8)
+	barLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	barLayout.Parent = bar
+
+	for i, action in ipairs(ACTIONS) do
+		local btn = makeButton(bar, {
+			Size = UDim2.new(0, 112, 0, 42),
+			Text = "",
+			BackgroundColor3 = UI.surface,
+			LayoutOrder = i,
+		})
+		btn.BackgroundTransparency = 0.25
+		stroke(btn, 0.88)
+
+		local textLabel = makeLabel(btn, {
+			Size = UDim2.new(1, -34, 1, 0),
+			Position = UDim2.new(0, 10, 0, 0),
+			Text = action.label,
+			Font = FONT_BOLD,
+			TextSize = 14,
+			TextColor3 = action.color,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		})
+
+		local keyChip = Instance.new("Frame")
+		keyChip.Size = UDim2.new(0, 20, 0, 20)
+		keyChip.AnchorPoint = Vector2.new(1, 0.5)
+		keyChip.Position = UDim2.new(1, -8, 0.5, 0)
+		keyChip.BackgroundColor3 = UI.surfaceHi
+		keyChip.Parent = btn
+		corner(keyChip, 5)
+		makeLabel(keyChip, {
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = action.key,
+			Font = FONT_BOLD,
+			TextSize = 11,
+			TextColor3 = UI.textDim,
+		})
+
+		actionButtons[action.id] = btn
+		actionButtons[action.id .. "_label"] = textLabel
+	end
+end
+
+-- ============================================================
+-- Fishing minigame overlay — glowing timing bar
+-- ============================================================
+local castOverlay = Instance.new("Frame")
+castOverlay.AnchorPoint = Vector2.new(0.5, 0.5)
+castOverlay.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
+castOverlay.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
+castOverlay.BackgroundColor3 = UI.bg
+castOverlay.BackgroundTransparency = 0.08
+castOverlay.Visible = false
+castOverlay.ZIndex = 40
+castOverlay.Parent = screenGui
+corner(castOverlay, 16)
+stroke(castOverlay, 0.8)
+vGradient(castOverlay, Color3.fromRGB(26, 38, 57), UI.bg)
+
+local castTitle = makeLabel(castOverlay, {
+	Size = UDim2.new(1, -20, 0, 24),
+	Position = UDim2.new(0, 10, 0, 10),
+	Text = IS_MOBILE and "TAP WHEN IN THE GREEN!" or "CLICK WHEN IN THE GREEN!",
+	Font = FONT_HEAD,
+	TextSize = IS_MOBILE and 15 or 16,
+	TextColor3 = UI.warn,
+	ZIndex = 41,
 })
 
 local timingBar = Instance.new("Frame")
-timingBar.Size = UDim2.new(1, -20, 0, 28)
-timingBar.Position = UDim2.new(0, 10, 0, 36)
-timingBar.BackgroundColor3 = Color3.fromRGB(45, 55, 70)
+timingBar.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
+timingBar.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
+timingBar.BackgroundColor3 = UI.surface
+timingBar.ZIndex = 41
 timingBar.Parent = castOverlay
-corner(timingBar, 8)
+corner(timingBar, 10)
+stroke(timingBar, 0.85)
 
 local hitZoneFrame = Instance.new("Frame")
 hitZoneFrame.Name = "HitZone"
 hitZoneFrame.Size = UDim2.new(0.3, 0, 1, 0)
 hitZoneFrame.Position = UDim2.new(0.35, 0, 0, 0)
-hitZoneFrame.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
-hitZoneFrame.BackgroundTransparency = 0.35
+hitZoneFrame.BackgroundColor3 = UI.good
+hitZoneFrame.BackgroundTransparency = 0.45
+hitZoneFrame.ZIndex = 42
 hitZoneFrame.Parent = timingBar
-corner(hitZoneFrame, 6)
+corner(hitZoneFrame, 8)
+stroke(hitZoneFrame, 0.5, UI.good, 1.5)
+
+local perfectZoneFrame = Instance.new("Frame")
+perfectZoneFrame.Name = "PerfectZone"
+perfectZoneFrame.AnchorPoint = Vector2.new(0.5, 0)
+perfectZoneFrame.Size = UDim2.new(0.4, 0, 1, -8)
+perfectZoneFrame.Position = UDim2.new(0.5, 0, 0, 4)
+perfectZoneFrame.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
+perfectZoneFrame.BackgroundTransparency = 0.12
+perfectZoneFrame.ZIndex = 43
+perfectZoneFrame.Parent = hitZoneFrame
+corner(perfectZoneFrame, 7)
+
+makeLabel(castOverlay, {
+	Size = UDim2.new(1, -24, 0, 16),
+	Position = UDim2.new(0, 12, 1, -20),
+	Text = "CENTER HIT  •  BONUS LUCK",
+	Font = FONT_BOLD,
+	TextSize = 9,
+	TextColor3 = UI.textFaint,
+	ZIndex = 41,
+})
 
 local marker = Instance.new("Frame")
-marker.Size = UDim2.new(0, 6, 1, -4)
-marker.Position = UDim2.new(0, 0, 0, 2)
-marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+marker.Size = UDim2.new(0, 5, 1, 6)
+marker.Position = UDim2.new(0, 0, 0, -3)
+marker.BackgroundColor3 = Color3.new(1, 1, 1)
+marker.ZIndex = 43
 marker.Parent = timingBar
 corner(marker, 3)
+
+local markerGlow = Instance.new("Frame")
+markerGlow.Size = UDim2.new(0, 15, 1, 10)
+markerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+markerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+markerGlow.BackgroundColor3 = UI.accentSoft
+markerGlow.BackgroundTransparency = 0.75
+markerGlow.ZIndex = 42
+markerGlow.Parent = marker
+corner(markerGlow, 8)
 
 local markTween = nil
 
@@ -556,13 +1079,11 @@ local function stopCastOverlay()
 		castInputConn:Disconnect()
 		castInputConn = nil
 	end
-	if castTimeoutConn then
-		castTimeoutConn:Disconnect()
-		castTimeoutConn = nil
-	end
 end
 
--- ============ State rendering ============
+-- ============================================================
+-- State rendering
+-- ============================================================
 local function toHex(color)
 	return string.format("#%02X%02X%02X", color.R * 255, color.G * 255, color.B * 255)
 end
@@ -571,54 +1092,61 @@ local function render()
 	if not state then
 		return
 	end
-	cashLabel.Text = "$" .. state.cash
-	incomeLabel.Text = string.format("+$%.1f/sec", state.incomePerSec)
-	storeButton.Text = string.format("STORE (%d/%d)", state.carried, state.maxCarried)
+	animateCashTo(state.cash)
+	incomeLabel.Text = string.format("+$%.1f / sec", state.incomePerSec)
+	carryLabel.Text = string.format("On line: %d / %d fish", state.carried, state.maxCarried)
 
+	local fishBtn = actionButtons.fish
+	local fishLbl = actionButtons.fish_label or fishBtn
 	if casting then
-		fishButton.Text = "CASTING..."
-		fishButton.BackgroundColor3 = Color3.fromRGB(120, 130, 140)
+		fishLbl.Text = IS_MOBILE and "..." or "CASTING"
+		fishLbl.TextColor3 = UI.textFaint
 	else
-		fishButton.Text = "FISH (F)"
-		fishButton.BackgroundColor3 = COLORS.good
+		fishLbl.Text = "FISH"
+		fishLbl.TextColor3 = UI.good
 	end
 
-	boatButton.Text = state.hasBoat and "BOAT (active)" or "BOAT (B)"
+	local boatLbl = actionButtons.boat_label or actionButtons.boat
+	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
 
 	local rodName = GameConfig.Rods[state.rodLevel].name
 	local baitName = GameConfig.Baits[state.baitLevel].name
 	aquariumStats.Text = string.format(
-		"Fish stored: %d / %d\nIncome: $%.1f / sec\nGear: %s + %s\nUpgrades: Cap %d / Lock %d / Alarm %d",
+		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>$%.1f / sec</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
 		state.capacityLevel or 0, state.lockLevel or 0, state.alarmLevel or 0
 	)
+	local capacityRatio = math.clamp(state.liveWellCount / math.max(1, state.capacity), 0, 1)
+	TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0) }):Play()
 
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
 		local count = state.liveWellCounts[i] or state.liveWellCounts[tostring(i)] or 0
 		table.insert(lines, string.format(
-			'<font color="%s">%s</font>: %d fish ($%d each, +$%.1f/s)',
-			toHex(rarity.color), rarity.name, count, rarity.value, rarity.incomePerSec
+			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each • +$%.1f/s</font>',
+			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value, rarity.incomePerSec
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")
 
 	if state.lockRemaining > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockRemaining))
-		lockButton.BackgroundColor3 = COLORS.bad
+		lockButton.BackgroundColor3 = UI.bad
+		lockButton.TextColor3 = UI.ink
 	elseif state.lockCooldownRemaining > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownRemaining))
-		lockButton.BackgroundColor3 = Color3.fromRGB(100, 110, 120)
+		lockButton.BackgroundColor3 = UI.surfaceHi
+		lockButton.TextColor3 = UI.textDim
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
 		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
 			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
 		end
 		lockButton.Text = string.format("LOCK (%ds)", lockDur)
-		lockButton.BackgroundColor3 = COLORS.warn
+		lockButton.BackgroundColor3 = UI.warn
+		lockButton.TextColor3 = UI.ink
 	end
 
-	-- Stun effect
 	local character = player.Character
 	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -632,48 +1160,52 @@ local function render()
 	end
 end
 
--- ============ Actions ============
+-- ============================================================
+-- Actions
+-- ============================================================
 local function doFish()
 	if not casting then
 		Remotes.Cast:FireServer()
 	end
 end
 
-fishButton.Activated:Connect(doFish)
-storeButton.Activated:Connect(function()
+actionButtons.fish.Activated:Connect(doFish)
+actionButtons.store.Activated:Connect(function()
 	Remotes.StoreFish:InvokeServer()
 end)
-aquariumButton.Activated:Connect(function()
-	aquariumPanel.Visible = not aquariumPanel.Visible
-	shopPanel.Visible = false
-	questPanel.Visible = false
+actionButtons.aquarium.Activated:Connect(function()
+	showPanel(aquariumPanel)
 end)
-aquariumClose.Activated:Connect(function()
-	aquariumPanel.Visible = false
-end)
-shopClose.Activated:Connect(function()
-	shopPanel.Visible = false
-end)
+aquariumClose.Activated:Connect(hidePanels)
+shopClose.Activated:Connect(hidePanels)
+questClose.Activated:Connect(hidePanels)
 sellButton.Activated:Connect(function()
 	Remotes.SellAll:InvokeServer()
 end)
 lockButton.Activated:Connect(function()
 	Remotes.LockAquarium:InvokeServer()
 end)
-questClose.Activated:Connect(function()
-	questPanel.Visible = false
-end)
-questButton.Activated:Connect(function()
-	questPanel.Visible = not questPanel.Visible
-	aquariumPanel.Visible = false
-	shopPanel.Visible = false
-	if questPanel.Visible and not questData then
+
+local function toggleQuestPanel()
+	if activePanel == questPanel then
+		hidePanels()
+		return
+	end
+	showPanel(questPanel)
+	if questData then
+		renderQuestPanel(questData)
+	else
 		Remotes.OpenQuests:FireServer()
 	end
-end)
-boatButton.Activated:Connect(function()
+end
+
+actionButtons.quests.Activated:Connect(toggleQuestPanel)
+
+local function trySpawnBoat()
 	local result = Remotes.SpawnBoat:InvokeServer()
-	if not result then return end
+	if not result then
+		return
+	end
 	if not result.ok then
 		local reasons = {
 			already_has_boat = "You already have a boat out!",
@@ -681,9 +1213,11 @@ boatButton.Activated:Connect(function()
 			no_spawn_point = "Boat spawn point unavailable.",
 			no_character = "Spawn your character first.",
 		}
-		showNotification(reasons[result.reason] or "Could not spawn boat.", COLORS.bad)
+		showNotification(reasons[result.reason] or "Could not spawn boat.", UI.bad)
 	end
-end)
+end
+
+actionButtons.boat.Activated:Connect(trySpawnBoat)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
@@ -691,19 +1225,22 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	if input.KeyCode == Enum.KeyCode.F then
 		doFish()
+	elseif input.KeyCode == Enum.KeyCode.G then
+		Remotes.StoreFish:InvokeServer()
+	elseif input.KeyCode == Enum.KeyCode.T then
+		showPanel(aquariumPanel)
 	elseif input.KeyCode == Enum.KeyCode.Q then
-		questPanel.Visible = not questPanel.Visible
-		aquariumPanel.Visible = false
-		shopPanel.Visible = false
-		if questPanel.Visible and not questData then
-			Remotes.OpenQuests:FireServer()
-		end
+		toggleQuestPanel()
 	elseif input.KeyCode == Enum.KeyCode.B then
-		Remotes.SpawnBoat:InvokeServer()
+		trySpawnBoat()
+	elseif input.KeyCode == Enum.KeyCode.Escape and activePanel then
+		hidePanels()
 	end
 end)
 
--- ============ Remote listeners ============
+-- ============================================================
+-- Remote listeners
+-- ============================================================
 Remotes.StateChanged.OnClientEvent:Connect(function(snapshot)
 	state = snapshot
 	render()
@@ -727,26 +1264,37 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		hitZoneFrame.Position = UDim2.new(castHitZone.start_, 0, 0, 0)
 
 		castOverlay.Visible = true
-		marker.Position = UDim2.new(0, 0, 0, 2)
+		marker.Position = UDim2.new(0, 0, 0, -3)
+
+		local overlayScale = castOverlay:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		overlayScale.Parent = castOverlay
+		overlayScale.Scale = 0.9
+		TweenService:Create(overlayScale, EASE_POP, { Scale = 1 }):Play()
 
 		local duration = castTime or 4
-		castDeadline = tick() + duration
+		castDeadline = os.clock() + duration
 
-		markTween = TweenService:Create(marker, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Position = UDim2.new(1, -6, 0, 2) })
+		markTween = TweenService:Create(
+			marker,
+			TweenInfo.new(duration, Enum.EasingStyle.Linear),
+			{ Position = UDim2.new(1, -5, 0, -3) }
+		)
 		markTween:Play()
 
 		castInputConn = UserInputService.InputBegan:Connect(function(input, gp)
-			if gp then return end
+			if gp then
+				return
+			end
 			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				if not casting then return end
-				local elapsed = tick() - (castDeadline - duration)
+				if not casting then
+					return
+				end
+				local elapsed = os.clock() - (castDeadline - duration)
 				local accuracy = math.clamp(elapsed / duration, 0, 1)
 				stopCastOverlay()
 				Remotes.CastResult:FireServer(accuracy)
 			end
 		end)
-
-		castTimeoutConn = nil
 	else
 		stopCastOverlay()
 	end
@@ -754,20 +1302,17 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
-	aquariumPanel.Visible = true
-	shopPanel.Visible = false
-	questPanel.Visible = false
+	showPanel(aquariumPanel)
 end)
 
 Remotes.OpenShop.OnClientEvent:Connect(function()
-	shopPanel.Visible = true
-	aquariumPanel.Visible = false
-	questPanel.Visible = false
+	showPanel(shopPanel)
+	refreshShop()
 end)
 
 Remotes.QuestProgressChanged.OnClientEvent:Connect(function(data)
 	questData = data
-	if questPanel.Visible then
+	if activePanel == questPanel then
 		renderQuestPanel(data)
 	end
 end)
@@ -779,4 +1324,16 @@ task.spawn(function()
 		render()
 		refreshShop()
 	end
+end)
+
+-- Gentle onboarding: walk brand-new players through the core loop.
+task.delay(4, function()
+	if IS_MOBILE then
+		showNotification("Stand in the glowing zone at the end of your dock, then tap FISH.", UI.good)
+	else
+		showNotification("Stand in the glowing zone at the end of your dock, then press F to fish.", UI.good)
+	end
+end)
+task.delay(9, function()
+	showNotification("Caught fish? " .. (IS_MOBILE and "Tap STORE" or "Press G") .. " near your aquarium to bank them for passive income.", UI.accentSoft)
 end)
