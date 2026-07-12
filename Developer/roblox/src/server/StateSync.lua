@@ -1,0 +1,63 @@
+local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+
+local StateSync = {}
+
+StateSync.remotes = nil
+
+function StateSync.getCapacity(_session)
+	return GameConfig.Aquarium.baseCapacity
+end
+
+function StateSync.incomePerSec(session)
+	local total = 0
+	for _, rarityIndex in ipairs(session.liveWell) do
+		total += GameConfig.Rarities[rarityIndex].incomePerSec
+	end
+	return total
+end
+
+function StateSync.snapshot(session)
+	local now = os.clock()
+	local liveWellCounts = {}
+	for _, rarityIndex in ipairs(session.liveWell) do
+		local key = tostring(rarityIndex)
+		liveWellCounts[key] = (liveWellCounts[key] or 0) + 1
+	end
+	return {
+		cash = math.floor(session.cash),
+		rodLevel = session.rodLevel,
+		baitLevel = session.baitLevel,
+		carried = #session.carried,
+		maxCarried = GameConfig.MaxCarried,
+		liveWellCount = #session.liveWell,
+		liveWellCounts = liveWellCounts,
+		capacity = StateSync.getCapacity(session),
+		incomePerSec = StateSync.incomePerSec(session),
+		lockRemaining = math.max(0, session.lockedUntil - now),
+		lockCooldownRemaining = math.max(0, session.lockCooldownUntil - now),
+	}
+end
+
+function StateSync.push(session)
+	local player = session.player
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if leaderstats then
+		local cashValue = leaderstats:FindFirstChild("Cash")
+		if cashValue then
+			cashValue.Value = math.floor(session.cash)
+		end
+	end
+	StateSync.remotes.StateChanged:FireClient(player, StateSync.snapshot(session))
+end
+
+function StateSync.setupLeaderstats(player, session)
+	local leaderstats = Instance.new("Folder")
+	leaderstats.Name = "leaderstats"
+	local cash = Instance.new("IntValue")
+	cash.Name = "Cash"
+	cash.Value = math.floor(session.cash)
+	cash.Parent = leaderstats
+	leaderstats.Parent = player
+end
+
+return StateSync
