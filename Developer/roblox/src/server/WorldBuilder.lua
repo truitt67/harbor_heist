@@ -56,8 +56,75 @@ function WorldBuilder.build()
 
 	WorldBuilder.buildShop(worldFolder)
 	WorldBuilder.buildDecorations(worldFolder)
+	WorldBuilder.buildBoatDock(worldFolder)
 
 	return worldFolder
+end
+
+function WorldBuilder.buildBoatDock(parent)
+	local boatDock = Instance.new("Model")
+	boatDock.Name = "BoatDock"
+	boatDock.Parent = parent
+
+	local dockZ = 38
+	local platform = makePart({
+		Name = "Platform",
+		Size = Vector3.new(10, 1, 14),
+		CFrame = CFrame.new(0, 0.5, dockZ),
+		Color = Color3.fromRGB(150, 105, 70),
+		Material = Enum.Material.WoodPlanks,
+		Parent = boatDock,
+	})
+
+	for _, xOffset in ipairs({ -5, 5 }) do
+		makePart({
+			Name = "Railing",
+			Size = Vector3.new(0.5, 1.5, 14),
+			CFrame = CFrame.new(xOffset, 1.5, dockZ),
+			Color = Color3.fromRGB(100, 70, 45),
+			Material = Enum.Material.Wood,
+			Parent = boatDock,
+		})
+	end
+
+	local spawnPoint = Instance.new("Part")
+	spawnPoint.Name = "SpawnPoint"
+	spawnPoint.Size = Vector3.new(6, 0.1, 6)
+	spawnPoint.CFrame = CFrame.new(0, 0.6, dockZ + 4)
+	spawnPoint.Transparency = 1
+	spawnPoint.CanCollide = false
+	spawnPoint.Anchored = true
+	spawnPoint.Parent = boatDock
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "BoatSign"
+	billboard.Size = UDim2.new(0, 160, 0, 42)
+	billboard.StudsOffset = Vector3.new(0, 5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 110
+	billboard.Parent = platform
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "BOAT DOCK"
+	label.TextColor3 = Color3.fromRGB(100, 200, 255)
+	label.TextStrokeTransparency = 0.2
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "BoatPrompt"
+	prompt.ActionText = "Spawn Boat"
+	prompt.ObjectText = "Boat Dock"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = platform
+
+	boatDock.PrimaryPart = platform
+	return prompt
 end
 
 function WorldBuilder.buildShop(parent)

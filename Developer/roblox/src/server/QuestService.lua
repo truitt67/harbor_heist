@@ -1,0 +1,196 @@
+local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+
+local QuestService = {}
+
+local POOL = {
+	{ type = "catch_rarity", target = 5,  rarity = 3, reward = 200, desc = "Catch 5 Rare or better fish" },
+	{ type = "catch_rarity", target = 3,  rarity = 4, reward = 350, desc = "Catch 3 Epic or better fish" },
+	{ type = "catch_rarity", target = 1,  rarity = 5, reward = 600, desc = "Catch a Legendary fish" },
+	{ type = "steal_count",  target = 3,  reward = 300, desc = "Successfully steal 3 fish" },
+	{ type = "steal_count",  target = 5,  reward = 500, desc = "Successfully steal 5 fish" },
+	{ type = "income_earned", target = 500,  reward = 250, desc = "Earn $500 from passive income" },
+	{ type = "income_earned", target = 1500, reward = 450, desc = "Earn $1,500 from passive income" },
+	{ type = "store_count",  target = 10, reward = 150, desc = "Store 10 fish in your aquarium" },
+	{ type = "store_count",  target = 25, reward = 300, desc = "Store 25 fish in your aquarium" },
+	{ type = "sell_value",   target = 1000, reward = 200, desc = "Sell fish worth $1,000 in one sale" },
+	{ type = "sell_value",   target = 2500, reward = 400, desc = "Sell fish worth $2,500 in one sale" },
+}
+
+-- Module-level deps captured in init(); used by event callbacks below.
+local remotes
+local stateSync
+
+local function dailyKey(player)
+	local now = os.date("!*t")
+	return string.format("d_%d_%d_%d", player.UserId, now.year, now.yday)
+end
+
+local function weeklyKey(player)
+	local now = os.date("!*t")
+	local weekStart = now.yday - now.wday + 1
+	return string.format("w_%d_%d_%d", player.UserId, now.year, weekStart)
+end
+
+local function pickDistinct(pool, count, rng)
+	local chosen = {}
+	local used = {}
+	while #chosen < count and #used < #pool do
+		local i = rng:NextInteger(1, #pool)
+		if not used[i] then
+			used[i] = true
+			local t = pool[i]
+			table.insert(chosen, {
+				id = string.format("q%d_%d_%d", #chosen + 1, t.reward, t.target),
+				type = t.type,
+				target = t.target,
+				rarity = t.rarity,
+				progress = 0,
+				claimed = false,
+				reward = t.reward,
+				desc = t.desc,
+			})
+		end
+	end
+	return chosen
+end
+
+function QuestService.initializeQuests(session)
+	local dKey = dailyKey(session.player)
+	local wKey = weeklyKey(session.player)
+
+	if session.dailyQuestKey ~= dKey or #session.dailyQuests == 0 then
+		local seedString = string.gsub(dKey, "%D", "")
+		local seed = tonumber(seedString) or 0
+		local rng = Random.new(seed)
+		session.dailyQuestKey = dKey
+		session.dailyQuests = pickDistinct(POOL, GameConfig.Quests.DailySlots, rng)
+	end
+
+	if session.weeklyQuestKey ~= wKey or #session.weeklyQuests == 0 then
+		local seedString = string.gsub(wKey, "%D", "")
+		local seed = tonumber(seedString) or 0
+		local rng = Random.new(seed)
+		session.weeklyQuestKey = wKey
+		session.weeklyQuests = pickDistinct(POOL, GameConfig.Quests.WeeklySlots, rng)
+	end
+end
+
+local function processList(session, list, scope, predicate, incrFn)
+	local changed = false
+	for _, q in ipairs(list) do
+		if not q.claimed and predicate(q) then
+			q.progress = incrFn(q)
+			changed = true
+			if q.progress >= q.target then
+				q.progress = q.target
+				q.claimed = true
+				session.cash += q.reward
+				if remotes and session.player and session.player.Parent then
+					remotes.notify(
+						session.player,
+						string.format("%s complete: %s (+$%d)", scope, q.desc, q.reward),
+						Color3.fromRGB(255, 215, 0)
+					)
+				end
+			end
+		end
+	end
+	return changed
+end
+
+local function progressQuests(session, predicate, incrFn)
+	if not session then
+		return
+	end
+	local changed = processList(session, session.dailyQuests, "Daily quest", predicate, incrFn)
+	changed = processList(session, session.weeklyQuests, "Weekly quest", predicate, incrFn) or changed
+	if changed then
+		if stateSync then
+			stateSync.push(session)
+		end
+		if remotes and session.player and session.player.Parent then
+			remotes.QuestProgressChanged:FireClient(session.player, {
+				dailyKey = session.dailyQuestKey,
+				dailyQuests = session.dailyQuests,
+				weeklyKey = session.weeklyQuestKey,
+				weeklyQuests = session.weeklyQuests,
+			})
+		end
+	end
+end
+
+function QuestService.onFishCaught(session, rarityIndex)
+	progressQuests(
+		session,
+		function(q) return q.type == "catch_rarity" and (rarityIndex >= (q.rarity or 1)) end,
+		function(q) return q.progress + 1 end
+	)
+end
+
+function QuestService.onStealAttempt(session, success)
+	if not success then
+		return
+	end
+	progressQuests(
+		session,
+		function(q) return q.type == "steal_count" end,
+		function(q) return q.progress + 1 end
+	)
+end
+
+function QuestService.onIncomeEarned(session, amount)
+	progressQuests(
+		session,
+		function(q) return q.type == "income_earned" end,
+		function(q) return q.progress + amount end
+	)
+end
+
+function QuestService.onFishStored(session, count)
+	progressQuests(
+		session,
+		function(q) return q.type == "store_count" end,
+		function(q) return q.progress + count end
+	)
+end
+
+function QuestService.onFishSold(session, totalValue)
+	progressQuests(
+		session,
+		function(q) return q.type == "sell_value" end,
+		function(q) return q.progress + totalValue end
+	)
+end
+
+function QuestService.pushProgress(session)
+	if not remotes or not session.player or not session.player.Parent then
+		return
+	end
+	remotes.QuestProgressChanged:FireClient(session.player, {
+		dailyKey = session.dailyQuestKey,
+		dailyQuests = session.dailyQuests,
+		weeklyKey = session.weeklyQuestKey,
+		weeklyQuests = session.weeklyQuests,
+	})
+end
+
+function QuestService.init(deps)
+	remotes = deps.remotes
+	stateSync = deps.stateSync
+	local dataManager = deps.dataManager
+
+	for _, session in pairs(dataManager.allSessions()) do
+		QuestService.initializeQuests(session)
+		QuestService.pushProgress(session)
+	end
+
+	remotes.OpenQuests.OnServerEvent:Connect(function(player)
+		local session = dataManager.get(player)
+		if session then
+			QuestService.initializeQuests(session)
+			QuestService.pushProgress(session)
+		end
+	end)
+end
+
+return QuestService

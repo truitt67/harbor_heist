@@ -29,6 +29,43 @@ GameConfig.Aquarium = {
 	maxVisibleFish = 10,
 }
 
+GameConfig.Upgrades = {
+	Capacity = {
+		{ name = "Capacity I", cost = 300,  capacity = 30, desc = "Expand aquarium to 30 fish" },
+		{ name = "Capacity II", cost = 800,  capacity = 45, desc = "Expand aquarium to 45 fish" },
+		{ name = "Capacity III", cost = 2000, capacity = 60, desc = "Expand aquarium to 60 fish" },
+	},
+	Lock = {
+		{ name = "Lock I",   cost = 400,  lockDuration = 90,  lockCooldown = 90, desc = "Lock 90s, recharge 90s" },
+		{ name = "Lock II",  cost = 1200, lockDuration = 120, lockCooldown = 60, desc = "Lock 120s, recharge 60s" },
+		{ name = "Lock III", cost = 3000, lockDuration = 150, lockCooldown = 30, desc = "Lock 150s, recharge 30s" },
+	},
+	Alarm = {
+		{ name = "Alarm I",   cost = 500,  stunDuration = 3, notifyChance = 1.0, desc = "Notify on theft, stun thief 3s" },
+		{ name = "Alarm II",  cost = 1500, stunDuration = 5, notifyChance = 1.0, desc = "Notify on theft, stun thief 5s" },
+		{ name = "Alarm III", cost = 4000, stunDuration = 8, notifyChance = 1.0, desc = "Notify on theft, stun thief 8s" },
+	},
+}
+
+GameConfig.MiniGame = {
+	hitZoneWidth = 0.3,
+	goodZoneWidth = 0.5,
+	accuracyLuckBonus = {
+		perfect = 25,
+		good = 12,
+		ok = 0,
+	},
+}
+
+GameConfig.Quests = {
+	DailySlots = 3,
+	WeeklySlots = 2,
+}
+
+GameConfig.Boat = {
+	despawnDelay = 10,
+}
+
 GameConfig.MaxCarried = 5
 GameConfig.IncomeTickSeconds = 1
 GameConfig.StartingCash = 0

@@ -9,12 +9,16 @@ function AquariumService.init(deps)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local function refreshVisual(session)
 		local dock = dockManager.getDock(session.player)
 		if dock then
 			dockManager.updateAquariumVisual(dock, session, stateSync.getCapacity(session))
 		end
+	end
+	AquariumService.refreshVisual = function(session)
+		refreshVisual(session)
 	end
 
 	remotes.StoreFish.OnServerInvoke = function(player)
@@ -43,6 +47,9 @@ function AquariumService.init(deps)
 		end
 		refreshVisual(session)
 		stateSync.push(session)
+		if stored > 0 and questService then
+			questService.onFishStored(session, stored)
+		end
 		return { ok = stored > 0, stored = stored }
 	end
 
@@ -68,6 +75,9 @@ function AquariumService.init(deps)
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
 		stateSync.push(session)
+		if questService then
+			questService.onFishSold(session, payout)
+		end
 		return { ok = true, payout = payout }
 	end
 
@@ -88,17 +98,26 @@ function AquariumService.init(deps)
 			)
 			return { ok = false, reason = "cooldown" }
 		end
-		session.lockedUntil = now + GameConfig.Aquarium.lockDuration
-		session.lockCooldownUntil = session.lockedUntil + GameConfig.Aquarium.lockCooldown
+		local lockDuration = GameConfig.Aquarium.lockDuration
+		local lockCooldown = GameConfig.Aquarium.lockCooldown
+		if session.lockLevel and session.lockLevel > 0 then
+			local upgrade = GameConfig.Upgrades.Lock[session.lockLevel]
+			if upgrade then
+				lockDuration = upgrade.lockDuration
+				lockCooldown = upgrade.lockCooldown
+			end
+		end
+		session.lockedUntil = now + lockDuration
+		session.lockCooldownUntil = session.lockedUntil + lockCooldown
 		remotes.notify(
 			player,
-			string.format("Aquarium locked for %ds. Thieves can't touch it!", GameConfig.Aquarium.lockDuration),
+			string.format("Aquarium locked for %ds. Thieves can't touch it!", lockDuration),
 			Color3.fromRGB(130, 255, 130)
 		)
 		refreshVisual(session)
 		stateSync.push(session)
-		task.delay(GameConfig.Aquarium.lockDuration, function()
-			if session.player.Parent then
+		task.delay(lockDuration, function()
+			if session.player and session.player.Parent then
 				refreshVisual(session)
 				stateSync.push(session)
 				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80))
@@ -115,6 +134,7 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local victim = dock.owner
 	-- SECURITY: Re-verify victim ownership and that it's not attacker
@@ -162,6 +182,16 @@ function AquariumService.handleSteal(deps, attacker, dock)
 
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
 
+	local alarmLevel = victimSession.alarmLevel or 0
+	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+	if alarmConfig and alarmConfig.notifyChance >= rng:NextNumber() then
+		remotes.notify(
+			victim,
+			string.format("ALARM! %s is trying to steal from your aquarium!", attacker.DisplayName),
+			Color3.fromRGB(255, 150, 100)
+		)
+	end
+
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
 		local stolenIndex = rng:NextInteger(1, #victimSession.liveWell)
 		local rarityIndex = table.remove(victimSession.liveWell, stolenIndex)
@@ -208,6 +238,9 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		end
 		stateSync.push(attackerSession)
 		stateSync.push(victimSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, true)
+		end
 	else
 		remotes.notify(attacker, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
 		remotes.notify(
@@ -215,13 +248,30 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			string.format("%s tried to steal from your aquarium and failed!", attacker.DisplayName),
 			Color3.fromRGB(255, 200, 100)
 		)
+		if alarmConfig and alarmConfig.stunDuration > 0 then
+			attackerSession.stunUntil = now + alarmConfig.stunDuration
+			remotes.notify(
+				attacker,
+				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
+				Color3.fromRGB(255, 100, 100)
+			)
+			task.delay(alarmConfig.stunDuration, function()
+				if attackerSession.player and attackerSession.player.Parent then
+					stateSync.push(attackerSession)
+				end
+			end)
+		end
 		stateSync.push(attackerSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, false)
+		end
 	end
 end
 
 function AquariumService.startIncomeLoop(deps)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
@@ -229,6 +279,9 @@ function AquariumService.startIncomeLoop(deps)
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
 					session.cash += income
+					if questService then
+						questService.onIncomeEarned(session, income)
+					end
 				end
 				stateSync.push(session)
 			end

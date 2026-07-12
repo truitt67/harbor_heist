@@ -49,6 +49,43 @@ GameConfig.Aquarium = {
 	maxVisibleFish = 10,
 }
 
+GameConfig.Upgrades = {
+	Capacity = {
+		{ name = "Capacity I", cost = 300,  capacity = 30, desc = "Expand aquarium to 30 fish" },
+		{ name = "Capacity II", cost = 800,  capacity = 45, desc = "Expand aquarium to 45 fish" },
+		{ name = "Capacity III", cost = 2000, capacity = 60, desc = "Expand aquarium to 60 fish" },
+	},
+	Lock = {
+		{ name = "Lock I",   cost = 400,  lockDuration = 90,  lockCooldown = 90, desc = "Lock 90s, recharge 90s" },
+		{ name = "Lock II",  cost = 1200, lockDuration = 120, lockCooldown = 60, desc = "Lock 120s, recharge 60s" },
+		{ name = "Lock III", cost = 3000, lockDuration = 150, lockCooldown = 30, desc = "Lock 150s, recharge 30s" },
+	},
+	Alarm = {
+		{ name = "Alarm I",   cost = 500,  stunDuration = 3, notifyChance = 1.0, desc = "Notify on theft, stun thief 3s" },
+		{ name = "Alarm II",  cost = 1500, stunDuration = 5, notifyChance = 1.0, desc = "Notify on theft, stun thief 5s" },
+		{ name = "Alarm III", cost = 4000, stunDuration = 8, notifyChance = 1.0, desc = "Notify on theft, stun thief 8s" },
+	},
+}
+
+GameConfig.MiniGame = {
+	hitZoneWidth = 0.3,
+	goodZoneWidth = 0.5,
+	accuracyLuckBonus = {
+		perfect = 25,
+		good = 12,
+		ok = 0,
+	},
+}
+
+GameConfig.Quests = {
+	DailySlots = 3,
+	WeeklySlots = 2,
+}
+
+GameConfig.Boat = {
+	despawnDelay = 10,
+}
+
 GameConfig.MaxCarried = 5
 GameConfig.IncomeTickSeconds = 1
 GameConfig.StartingCash = 0
@@ -97,6 +134,8 @@ local StateSync = require(script.StateSync)
 local FishingService = require(script.FishingService)
 local AquariumService = require(script.AquariumService)
 local ShopService = require(script.ShopService)
+local QuestService = require(script.QuestService)
+local BoatService = require(script.BoatService)
 
 Players.CharacterAutoLoads = false
 
@@ -110,11 +149,14 @@ local deps = {
 	dataManager = DataManager,
 	dockManager = DockManager,
 	stateSync = StateSync,
+	worldFolder = worldFolder,
 }
 
 FishingService.init(deps)
 AquariumService.init(deps)
 ShopService.init(deps)
+QuestService.init(deps)
+BoatService.init(deps)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
@@ -130,6 +172,28 @@ end
 local shopPrompt = worldFolder.Shop.Counter.ShopPrompt
 shopPrompt.Triggered:Connect(function(player)
 	Remotes.OpenShop:FireClient(player)
+end)
+
+local boatPrompt = worldFolder.BoatDock.PrimaryPart.BoatPrompt
+boatPrompt.Triggered:Connect(function(player)
+	local session = DataManager.get(player)
+	if session and not session.boatModel then
+		local dockModel = worldFolder.BoatDock
+		local spawnPart = dockModel:FindFirstChild("SpawnPoint")
+		if spawnPart then
+			local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 4)
+			local r = BoatService.spawnBoat(player, spawnCFrame)
+			if r.ok and player.Character then
+				local root = player.Character:FindFirstChild("HumanoidRootPart")
+				if root then
+					root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
+				end
+				Remotes.notify(player, "Boat launched! Drive to other docks to steal.", Color3.fromRGB(120, 220, 255))
+			end
+		end
+	else
+		Remotes.notify(player, "You already have a boat!", Color3.fromRGB(255, 170, 80))
+	end
 end)
 
 local function connectAquariumPrompt(dock)
@@ -151,6 +215,9 @@ local function onPlayerAdded(player)
 	local session = DataManager.load(player)
 	StateSync.setupLeaderstats(player, session)
 
+	QuestService.initializeQuests(session)
+	QuestService.pushProgress(session)
+
 	local dock = DockManager.claim(player)
 	if dock then
 		session.dockIndex = dock.index
@@ -159,13 +226,25 @@ local function onPlayerAdded(player)
 		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", Color3.fromRGB(255, 170, 80))
 	end
 
-	player.CharacterAdded:Connect(function(character)
+	-- RELIABILITY: Store connection so we can disconnect it later to prevent memory leaks
+	local characterConnection
+	characterConnection = player.CharacterAdded:Connect(function(character)
+		-- SECURITY: Verify player still exists before accessing dock
+		if not player.Parent then
+			characterConnection:Disconnect()
+			return
+		end
 		task.wait(0.1)
+		-- SECURITY: Verify character still exists and is parented
+		if not character.Parent then
+			return
+		end
 		local targetDock = DockManager.getDock(player)
-		if targetDock and character.Parent then
+		if targetDock then
 			character:PivotTo(targetDock.spawnCFrame)
 		end
 	end)
+	session.characterConnection = characterConnection
 
 	player:LoadCharacter()
 	StateSync.push(session)
@@ -177,8 +256,15 @@ local function onPlayerAdded(player)
 end
 
 local function onPlayerRemoving(player)
+	-- RELIABILITY: Save data before cleanup to prevent loss
+	-- SECURITY: Ensure player is fully cleaned up to prevent reference leaks
+	local session = DataManager.get(player)
+	if session and session.characterConnection then
+		session.characterConnection:Disconnect()
+	end
 	DataManager.save(player)
 	DockManager.release(player)
+	BoatService.onPlayerRemoving(player)
 	DataManager.remove(player)
 end
 
@@ -205,12 +291,16 @@ function AquariumService.init(deps)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local function refreshVisual(session)
 		local dock = dockManager.getDock(session.player)
 		if dock then
 			dockManager.updateAquariumVisual(dock, session, stateSync.getCapacity(session))
 		end
+	end
+	AquariumService.refreshVisual = function(session)
+		refreshVisual(session)
 	end
 
 	remotes.StoreFish.OnServerInvoke = function(player)
@@ -239,6 +329,9 @@ function AquariumService.init(deps)
 		end
 		refreshVisual(session)
 		stateSync.push(session)
+		if stored > 0 and questService then
+			questService.onFishStored(session, stored)
+		end
 		return { ok = stored > 0, stored = stored }
 	end
 
@@ -264,6 +357,9 @@ function AquariumService.init(deps)
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
 		stateSync.push(session)
+		if questService then
+			questService.onFishSold(session, payout)
+		end
 		return { ok = true, payout = payout }
 	end
 
@@ -284,17 +380,26 @@ function AquariumService.init(deps)
 			)
 			return { ok = false, reason = "cooldown" }
 		end
-		session.lockedUntil = now + GameConfig.Aquarium.lockDuration
-		session.lockCooldownUntil = session.lockedUntil + GameConfig.Aquarium.lockCooldown
+		local lockDuration = GameConfig.Aquarium.lockDuration
+		local lockCooldown = GameConfig.Aquarium.lockCooldown
+		if session.lockLevel and session.lockLevel > 0 then
+			local upgrade = GameConfig.Upgrades.Lock[session.lockLevel]
+			if upgrade then
+				lockDuration = upgrade.lockDuration
+				lockCooldown = upgrade.lockCooldown
+			end
+		end
+		session.lockedUntil = now + lockDuration
+		session.lockCooldownUntil = session.lockedUntil + lockCooldown
 		remotes.notify(
 			player,
-			string.format("Aquarium locked for %ds. Thieves can't touch it!", GameConfig.Aquarium.lockDuration),
+			string.format("Aquarium locked for %ds. Thieves can't touch it!", lockDuration),
 			Color3.fromRGB(130, 255, 130)
 		)
 		refreshVisual(session)
 		stateSync.push(session)
-		task.delay(GameConfig.Aquarium.lockDuration, function()
-			if session.player.Parent then
+		task.delay(lockDuration, function()
+			if session.player and session.player.Parent then
 				refreshVisual(session)
 				stateSync.push(session)
 				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80))
@@ -311,19 +416,29 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local victim = dock.owner
-	if not victim or victim == attacker then
+	-- SECURITY: Re-verify victim ownership and that it's not attacker
+	if not victim or victim == attacker or dock.owner ~= victim then
 		return
 	end
 	local attackerSession = dataManager.get(attacker)
 	local victimSession = dataManager.get(victim)
+	-- SECURITY: Verify both players are loaded - prevent nil dereferences
 	if not attackerSession or not victimSession then
 		return
 	end
 
+	-- SECURITY: Verify player still exists and is in game
+	if not attacker.Parent or not victim.Parent then
+		return
+	end
+
 	local root = attacker.Character and attacker.Character:FindFirstChild("HumanoidRootPart")
-	if not root or (root.Position - dock.aquarium.PrimaryPart.Position).Magnitude > 15 then
+	-- SECURITY: Use MaxActivationDistance from prompt (10 studs) not magic number 15
+	-- Add 2 studs buffer for network latency tolerance
+	if not root or (root.Position - dock.aquarium.PrimaryPart.Position).Magnitude > 12 then
 		return
 	end
 
@@ -349,12 +464,30 @@ function AquariumService.handleSteal(deps, attacker, dock)
 
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
 
+	local alarmLevel = victimSession.alarmLevel or 0
+	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+	if alarmConfig and alarmConfig.notifyChance >= rng:NextNumber() then
+		remotes.notify(
+			victim,
+			string.format("ALARM! %s is trying to steal from your aquarium!", attacker.DisplayName),
+			Color3.fromRGB(255, 150, 100)
+		)
+	end
+
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
 		local stolenIndex = rng:NextInteger(1, #victimSession.liveWell)
 		local rarityIndex = table.remove(victimSession.liveWell, stolenIndex)
+		
+		-- SECURITY: Validate rarityIndex is a valid rarity before using it
+		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities) then
+			warn("[HarborHeist] Invalid rarityIndex stolen: " .. tostring(rarityIndex))
+			return
+		end
+		
 		local rarity = GameConfig.Rarities[rarityIndex]
 
 		local capacity = stateSync.getCapacity(attackerSession)
+		-- SECURITY: Double-check capacity before insertion
 		if #attackerSession.liveWell < capacity then
 			table.insert(attackerSession.liveWell, rarityIndex)
 			remotes.notify(
@@ -363,6 +496,11 @@ function AquariumService.handleSteal(deps, attacker, dock)
 				rarity.color
 			)
 		else
+			-- SECURITY: Validate rarity value before adding to cash
+			if type(rarity.value) ~= "number" or rarity.value < 0 then
+				warn("[HarborHeist] Invalid rarity value for index " .. rarityIndex)
+				return
+			end
 			attackerSession.cash += rarity.value
 			remotes.notify(
 				attacker,
@@ -382,6 +520,9 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		end
 		stateSync.push(attackerSession)
 		stateSync.push(victimSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, true)
+		end
 	else
 		remotes.notify(attacker, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
 		remotes.notify(
@@ -389,13 +530,30 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			string.format("%s tried to steal from your aquarium and failed!", attacker.DisplayName),
 			Color3.fromRGB(255, 200, 100)
 		)
+		if alarmConfig and alarmConfig.stunDuration > 0 then
+			attackerSession.stunUntil = now + alarmConfig.stunDuration
+			remotes.notify(
+				attacker,
+				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
+				Color3.fromRGB(255, 100, 100)
+			)
+			task.delay(alarmConfig.stunDuration, function()
+				if attackerSession.player and attackerSession.player.Parent then
+					stateSync.push(attackerSession)
+				end
+			end)
+		end
 		stateSync.push(attackerSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, false)
+		end
 	end
 end
 
 function AquariumService.startIncomeLoop(deps)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
@@ -403,6 +561,9 @@ function AquariumService.startIncomeLoop(deps)
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
 					session.cash += income
+					if questService then
+						questService.onIncomeEarned(session, income)
+					end
 				end
 				stateSync.push(session)
 			end
@@ -415,6 +576,168 @@ return AquariumService
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="7">
+        <Properties>
+          <string name="Name">BoatService</string>
+          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+
+local BoatService = {}
+
+local boats = {}
+local despawnTasks = {}
+local seatConnections = {}
+
+local function makeBoatHull(player, spawnCFrame)
+	local model = Instance.new("Model")
+	model.Name = "Boat_" .. player.Name
+
+	local hull = Instance.new("Part")
+	hull.Name = "Hull"
+	hull.Size = Vector3.new(4, 1.5, 10)
+	hull.CFrame = spawnCFrame
+	hull.Color = Color3.fromRGB(120, 80, 50)
+	hull.Material = Enum.Material.WoodPlanks
+	hull.Anchored = false
+	hull.CanCollide = true
+	hull.BuoyancyAttachment = nil
+	hull.Parent = model
+
+	local bow = Instance.new("Part")
+	bow.Name = "Bow"
+	bow.Shape = Enum.PartType.Wedge
+	bow.Size = Vector3.new(4, 1.5, 3)
+	bow.CFrame = spawnCFrame * CFrame.new(0, 0, -(10 / 2 + 3 / 2))
+	bow.Color = Color3.fromRGB(140, 95, 60)
+	bow.Material = Enum.Material.WoodPlanks
+	bow.Anchored = false
+	bow.CanCollide = true
+	bow.Parent = model
+
+	local bowWeld = Instance.new("WeldConstraint")
+	bowWeld.Part0 = hull
+	bowWeld.Part1 = bow
+	bowWeld.Parent = bow
+
+	local seat = Instance.new("VehicleSeat")
+	seat.Name = "Seat"
+	seat.Size = Vector3.new(2.5, 1, 2.5)
+	seat.CFrame = spawnCFrame * CFrame.new(0, 1.5, 0)
+	seat.Color = Color3.fromRGB(90, 60, 40)
+	seat.Material = Enum.Material.Leather
+	seat.Anchored = false
+	seat.CanCollide = true
+	seat.MaxSpeed = 32
+	seat.Torque = 5
+	seat.TurnSpeed = 8
+	seat.Parent = model
+
+	local seatWeld = Instance.new("WeldConstraint")
+	seatWeld.Part0 = hull
+	seatWeld.Part1 = seat
+	seatWeld.Parent = seat
+
+	model.PrimaryPart = hull
+	return model, seat
+end
+
+function BoatService.spawnBoat(player, spawnCFrame)
+	if boats[player] then
+		return { ok = false, reason = "already_has_boat" }
+	end
+	if not player.Character then
+		return { ok = false, reason = "no_character" }
+	end
+
+	local model, seat = makeBoatHull(player, spawnCFrame)
+	model.Parent = workspace
+
+	boats[player] = model
+
+	local conn
+	conn = seat:GetPropertyChangedSignal("Occupant"):Connect(function()
+		local occupant = seat.Occupant
+		if occupant then
+			if despawnTasks[player] then
+				task.cancel(despawnTasks[player])
+				despawnTasks[player] = nil
+			end
+		else
+			if despawnTasks[player] then
+				task.cancel(despawnTasks[player])
+			end
+			despawnTasks[player] = task.delay(GameConfig.Boat.despawnDelay, function()
+				BoatService.despawnBoat(player)
+			end)
+		end
+	end)
+	seatConnections[player] = conn
+
+	return { ok = true }
+end
+
+function BoatService.despawnBoat(player)
+	local model = boats[player]
+	if model then
+		model:Destroy()
+		boats[player] = nil
+	end
+	if despawnTasks[player] then
+		task.cancel(despawnTasks[player])
+		despawnTasks[player] = nil
+	end
+	if seatConnections[player] then
+		seatConnections[player]:Disconnect()
+		seatConnections[player] = nil
+	end
+end
+
+function BoatService.setModel(player, model)
+	boats[player] = model
+end
+
+function BoatService.getModel(player)
+	return boats[player]
+end
+
+function BoatService.onPlayerRemoving(player)
+	BoatService.despawnBoat(player)
+end
+
+function BoatService.init(deps)
+	local remotes = deps.remotes
+	local worldFolder = deps.worldFolder
+
+	remotes.SpawnBoat.OnServerInvoke = function(player)
+		if boats[player] then
+			return { ok = false, reason = "already_has_boat" }
+		end
+		local boatDock = worldFolder and worldFolder:FindFirstChild("BoatDock")
+		if not boatDock then
+			return { ok = false, reason = "no_dock" }
+		end
+		local spawnPart = boatDock:FindFirstChild("SpawnPoint")
+		if not spawnPart then
+			return { ok = false, reason = "no_spawn_point" }
+		end
+		local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 4)
+		local result = BoatService.spawnBoat(player, spawnCFrame)
+		if result.ok and player.Character then
+			local root = player.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
+			end
+		end
+		if result.ok then
+			remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", Color3.fromRGB(120, 220, 255))
+		end
+		return result
+	end
+end
+
+return BoatService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="8">
         <Properties>
           <string name="Name">DataManager</string>
           <string name="Source"><![CDATA[local DataStoreService = game:GetService("DataStoreService")
@@ -438,6 +761,9 @@ local function defaultData()
 		rodLevel = 1,
 		baitLevel = 1,
 		liveWell = {},
+		capacityLevel = 0,
+		lockLevel = 0,
+		alarmLevel = 0,
 	}
 end
 
@@ -446,7 +772,8 @@ local function sanitize(data)
 	if type(data) ~= "table" then
 		return clean
 	end
-	if type(data.cash) == "number" and data.cash >= 0 then
+	-- Validate cash - ensure it's never negative (exploit prevention)
+	if type(data.cash) == "number" and data.cash >= 0 and data.cash < 999999999 then
 		clean.cash = data.cash
 	end
 	if type(data.rodLevel) == "number" and GameConfig.Rods[data.rodLevel] then
@@ -455,10 +782,20 @@ local function sanitize(data)
 	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
 		clean.baitLevel = data.baitLevel
 	end
+	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel <= #GameConfig.Upgrades.Capacity then
+		clean.capacityLevel = math.floor(data.capacityLevel)
+	end
+	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel <= #GameConfig.Upgrades.Lock then
+		clean.lockLevel = math.floor(data.lockLevel)
+	end
+	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel <= #GameConfig.Upgrades.Alarm then
+		clean.alarmLevel = math.floor(data.alarmLevel)
+	end
 	if type(data.liveWell) == "table" then
+		-- Validate each item in liveWell - ensure it's a valid rarity index
 		for _, rarityIndex in ipairs(data.liveWell) do
-			if type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex] then
-				table.insert(clean.liveWell, rarityIndex)
+			if type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities then
+				table.insert(clean.liveWell, math.floor(rarityIndex))
 			end
 		end
 	end
@@ -471,13 +808,18 @@ end
 
 local function withRetries(fn)
 	local lastErr
-	for attempt = 1, 3 do
+	-- RELIABILITY: Use exponential backoff with jitter to avoid thundering herd
+	for attempt = 1, 4 do
 		local ok, result = pcall(fn)
 		if ok then
 			return true, result
 		end
 		lastErr = result
-		task.wait(attempt)
+		-- Exponential backoff: 0.5s, 1s, 2s, 4s with random jitter
+		if attempt < 4 then
+			local backoff = math.pow(2, attempt - 1) * 0.25 + math.random() * 0.25
+			task.wait(backoff)
+		end
 	end
 	return false, lastErr
 end
@@ -502,12 +844,29 @@ function DataManager.load(player)
 		rodLevel = data.rodLevel,
 		baitLevel = data.baitLevel,
 		liveWell = data.liveWell,
-		carried = {},
+		capacityLevel = data.capacityLevel,
+		lockLevel = data.lockLevel,
+		alarmLevel = data.alarmLevel,
+		carried = {}, -- SECURITY: Always initialize as empty table - client data is untrusted
 		casting = false,
+		castDeadline = 0,
+		castHitZoneStart = 0,
+		castHitZoneEnd = 0,
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
 		stealCooldownUntil = 0,
+		stunUntil = 0,
 		dockIndex = nil,
+		isSaving = false, -- SECURITY: Lock flag to prevent concurrent saves
+		dailyQuestKey = nil,
+		dailyQuests = {},
+		weeklyQuestKey = nil,
+		weeklyQuests = {},
+		boatModel = nil,
+		boatDespawnTask = nil,
+		seatConnection = nil,
+		heistCount = 0, -- today's steal counter for quest hook
+		incomeSinceTick = 0,
 	}
 	sessions[player] = session
 	return session
@@ -522,25 +881,54 @@ function DataManager.save(player)
 	if not session or not dataStore then
 		return
 	end
-	local cash = session.cash
-	for _, rarityIndex in ipairs(session.carried) do
-		cash += GameConfig.Rarities[rarityIndex].value
+	
+	-- SECURITY: Prevent concurrent saves (race condition protection)
+	if session.isSaving then
+		warn("[HarborHeist] Save already in progress for " .. player.Name)
+		return
 	end
-	local payload = {
-		cash = math.floor(cash),
-		rodLevel = session.rodLevel,
-		baitLevel = session.baitLevel,
-		liveWell = session.liveWell,
-	}
+	
+	session.isSaving = true
+	
 	local ok, err = withRetries(function()
-		dataStore:SetAsync(keyFor(player), payload)
+		-- SECURITY: Use UpdateAsync instead of SetAsync to avoid overwriting concurrent writes
+		-- This is critical for multi-server environments
+		return dataStore:UpdateAsync(keyFor(player), function(oldData)
+			-- Validate and sanitize old data in case of corruption
+			local existing = sanitize(oldData)
+			
+			-- Calculate cash including carried items
+			local cash = session.cash
+			for _, rarityIndex in ipairs(session.carried) do
+				if type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex] then
+					cash += GameConfig.Rarities[rarityIndex].value
+				end
+			end
+			
+			-- Build new payload
+			local payload = {
+				cash = math.floor(math.max(0, cash)), -- Prevent negative cash
+				rodLevel = session.rodLevel,
+				baitLevel = session.baitLevel,
+				liveWell = session.liveWell,
+				capacityLevel = session.capacityLevel,
+				lockLevel = session.lockLevel,
+				alarmLevel = session.alarmLevel,
+			}
+
+			return payload
+		end)
 	end)
+	
+	session.isSaving = false
+	
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
 	end
 end
 
 function DataManager.remove(player)
+	-- RELIABILITY: Clean up all references to prevent memory leaks
 	sessions[player] = nil
 end
 
@@ -574,7 +962,7 @@ return DataManager
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="8">
+      <Item class="ModuleScript" referent="9">
         <Properties>
           <string name="Name">DockManager</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -792,14 +1180,34 @@ function DockManager.claim(player)
 end
 
 function DockManager.release(player)
+	-- RELIABILITY: Clean up dock when player leaves to reset state
 	for _, dock in ipairs(docks) do
 		if dock.owner == player then
 			dock.owner = nil
-			local sign = dock.aquarium.PrimaryPart.InfoSign
-			sign.OwnerLabel.Text = "Unclaimed Dock"
-			sign.StatusLabel.Text = ""
-			dock.aquarium.PrimaryPart.AquariumPrompt.Enabled = false
-			dock.aquarium.FishDisplay:ClearAllChildren()
+			-- SECURITY: Verify sign exists before accessing children
+			local aquariumBase = dock.aquarium.PrimaryPart
+			if aquariumBase then
+				local sign = aquariumBase:FindFirstChild("InfoSign")
+				if sign then
+					local ownerLabel = sign:FindFirstChild("OwnerLabel")
+					if ownerLabel then
+						ownerLabel.Text = "Unclaimed Dock"
+					end
+					local statusLabel = sign:FindFirstChild("StatusLabel")
+					if statusLabel then
+						statusLabel.Text = ""
+					end
+				end
+				local prompt = aquariumBase:FindFirstChild("AquariumPrompt")
+				if prompt then
+					prompt.Enabled = false
+				end
+			end
+			-- SECURITY: Clear fish display instances
+			local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
+			if fishDisplay then
+				fishDisplay:ClearAllChildren()
+			end
 			return
 		end
 	end
@@ -837,6 +1245,11 @@ function DockManager.isInFishingZone(dock, character)
 end
 
 function DockManager.updateAquariumVisual(dock, session, capacity)
+	-- SECURITY: Verify dock and session exist
+	if not dock or not session then
+		return
+	end
+	
 	local rng = Random.new(dock.index * 1000 + #session.liveWell)
 	local display = dock.aquarium.FishDisplay
 	display:ClearAllChildren()
@@ -844,8 +1257,21 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local GameConfigRarities = GameConfig.Rarities
 	local waterCFrame = dock.aquarium.Water.CFrame
 	local shown = math.min(#session.liveWell, GameConfig.Aquarium.maxVisibleFish)
+	
+	-- SECURITY: Validate each rarity index before creating visual representation
 	for i = 1, shown do
-		local rarity = GameConfigRarities[session.liveWell[i]]
+		local rarityIndex = session.liveWell[i]
+		-- Validate rarity index is within bounds
+		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfigRarities) then
+			warn("[HarborHeist] Invalid rarity index in visual update: " .. tostring(rarityIndex))
+			continue
+		end
+		
+		local rarity = GameConfigRarities[rarityIndex]
+		if not rarity then
+			continue
+		end
+		
 		local fish = Instance.new("Part")
 		fish.Name = "Fish"
 		fish.Shape = Enum.PartType.Ball
@@ -860,14 +1286,20 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		fish.Parent = display
 	end
 
-	local sign = dock.aquarium.PrimaryPart.InfoSign
+	-- SECURITY: Verify sign elements exist before updating
+	local sign = dock.aquarium.PrimaryPart and dock.aquarium.PrimaryPart:FindFirstChild("InfoSign")
+	if not sign or not sign:FindFirstChild("StatusLabel") then
+		return
+	end
+	
+	local statusLabel = sign.StatusLabel
 	local locked = session.lockedUntil > os.clock()
 	if locked then
-		sign.StatusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.liveWell, capacity)
-		sign.StatusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
+		statusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.liveWell, capacity)
+		statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
 	else
-		sign.StatusLabel.Text = string.format("%d/%d fish", #session.liveWell, capacity)
-		sign.StatusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
+		statusLabel.Text = string.format("%d/%d fish", #session.liveWell, capacity)
+		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
 end
 
@@ -875,7 +1307,7 @@ return DockManager
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="9">
+      <Item class="ModuleScript" referent="10">
         <Properties>
           <string name="Name">FishingService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -884,15 +1316,110 @@ local FishingService = {}
 
 local rng = Random.new()
 
+local function getEffectiveHitZoneWidth(luck)
+	local base = GameConfig.MiniGame.goodZoneWidth
+	local bonus = luck / 100 * 0.15
+	return math.min(0.85, base + bonus)
+end
+
+local function gradeAccuracy(accuracy, hitZoneWidth)
+	local center = 0.5
+	local dist = math.abs(accuracy - center)
+	local perfectWidth = hitZoneWidth * 0.4
+	local goodWidth = hitZoneWidth * 0.7
+	if dist <= perfectWidth / 2 then
+		return "perfect"
+	elseif dist <= goodWidth / 2 then
+		return "good"
+	elseif dist <= hitZoneWidth / 2 then
+		return "ok"
+	end
+	return "miss"
+end
+
+local function playerQuery(session)
+	return session and session.player and session.player.Parent
+end
+
+local function awardCatch(session, accuracyLevel, dock, deps)
+	local remotes = deps.remotes
+	local dockManager = deps.dockManager
+	local stateSync = deps.stateSync
+	local questService = deps.questService
+
+	if not playerQuery(session) then
+		return
+	end
+
+	if #session.carried >= GameConfig.MaxCarried then
+		remotes.notify(session.player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
+		return
+	end
+
+	local rod = GameConfig.Rods[session.rodLevel]
+	local bait = GameConfig.Baits[session.baitLevel]
+	if not rod or not bait then
+		return
+	end
+	local baseLuck = rod.luck + bait.luck
+	local bonus = GameConfig.MiniGame.accuracyLuckBonus[accuracyLevel] or 0
+	local totalLuck = baseLuck + bonus
+
+	local rarityIndex = GameConfig.rollRarity(totalLuck, rng)
+	if not (type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex]) then
+		warn("[HarborHeist] Invalid rarityIndex caught: " .. tostring(rarityIndex))
+		return
+	end
+	local rarity = GameConfig.Rarities[rarityIndex]
+	table.insert(session.carried, rarityIndex)
+
+	local tag = ""
+	if accuracyLevel == "perfect" then
+		tag = " - PERFECT CAST!"
+	elseif accuracyLevel == "good" then
+		tag = " - Good cast."
+	end
+	remotes.notify(
+		session.player,
+		string.format("You caught a %s fish%s (worth $%d)", rarity.name, tag, rarity.value),
+		rarity.color
+	)
+	stateSync.push(session)
+	if questService then
+		questService.onFishCaught(session, rarityIndex)
+	end
+end
+
 function FishingService.init(deps)
 	local remotes = deps.remotes
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
+
+	local pendingCasts = {} -- [player] = { deadline, hitZoneWidth, dock }
+
+	local function failCast(player, reason)
+		local session = dataManager.get(player)
+		if not session then
+			return
+		end
+		session.casting = false
+		session.castDeadline = 0
+		pendingCasts[player] = nil
+		remotes.CastState:FireClient(player, false, 0, nil)
+		if reason and session.player and session.player.Parent then
+			remotes.notify(player, reason, Color3.fromRGB(255, 120, 120))
+		end
+		stateSync.push(session)
+	end
 
 	remotes.Cast.OnServerEvent:Connect(function(player)
 		local session = dataManager.get(player)
-		if not session or session.casting then
+		if not session or not player.Parent then
+			return
+		end
+		if session.casting then
 			return
 		end
 		if #session.carried >= GameConfig.MaxCarried then
@@ -903,40 +1430,78 @@ function FishingService.init(deps)
 		if not dock then
 			return
 		end
-		if not dockManager.isInFishingZone(dock, player.Character) then
+		if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
 			remotes.notify(player, "Stand in the glowing Fishing Zone at the end of your dock!", Color3.fromRGB(255, 170, 80))
 			return
 		end
 
 		session.casting = true
 		local rod = GameConfig.Rods[session.rodLevel]
+		if not rod then
+			session.casting = false
+			return
+		end
 		local castTime = rod.castTime + rng:NextNumber(0, 2)
-		remotes.CastState:FireClient(player, true, castTime)
+
+		local baseLuck = rod.luck + GameConfig.Baits[session.baitLevel].luck
+		local hitZoneWidth = getEffectiveHitZoneWidth(baseLuck)
+		local hitZoneStart = 0.5 - hitZoneWidth / 2
+		local hitZoneEnd = 0.5 + hitZoneWidth / 2
+
+		session.castDeadline = os.clock() + castTime
+		session.castHitZoneStart = hitZoneStart
+		session.castHitZoneEnd = hitZoneEnd
+		pendingCasts[player] = { deadline = session.castDeadline, hitZoneWidth = hitZoneWidth, dock = dock }
+
+		remotes.CastState:FireClient(player, true, castTime, { hitZoneStart = hitZoneStart, hitZoneEnd = hitZoneEnd })
 
 		task.delay(castTime, function()
-			if not session.player.Parent then
-				return
+			local pending = pendingCasts[player]
+			if pending and pending.deadline == session.castDeadline and session.casting then
+				failCast(player, "You took too long! The fish got away.")
 			end
-			session.casting = false
-			remotes.CastState:FireClient(player, false, 0)
-
-			if not dockManager.isInFishingZone(dock, player.Character) then
-				remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
-				return
-			end
-
-			local luck = rod.luck + GameConfig.Baits[session.baitLevel].luck
-			local rarityIndex = GameConfig.rollRarity(luck, rng)
-			local rarity = GameConfig.Rarities[rarityIndex]
-			table.insert(session.carried, rarityIndex)
-
-			remotes.notify(
-				player,
-				string.format("You caught a %s fish! (worth $%d)", rarity.name, rarity.value),
-				rarity.color
-			)
-			stateSync.push(session)
 		end)
+	end)
+
+	remotes.CastResult.OnServerEvent:Connect(function(player, accuracy)
+		local session = dataManager.get(player)
+		if not session or not session.casting then
+			return
+		end
+		local pending = pendingCasts[player]
+		if not pending then
+			return
+		end
+		if type(accuracy) ~= "number" or accuracy < 0 or accuracy > 1 then
+			failCast(player, "Invalid cast data.")
+			return
+		end
+		if os.clock() > pending.deadline + 0.25 then
+			failCast(player, "You took too long! The fish got away.")
+			return
+		end
+
+		local accuracyLevel = gradeAccuracy(accuracy, pending.hitZoneWidth)
+		local dock = pending.dock
+		pendingCasts[player] = nil
+		session.casting = false
+		session.castDeadline = 0
+		remotes.CastState:FireClient(player, false, 0, nil)
+
+		if accuracyLevel == "miss" then
+			remotes.notify(player, "You missed the timing! The fish got away.", Color3.fromRGB(255, 120, 120))
+			stateSync.push(session)
+			return
+		end
+
+		if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
+			remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
+			stateSync.push(session)
+			return
+		end
+
+		awardCatch(session, accuracyLevel, dock, deps)
+		stateSync.push(session)
 	end)
 end
 
@@ -944,15 +1509,217 @@ return FishingService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="10">
+      <Item class="ModuleScript" referent="11">
+        <Properties>
+          <string name="Name">QuestService</string>
+          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+
+local QuestService = {}
+
+local POOL = {
+	{ type = "catch_rarity", target = 5,  rarity = 3, reward = 200, desc = "Catch 5 Rare or better fish" },
+	{ type = "catch_rarity", target = 3,  rarity = 4, reward = 350, desc = "Catch 3 Epic or better fish" },
+	{ type = "catch_rarity", target = 1,  rarity = 5, reward = 600, desc = "Catch a Legendary fish" },
+	{ type = "steal_count",  target = 3,  reward = 300, desc = "Successfully steal 3 fish" },
+	{ type = "steal_count",  target = 5,  reward = 500, desc = "Successfully steal 5 fish" },
+	{ type = "income_earned", target = 500,  reward = 250, desc = "Earn $500 from passive income" },
+	{ type = "income_earned", target = 1500, reward = 450, desc = "Earn $1,500 from passive income" },
+	{ type = "store_count",  target = 10, reward = 150, desc = "Store 10 fish in your aquarium" },
+	{ type = "store_count",  target = 25, reward = 300, desc = "Store 25 fish in your aquarium" },
+	{ type = "sell_value",   target = 1000, reward = 200, desc = "Sell fish worth $1,000 in one sale" },
+	{ type = "sell_value",   target = 2500, reward = 400, desc = "Sell fish worth $2,500 in one sale" },
+}
+
+-- Module-level deps captured in init(); used by event callbacks below.
+local remotes
+local stateSync
+
+local function dailyKey(player)
+	local now = os.date("!*t")
+	return string.format("d_%d_%d_%d", player.UserId, now.year, now.yday)
+end
+
+local function weeklyKey(player)
+	local now = os.date("!*t")
+	local weekStart = now.yday - now.wday + 1
+	return string.format("w_%d_%d_%d", player.UserId, now.year, weekStart)
+end
+
+local function pickDistinct(pool, count, rng)
+	local chosen = {}
+	local used = {}
+	while #chosen < count and #used < #pool do
+		local i = rng:NextInteger(1, #pool)
+		if not used[i] then
+			used[i] = true
+			local t = pool[i]
+			table.insert(chosen, {
+				id = string.format("q%d_%d_%d", #chosen + 1, t.reward, t.target),
+				type = t.type,
+				target = t.target,
+				rarity = t.rarity,
+				progress = 0,
+				claimed = false,
+				reward = t.reward,
+				desc = t.desc,
+			})
+		end
+	end
+	return chosen
+end
+
+function QuestService.initializeQuests(session)
+	local dKey = dailyKey(session.player)
+	local wKey = weeklyKey(session.player)
+
+	if session.dailyQuestKey ~= dKey or #session.dailyQuests == 0 then
+		local seedString = string.gsub(dKey, "%D", "")
+		local seed = tonumber(seedString) or 0
+		local rng = Random.new(seed)
+		session.dailyQuestKey = dKey
+		session.dailyQuests = pickDistinct(POOL, GameConfig.Quests.DailySlots, rng)
+	end
+
+	if session.weeklyQuestKey ~= wKey or #session.weeklyQuests == 0 then
+		local seedString = string.gsub(wKey, "%D", "")
+		local seed = tonumber(seedString) or 0
+		local rng = Random.new(seed)
+		session.weeklyQuestKey = wKey
+		session.weeklyQuests = pickDistinct(POOL, GameConfig.Quests.WeeklySlots, rng)
+	end
+end
+
+local function processList(session, list, scope, predicate, incrFn)
+	local changed = false
+	for _, q in ipairs(list) do
+		if not q.claimed and predicate(q) then
+			q.progress = incrFn(q)
+			changed = true
+			if q.progress >= q.target then
+				q.progress = q.target
+				q.claimed = true
+				session.cash += q.reward
+				if remotes and session.player and session.player.Parent then
+					remotes.notify(
+						session.player,
+						string.format("%s complete: %s (+$%d)", scope, q.desc, q.reward),
+						Color3.fromRGB(255, 215, 0)
+					)
+				end
+			end
+		end
+	end
+	return changed
+end
+
+local function progressQuests(session, predicate, incrFn)
+	if not session then
+		return
+	end
+	local changed = processList(session, session.dailyQuests, "Daily quest", predicate, incrFn)
+	changed = processList(session, session.weeklyQuests, "Weekly quest", predicate, incrFn) or changed
+	if changed then
+		if stateSync then
+			stateSync.push(session)
+		end
+		if remotes and session.player and session.player.Parent then
+			remotes.QuestProgressChanged:FireClient(session.player, {
+				dailyKey = session.dailyQuestKey,
+				dailyQuests = session.dailyQuests,
+				weeklyKey = session.weeklyQuestKey,
+				weeklyQuests = session.weeklyQuests,
+			})
+		end
+	end
+end
+
+function QuestService.onFishCaught(session, rarityIndex)
+	progressQuests(
+		session,
+		function(q) return q.type == "catch_rarity" and (rarityIndex >= (q.rarity or 1)) end,
+		function(q) return q.progress + 1 end
+	)
+end
+
+function QuestService.onStealAttempt(session, success)
+	if not success then
+		return
+	end
+	progressQuests(
+		session,
+		function(q) return q.type == "steal_count" end,
+		function(q) return q.progress + 1 end
+	)
+end
+
+function QuestService.onIncomeEarned(session, amount)
+	progressQuests(
+		session,
+		function(q) return q.type == "income_earned" end,
+		function(q) return q.progress + amount end
+	)
+end
+
+function QuestService.onFishStored(session, count)
+	progressQuests(
+		session,
+		function(q) return q.type == "store_count" end,
+		function(q) return q.progress + count end
+	)
+end
+
+function QuestService.onFishSold(session, totalValue)
+	progressQuests(
+		session,
+		function(q) return q.type == "sell_value" end,
+		function(q) return q.progress + totalValue end
+	)
+end
+
+function QuestService.pushProgress(session)
+	if not remotes or not session.player or not session.player.Parent then
+		return
+	end
+	remotes.QuestProgressChanged:FireClient(session.player, {
+		dailyKey = session.dailyQuestKey,
+		dailyQuests = session.dailyQuests,
+		weeklyKey = session.weeklyQuestKey,
+		weeklyQuests = session.weeklyQuests,
+	})
+end
+
+function QuestService.init(deps)
+	remotes = deps.remotes
+	stateSync = deps.stateSync
+	local dataManager = deps.dataManager
+
+	for _, session in pairs(dataManager.allSessions()) do
+		QuestService.initializeQuests(session)
+		QuestService.pushProgress(session)
+	end
+
+	remotes.OpenQuests.OnServerEvent:Connect(function(player)
+		local session = dataManager.get(player)
+		if session then
+			QuestService.initializeQuests(session)
+			QuestService.pushProgress(session)
+		end
+	end)
+end
+
+return QuestService
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="12">
         <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Remotes = {}
 
-local EVENT_NAMES = { "Cast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop" }
-local FUNCTION_NAMES = { "StoreFish", "SellAll", "LockAquarium", "BuyItem", "GetState" }
+local EVENT_NAMES = { "Cast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop", "QuestProgressChanged", "OpenQuests", "CastResult" }
+local FUNCTION_NAMES = { "StoreFish", "SellAll", "LockAquarium", "BuyItem", "GetState", "SpawnBoat" }
 
 local folder = Instance.new("Folder")
 folder.Name = "Remotes"
@@ -981,12 +1748,39 @@ return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="11">
+      <Item class="ModuleScript" referent="13">
         <Properties>
           <string name="Name">ShopService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 
 local ShopService = {}
+
+local KIND_CATALOGS = {
+	rod = { catalog = "Rods", field = "rodLevel" },
+	bait = { catalog = "Baits", field = "baitLevel" },
+	capacity = { catalog = "Upgrades.Capacity", field = "capacityLevel" },
+	lock = { catalog = "Upgrades.Lock", field = "lockLevel" },
+	alarm = { catalog = "Upgrades.Alarm", field = "alarmLevel" },
+}
+
+local function getCatalog(kind)
+	local entry = KIND_CATALOGS[kind]
+	if not entry then
+		return nil, nil
+	end
+	if entry.catalog == "Upgrades.Capacity" then
+		return GameConfig.Upgrades.Capacity, entry.field
+	elseif entry.catalog == "Upgrades.Lock" then
+		return GameConfig.Upgrades.Lock, entry.field
+	elseif entry.catalog == "Upgrades.Alarm" then
+		return GameConfig.Upgrades.Alarm, entry.field
+	elseif entry.catalog == "Rods" then
+		return GameConfig.Rods, entry.field
+	elseif entry.catalog == "Baits" then
+		return GameConfig.Baits, entry.field
+	end
+	return nil, nil
+end
 
 function ShopService.init(deps)
 	local remotes = deps.remotes
@@ -1003,17 +1797,12 @@ function ShopService.init(deps)
 		end
 		level = math.floor(level)
 
-		local catalog, currentLevel
-		if kind == "rod" then
-			catalog = GameConfig.Rods
-			currentLevel = session.rodLevel
-		elseif kind == "bait" then
-			catalog = GameConfig.Baits
-			currentLevel = session.baitLevel
-		else
+		local catalog, field = getCatalog(kind)
+		if not catalog then
 			return { ok = false, reason = "bad_kind" }
 		end
 
+		local currentLevel = session[field] or 0
 		local item = catalog[level]
 		if not item then
 			return { ok = false, reason = "bad_level" }
@@ -1032,14 +1821,10 @@ function ShopService.init(deps)
 		end
 
 		session.cash -= item.cost
-		if kind == "rod" then
-			session.rodLevel = level
-		else
-			session.baitLevel = level
-		end
+		session[field] = level
 		remotes.notify(
 			player,
-			string.format("Purchased %s! Your luck just got better.", item.name),
+			string.format("Purchased %s!", item.name),
 			Color3.fromRGB(130, 255, 130)
 		)
 		stateSync.push(session)
@@ -1051,7 +1836,7 @@ return ShopService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="12">
+      <Item class="ModuleScript" referent="14">
         <Properties>
           <string name="Name">StateSync</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -1060,8 +1845,15 @@ local StateSync = {}
 
 StateSync.remotes = nil
 
-function StateSync.getCapacity(_session)
-	return GameConfig.Aquarium.baseCapacity
+function StateSync.getCapacity(session)
+	local baseCapacity = GameConfig.Aquarium.baseCapacity
+	if session and session.capacityLevel and session.capacityLevel > 0 then
+		local upgrade = GameConfig.Upgrades.Capacity[session.capacityLevel]
+		if upgrade then
+			return upgrade.capacity
+		end
+	end
+	return baseCapacity
 end
 
 function StateSync.incomePerSec(session)
@@ -1083,6 +1875,9 @@ function StateSync.snapshot(session)
 		cash = math.floor(session.cash),
 		rodLevel = session.rodLevel,
 		baitLevel = session.baitLevel,
+		capacityLevel = session.capacityLevel or 0,
+		lockLevel = session.lockLevel or 0,
+		alarmLevel = session.alarmLevel or 0,
 		carried = #session.carried,
 		maxCarried = GameConfig.MaxCarried,
 		liveWellCount = #session.liveWell,
@@ -1091,6 +1886,8 @@ function StateSync.snapshot(session)
 		incomePerSec = StateSync.incomePerSec(session),
 		lockRemaining = math.max(0, session.lockedUntil - now),
 		lockCooldownRemaining = math.max(0, session.lockCooldownUntil - now),
+		stunRemaining = math.max(0, (session.stunUntil or 0) - now),
+		hasBoat = (session.boatModel ~= nil),
 	}
 end
 
@@ -1120,7 +1917,7 @@ return StateSync
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="13">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[local WorldBuilder = {}
@@ -1181,8 +1978,75 @@ function WorldBuilder.build()
 
 	WorldBuilder.buildShop(worldFolder)
 	WorldBuilder.buildDecorations(worldFolder)
+	WorldBuilder.buildBoatDock(worldFolder)
 
 	return worldFolder
+end
+
+function WorldBuilder.buildBoatDock(parent)
+	local boatDock = Instance.new("Model")
+	boatDock.Name = "BoatDock"
+	boatDock.Parent = parent
+
+	local dockZ = 38
+	local platform = makePart({
+		Name = "Platform",
+		Size = Vector3.new(10, 1, 14),
+		CFrame = CFrame.new(0, 0.5, dockZ),
+		Color = Color3.fromRGB(150, 105, 70),
+		Material = Enum.Material.WoodPlanks,
+		Parent = boatDock,
+	})
+
+	for _, xOffset in ipairs({ -5, 5 }) do
+		makePart({
+			Name = "Railing",
+			Size = Vector3.new(0.5, 1.5, 14),
+			CFrame = CFrame.new(xOffset, 1.5, dockZ),
+			Color = Color3.fromRGB(100, 70, 45),
+			Material = Enum.Material.Wood,
+			Parent = boatDock,
+		})
+	end
+
+	local spawnPoint = Instance.new("Part")
+	spawnPoint.Name = "SpawnPoint"
+	spawnPoint.Size = Vector3.new(6, 0.1, 6)
+	spawnPoint.CFrame = CFrame.new(0, 0.6, dockZ + 4)
+	spawnPoint.Transparency = 1
+	spawnPoint.CanCollide = false
+	spawnPoint.Anchored = true
+	spawnPoint.Parent = boatDock
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "BoatSign"
+	billboard.Size = UDim2.new(0, 160, 0, 42)
+	billboard.StudsOffset = Vector3.new(0, 5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 110
+	billboard.Parent = platform
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "BOAT DOCK"
+	label.TextColor3 = Color3.fromRGB(100, 200, 255)
+	label.TextStrokeTransparency = 0.2
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "BoatPrompt"
+	prompt.ActionText = "Spawn Boat"
+	prompt.ObjectText = "Boat Dock"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = platform
+
+	boatDock.PrimaryPart = platform
+	return prompt
 end
 
 function WorldBuilder.buildShop(parent)
@@ -1298,15 +2162,15 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="14">
+  <Item class="StarterPlayer" referent="16">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="15">
+    <Item class="StarterPlayerScripts" referent="17">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="16">
+      <Item class="LocalScript" referent="18">
         <Properties>
           <string name="Name">HarborHeistClient</string>
           <string name="Source"><![CDATA[local Players = game:GetService("Players")
@@ -1327,6 +2191,11 @@ local playerGui = player:WaitForChild("PlayerGui")
 
 local state = nil
 local casting = false
+local castHitZone = { start_ = 0.35, finish = 0.65 }
+local castDeadline = 0
+local castInputConn = nil
+local castTimeoutConn = nil
+local questData = nil
 
 local COLORS = {
 	panel = Color3.fromRGB(25, 40, 55),
@@ -1336,6 +2205,8 @@ local COLORS = {
 	bad = Color3.fromRGB(255, 100, 100),
 	warn = Color3.fromRGB(255, 190, 80),
 	text = Color3.fromRGB(240, 245, 250),
+	quest = Color3.fromRGB(255, 215, 100),
+	boat = Color3.fromRGB(100, 180, 220),
 }
 
 local screenGui = Instance.new("ScreenGui")
@@ -1407,8 +2278,8 @@ local incomeLabel = makeLabel(cashFrame, {
 
 -- ============ Bottom action bar ============
 local actionBar = Instance.new("Frame")
-actionBar.Size = UDim2.new(0, 460, 0, 64)
-actionBar.Position = UDim2.new(0.5, -230, 1, -84)
+actionBar.Size = UDim2.new(0, 640, 0, 64)
+actionBar.Position = UDim2.new(0.5, -320, 1, -84)
 actionBar.BackgroundTransparency = 1
 actionBar.Parent = screenGui
 
@@ -1419,27 +2290,39 @@ layout.Padding = UDim.new(0, 10)
 layout.Parent = actionBar
 
 local fishButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 150, 1, 0),
+	Size = UDim2.new(0, 120, 1, 0),
 	Text = "FISH (F)",
 	BackgroundColor3 = COLORS.good,
 })
 
 local storeButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 150, 1, 0),
+	Size = UDim2.new(0, 130, 1, 0),
 	Text = "STORE (0)",
 	BackgroundColor3 = COLORS.accent,
 })
 
 local aquariumButton = makeButton(actionBar, {
-	Size = UDim2.new(0, 150, 1, 0),
+	Size = UDim2.new(0, 130, 1, 0),
 	Text = "AQUARIUM",
 	BackgroundColor3 = Color3.fromRGB(180, 140, 255),
+})
+
+local questButton = makeButton(actionBar, {
+	Size = UDim2.new(0, 120, 1, 0),
+	Text = "QUESTS (Q)",
+	BackgroundColor3 = COLORS.quest,
+})
+
+local boatButton = makeButton(actionBar, {
+	Size = UDim2.new(0, 110, 1, 0),
+	Text = "BOAT (B)",
+	BackgroundColor3 = COLORS.boat,
 })
 
 -- ============ Notifications ============
 local notifyFrame = Instance.new("Frame")
 notifyFrame.Size = UDim2.new(0, 420, 0, 260)
-notifyFrame.Position = UDim2.new(0.5, -210, 0, 20)
+notifyFrame.Position = UDim2.new(0.5, -210, 0, 90)
 notifyFrame.BackgroundTransparency = 1
 notifyFrame.Parent = screenGui
 
@@ -1461,6 +2344,7 @@ local function showNotification(message, color)
 	note.Parent = notifyFrame
 	corner(note, 8)
 	task.delay(4, function()
+		if not note.Parent then return end
 		local tween = TweenService:Create(note, TweenInfo.new(0.5), { BackgroundTransparency = 1, TextTransparency = 1 })
 		tween:Play()
 		tween.Completed:Wait()
@@ -1470,8 +2354,8 @@ end
 
 -- ============ Aquarium panel ============
 local aquariumPanel = Instance.new("Frame")
-aquariumPanel.Size = UDim2.new(0, 340, 0, 330)
-aquariumPanel.Position = UDim2.new(0.5, -170, 0.5, -165)
+aquariumPanel.Size = UDim2.new(0, 340, 0, 360)
+aquariumPanel.Position = UDim2.new(0.5, -170, 0.5, -180)
 aquariumPanel.BackgroundColor3 = COLORS.panel
 aquariumPanel.Visible = false
 aquariumPanel.Parent = screenGui
@@ -1493,7 +2377,7 @@ local aquariumClose = makeButton(aquariumPanel, {
 })
 
 local aquariumStats = makeLabel(aquariumPanel, {
-	Size = UDim2.new(1, -28, 0, 56),
+	Size = UDim2.new(1, -28, 0, 70),
 	Position = UDim2.new(0, 14, 0, 48),
 	Text = "",
 	Font = Enum.Font.GothamBold,
@@ -1504,8 +2388,8 @@ local aquariumStats = makeLabel(aquariumPanel, {
 })
 
 local rarityList = makeLabel(aquariumPanel, {
-	Size = UDim2.new(1, -28, 0, 110),
-	Position = UDim2.new(0, 14, 0, 106),
+	Size = UDim2.new(1, -28, 0, 130),
+	Position = UDim2.new(0, 14, 0, 120),
 	Text = "",
 	Font = Enum.Font.Gotham,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -1525,14 +2409,14 @@ local sellButton = makeButton(aquariumPanel, {
 local lockButton = makeButton(aquariumPanel, {
 	Size = UDim2.new(0.5, -20, 0, 46),
 	Position = UDim2.new(0.5, 6, 1, -60),
-	Text = "LOCK (60s)",
+	Text = "LOCK",
 	BackgroundColor3 = COLORS.warn,
 })
 
 -- ============ Shop panel ============
 local shopPanel = Instance.new("Frame")
-shopPanel.Size = UDim2.new(0, 380, 0, 420)
-shopPanel.Position = UDim2.new(0.5, -190, 0.5, -210)
+shopPanel.Size = UDim2.new(0, 380, 0, 480)
+shopPanel.Position = UDim2.new(0.5, -190, 0.5, -240)
 shopPanel.BackgroundColor3 = COLORS.panel
 shopPanel.Visible = false
 shopPanel.Parent = screenGui
@@ -1569,18 +2453,49 @@ shopLayout.Parent = shopList
 
 local shopRows = {}
 
-local function buildShopRow(kind, level, item, order)
+local SHOP_CATALOG = {}
+local function addCatalog(kind, items, orderBase)
+	for level, item in ipairs(items) do
+		table.insert(SHOP_CATALOG, { kind = kind, level = level, item = item, order = orderBase + level })
+	end
+end
+addCatalog("rod", GameConfig.Rods, 0)
+addCatalog("bait", GameConfig.Baits, 10)
+addCatalog("capacity", GameConfig.Upgrades.Capacity, 20)
+addCatalog("lock", GameConfig.Upgrades.Lock, 30)
+addCatalog("alarm", GameConfig.Upgrades.Alarm, 40)
+table.sort(SHOP_CATALOG, function(a, b) return a.order < b.order end)
+
+local function itemDisplayName(entry)
+	return entry.item.name or entry.item.desc or entry.kind
+end
+
+local function itemSubText(entry)
+	local it = entry.item
+	if entry.kind == "rod" or entry.kind == "bait" then
+		return (it.desc or "") .. "  (+" .. (it.luck or 0) .. " luck)"
+	elseif entry.kind == "capacity" then
+		return "Capacity: " .. (it.capacity or 0) .. " fish"
+	elseif entry.kind == "lock" then
+		return "Lock " .. (it.lockDuration or 0) .. "s, recharge " .. (it.lockCooldown or 0) .. "s"
+	elseif entry.kind == "alarm" then
+		return "Stun thief " .. (it.stunDuration or 0) .. "s on failed heist"
+	end
+	return it.desc or ""
+end
+
+local function buildShopRow(entry)
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, -8, 0, 64)
 	row.BackgroundColor3 = COLORS.panelLight
-	row.LayoutOrder = order
+	row.LayoutOrder = entry.order
 	row.Parent = shopList
 	corner(row, 10)
 
 	makeLabel(row, {
 		Size = UDim2.new(0.62, -10, 0.5, 0),
 		Position = UDim2.new(0, 10, 0, 4),
-		Text = item.name,
+		Text = itemDisplayName(entry),
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextScaled = false,
 		TextSize = 18,
@@ -1589,7 +2504,7 @@ local function buildShopRow(kind, level, item, order)
 	makeLabel(row, {
 		Size = UDim2.new(0.62, -10, 0.4, 0),
 		Position = UDim2.new(0, 10, 0.52, 0),
-		Text = item.desc .. " (+" .. item.luck .. " luck)",
+		Text = itemSubText(entry),
 		Font = Enum.Font.Gotham,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextScaled = false,
@@ -1600,17 +2515,17 @@ local function buildShopRow(kind, level, item, order)
 	local buyButton = makeButton(row, {
 		Size = UDim2.new(0.32, 0, 0, 40),
 		Position = UDim2.new(0.66, 0, 0.5, -20),
-		Text = "$" .. item.cost,
+		Text = "$" .. (entry.item.cost or 0),
 	})
 
 	buyButton.Activated:Connect(function()
-		local result = Remotes.BuyItem:InvokeServer(kind, level)
+		local result = Remotes.BuyItem:InvokeServer(entry.kind, entry.level)
 		if result and result.ok then
 			refreshShop()
 		end
 	end)
 
-	shopRows[kind .. level] = { row = row, buyButton = buyButton, level = level, kind = kind, item = item }
+	shopRows[entry.kind .. entry.level] = { row = row, buyButton = buyButton, level = entry.level, kind = entry.kind, item = entry.item }
 end
 
 function refreshShop()
@@ -1618,7 +2533,13 @@ function refreshShop()
 		return
 	end
 	for _, entry in pairs(shopRows) do
-		local currentLevel = entry.kind == "rod" and state.rodLevel or state.baitLevel
+		local currentLevel
+		if entry.kind == "rod" then currentLevel = state.rodLevel
+		elseif entry.kind == "bait" then currentLevel = state.baitLevel
+		elseif entry.kind == "capacity" then currentLevel = state.capacityLevel or 0
+		elseif entry.kind == "lock" then currentLevel = state.lockLevel or 0
+		elseif entry.kind == "alarm" then currentLevel = state.alarmLevel or 0
+		end
 		if entry.level <= currentLevel then
 			entry.buyButton.Text = "OWNED"
 			entry.buyButton.BackgroundColor3 = Color3.fromRGB(100, 110, 120)
@@ -1635,11 +2556,185 @@ function refreshShop()
 	end
 end
 
-for level, rod in ipairs(GameConfig.Rods) do
-	buildShopRow("rod", level, rod, level)
+for _, entry in ipairs(SHOP_CATALOG) do
+	buildShopRow(entry)
 end
-for level, bait in ipairs(GameConfig.Baits) do
-	buildShopRow("bait", level, bait, 10 + level)
+
+-- ============ Quest panel ============
+local questPanel = Instance.new("Frame")
+questPanel.Size = UDim2.new(0, 380, 0, 460)
+questPanel.Position = UDim2.new(0.5, -190, 0.5, -230)
+questPanel.BackgroundColor3 = COLORS.panel
+questPanel.Visible = false
+questPanel.Parent = screenGui
+corner(questPanel, 14)
+
+makeLabel(questPanel, {
+	Size = UDim2.new(1, -60, 0, 36),
+	Position = UDim2.new(0, 14, 0, 8),
+	Text = "QUESTS",
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextColor3 = COLORS.quest,
+})
+
+local questClose = makeButton(questPanel, {
+	Size = UDim2.new(0, 32, 0, 32),
+	Position = UDim2.new(1, -42, 0, 10),
+	Text = "X",
+	BackgroundColor3 = COLORS.bad,
+})
+
+local questList = Instance.new("ScrollingFrame")
+questList.Size = UDim2.new(1, -28, 1, -66)
+questList.Position = UDim2.new(0, 14, 0, 52)
+questList.BackgroundTransparency = 1
+questList.ScrollBarThickness = 6
+questList.CanvasSize = UDim2.new(0, 0, 0, 0)
+questList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+questList.Parent = questPanel
+
+local questLayout = Instance.new("UIListLayout")
+questLayout.Padding = UDim.new(0, 8)
+questLayout.SortOrder = Enum.SortOrder.LayoutOrder
+questLayout.Parent = questList
+
+local function makeQuestRow(parent, quest, order)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, -8, 0, 64)
+	row.BackgroundColor3 = COLORS.panelLight
+	row.LayoutOrder = order
+	row.Parent = parent
+	corner(row, 10)
+
+	local titleColor = quest.claimed and Color3.fromRGB(140, 220, 140) or COLORS.text
+	makeLabel(row, {
+		Size = UDim2.new(1, -16, 0.5, 0),
+		Position = UDim2.new(0, 8, 0, 4),
+		Text = quest.desc or "Quest",
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextScaled = false,
+		TextSize = 16,
+		TextColor3 = titleColor,
+	})
+
+	local progressVal = math.min(quest.progress or 0, quest.target or 1)
+	local progressBar = Instance.new("Frame")
+	progressBar.Size = UDim2.new(0.6, -16, 0, 10)
+	progressBar.Position = UDim2.new(0, 8, 0.62, 0)
+	progressBar.BackgroundColor3 = Color3.fromRGB(50, 60, 70)
+	progressBar.Parent = row
+	corner(progressBar, 5)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new(progressVal / math.max(1, quest.target or 1), 0, 1, 0)
+	fill.BackgroundColor3 = quest.claimed and COLORS.good or COLORS.quest
+	fill.Parent = progressBar
+	corner(fill, 5)
+
+	local progressText = quest.claimed and "CLAIMED" or string.format("%d/%d  ($%d)", progressVal, quest.target, quest.reward)
+	makeLabel(row, {
+		Size = UDim2.new(0.4, -8, 0.4, 0),
+		Position = UDim2.new(0.6, 4, 0.6, 0),
+		Text = progressText,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextScaled = false,
+		TextSize = 14,
+		TextColor3 = Color3.fromRGB(180, 220, 255),
+		Font = Enum.Font.GothamBold,
+	})
+end
+
+local sectionOrder = 0
+local function renderQuestPanel(data)
+	questList:ClearAllChildren()
+	questLayout.Parent = questList
+	sectionOrder = 0
+
+	makeLabel(questList, {
+		Size = UDim2.new(1, 0, 0, 26),
+		Text = "DAILY",
+		TextColor3 = COLORS.warn,
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		LayoutOrder = 1,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	for i, q in ipairs(data and data.dailyQuests or {}) do
+		makeQuestRow(questList, q, 10 + i)
+	end
+
+	makeLabel(questList, {
+		Size = UDim2.new(1, 0, 0, 26),
+		Text = "WEEKLY",
+		TextColor3 = COLORS.accent,
+		Font = Enum.Font.GothamBold,
+		TextSize = 16,
+		LayoutOrder = 100,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	})
+	for i, q in ipairs(data and data.weeklyQuests or {}) do
+		makeQuestRow(questList, q, 110 + i)
+	end
+end
+
+-- ============ Fishing mini-game overlay ============
+local castOverlay = Instance.new("Frame")
+castOverlay.Size = UDim2.new(0, 340, 0, 80)
+castOverlay.Position = UDim2.new(0.5, -170, 0.55, -40)
+castOverlay.BackgroundColor3 = COLORS.panel
+castOverlay.BackgroundTransparency = 0.1
+castOverlay.Visible = false
+castOverlay.Parent = screenGui
+corner(castOverlay, 12)
+
+makeLabel(castOverlay, {
+	Size = UDim2.new(1, -16, 0, 22),
+	Position = UDim2.new(0, 8, 0, 6),
+	Text = "CLICK / TAP TO HOOK!",
+	TextColor3 = COLORS.warn,
+	Font = Enum.Font.FredokaOne,
+	TextScaled = true,
+})
+
+local timingBar = Instance.new("Frame")
+timingBar.Size = UDim2.new(1, -20, 0, 28)
+timingBar.Position = UDim2.new(0, 10, 0, 36)
+timingBar.BackgroundColor3 = Color3.fromRGB(45, 55, 70)
+timingBar.Parent = castOverlay
+corner(timingBar, 8)
+
+local hitZoneFrame = Instance.new("Frame")
+hitZoneFrame.Name = "HitZone"
+hitZoneFrame.Size = UDim2.new(0.3, 0, 1, 0)
+hitZoneFrame.Position = UDim2.new(0.35, 0, 0, 0)
+hitZoneFrame.BackgroundColor3 = Color3.fromRGB(90, 200, 130)
+hitZoneFrame.BackgroundTransparency = 0.35
+hitZoneFrame.Parent = timingBar
+corner(hitZoneFrame, 6)
+
+local marker = Instance.new("Frame")
+marker.Size = UDim2.new(0, 6, 1, -4)
+marker.Position = UDim2.new(0, 0, 0, 2)
+marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+marker.Parent = timingBar
+corner(marker, 3)
+
+local markTween = nil
+
+local function stopCastOverlay()
+	castOverlay.Visible = false
+	if markTween then
+		markTween:Cancel()
+		markTween = nil
+	end
+	if castInputConn then
+		castInputConn:Disconnect()
+		castInputConn = nil
+	end
+	if castTimeoutConn then
+		castTimeoutConn:Disconnect()
+		castTimeoutConn = nil
+	end
 end
 
 -- ============ State rendering ============
@@ -1663,11 +2758,14 @@ local function render()
 		fishButton.BackgroundColor3 = COLORS.good
 	end
 
+	boatButton.Text = state.hasBoat and "BOAT (active)" or "BOAT (B)"
+
 	local rodName = GameConfig.Rods[state.rodLevel].name
 	local baitName = GameConfig.Baits[state.baitLevel].name
 	aquariumStats.Text = string.format(
-		"Fish stored: %d / %d\nIncome: $%.1f per second\nGear: %s + %s",
-		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName
+		"Fish stored: %d / %d\nIncome: $%.1f / sec\nGear: %s + %s\nUpgrades: Cap %d / Lock %d / Alarm %d",
+		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
+		state.capacityLevel or 0, state.lockLevel or 0, state.alarmLevel or 0
 	)
 
 	local lines = {}
@@ -1687,8 +2785,25 @@ local function render()
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownRemaining))
 		lockButton.BackgroundColor3 = Color3.fromRGB(100, 110, 120)
 	else
-		lockButton.Text = string.format("LOCK (%ds)", GameConfig.Aquarium.lockDuration)
+		local lockDur = GameConfig.Aquarium.lockDuration
+		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
+			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
+		end
+		lockButton.Text = string.format("LOCK (%ds)", lockDur)
 		lockButton.BackgroundColor3 = COLORS.warn
+	end
+
+	-- Stun effect
+	local character = player.Character
+	if character then
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			if state.stunRemaining and state.stunRemaining > 0 then
+				humanoid.WalkSpeed = 8
+			else
+				humanoid.WalkSpeed = 16
+			end
+		end
 	end
 end
 
@@ -1706,6 +2821,7 @@ end)
 aquariumButton.Activated:Connect(function()
 	aquariumPanel.Visible = not aquariumPanel.Visible
 	shopPanel.Visible = false
+	questPanel.Visible = false
 end)
 aquariumClose.Activated:Connect(function()
 	aquariumPanel.Visible = false
@@ -1719,6 +2835,30 @@ end)
 lockButton.Activated:Connect(function()
 	Remotes.LockAquarium:InvokeServer()
 end)
+questClose.Activated:Connect(function()
+	questPanel.Visible = false
+end)
+questButton.Activated:Connect(function()
+	questPanel.Visible = not questPanel.Visible
+	aquariumPanel.Visible = false
+	shopPanel.Visible = false
+	if questPanel.Visible and not questData then
+		Remotes.OpenQuests:FireServer()
+	end
+end)
+boatButton.Activated:Connect(function()
+	local result = Remotes.SpawnBoat:InvokeServer()
+	if not result then return end
+	if not result.ok then
+		local reasons = {
+			already_has_boat = "You already have a boat out!",
+			no_dock = "Boat dock is missing.",
+			no_spawn_point = "Boat spawn point unavailable.",
+			no_character = "Spawn your character first.",
+		}
+		showNotification(reasons[result.reason] or "Could not spawn boat.", COLORS.bad)
+	end
+end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
@@ -1726,6 +2866,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 	if input.KeyCode == Enum.KeyCode.F then
 		doFish()
+	elseif input.KeyCode == Enum.KeyCode.Q then
+		questPanel.Visible = not questPanel.Visible
+		aquariumPanel.Visible = false
+		shopPanel.Visible = false
+		if questPanel.Visible and not questData then
+			Remotes.OpenQuests:FireServer()
+		end
+	elseif input.KeyCode == Enum.KeyCode.B then
+		Remotes.SpawnBoat:InvokeServer()
 	end
 end)
 
@@ -1738,19 +2887,64 @@ end)
 
 Remotes.Notify.OnClientEvent:Connect(showNotification)
 
-Remotes.CastState.OnClientEvent:Connect(function(isCasting)
+Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
+	if isCasting then
+		if hitZone then
+			castHitZone.start_ = hitZone.hitZoneStart or 0.35
+			castHitZone.finish = hitZone.hitZoneEnd or 0.65
+		else
+			castHitZone.start_ = 0.35
+			castHitZone.finish = 0.65
+		end
+		local zoneWidth = castHitZone.finish - castHitZone.start_
+		hitZoneFrame.Size = UDim2.new(zoneWidth, 0, 1, 0)
+		hitZoneFrame.Position = UDim2.new(castHitZone.start_, 0, 0, 0)
+
+		castOverlay.Visible = true
+		marker.Position = UDim2.new(0, 0, 0, 2)
+
+		local duration = castTime or 4
+		castDeadline = tick() + duration
+
+		markTween = TweenService:Create(marker, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Position = UDim2.new(1, -6, 0, 2) })
+		markTween:Play()
+
+		castInputConn = UserInputService.InputBegan:Connect(function(input, gp)
+			if gp then return end
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				if not casting then return end
+				local elapsed = tick() - (castDeadline - duration)
+				local accuracy = math.clamp(elapsed / duration, 0, 1)
+				stopCastOverlay()
+				Remotes.CastResult:FireServer(accuracy)
+			end
+		end)
+
+		castTimeoutConn = nil
+	else
+		stopCastOverlay()
+	end
 	render()
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
 	aquariumPanel.Visible = true
 	shopPanel.Visible = false
+	questPanel.Visible = false
 end)
 
 Remotes.OpenShop.OnClientEvent:Connect(function()
 	shopPanel.Visible = true
 	aquariumPanel.Visible = false
+	questPanel.Visible = false
+end)
+
+Remotes.QuestProgressChanged.OnClientEvent:Connect(function(data)
+	questData = data
+	if questPanel.Visible then
+		renderQuestPanel(data)
+	end
 end)
 
 task.spawn(function()
@@ -1766,7 +2960,7 @@ end)
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="17">
+  <Item class="Workspace" referent="19">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="NeedsPivotMigration">false</bool>

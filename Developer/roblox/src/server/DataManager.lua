@@ -19,6 +19,9 @@ local function defaultData()
 		rodLevel = 1,
 		baitLevel = 1,
 		liveWell = {},
+		capacityLevel = 0,
+		lockLevel = 0,
+		alarmLevel = 0,
 	}
 end
 
@@ -36,6 +39,15 @@ local function sanitize(data)
 	end
 	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
 		clean.baitLevel = data.baitLevel
+	end
+	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel <= #GameConfig.Upgrades.Capacity then
+		clean.capacityLevel = math.floor(data.capacityLevel)
+	end
+	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel <= #GameConfig.Upgrades.Lock then
+		clean.lockLevel = math.floor(data.lockLevel)
+	end
+	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel <= #GameConfig.Upgrades.Alarm then
+		clean.alarmLevel = math.floor(data.alarmLevel)
 	end
 	if type(data.liveWell) == "table" then
 		-- Validate each item in liveWell - ensure it's a valid rarity index
@@ -90,13 +102,29 @@ function DataManager.load(player)
 		rodLevel = data.rodLevel,
 		baitLevel = data.baitLevel,
 		liveWell = data.liveWell,
+		capacityLevel = data.capacityLevel,
+		lockLevel = data.lockLevel,
+		alarmLevel = data.alarmLevel,
 		carried = {}, -- SECURITY: Always initialize as empty table - client data is untrusted
 		casting = false,
+		castDeadline = 0,
+		castHitZoneStart = 0,
+		castHitZoneEnd = 0,
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
 		stealCooldownUntil = 0,
+		stunUntil = 0,
 		dockIndex = nil,
 		isSaving = false, -- SECURITY: Lock flag to prevent concurrent saves
+		dailyQuestKey = nil,
+		dailyQuests = {},
+		weeklyQuestKey = nil,
+		weeklyQuests = {},
+		boatModel = nil,
+		boatDespawnTask = nil,
+		seatConnection = nil,
+		heistCount = 0, -- today's steal counter for quest hook
+		incomeSinceTick = 0,
 	}
 	sessions[player] = session
 	return session
@@ -141,8 +169,11 @@ function DataManager.save(player)
 				rodLevel = session.rodLevel,
 				baitLevel = session.baitLevel,
 				liveWell = session.liveWell,
+				capacityLevel = session.capacityLevel,
+				lockLevel = session.lockLevel,
+				alarmLevel = session.alarmLevel,
 			}
-			
+
 			return payload
 		end)
 	end)

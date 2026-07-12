@@ -4,8 +4,15 @@ local StateSync = {}
 
 StateSync.remotes = nil
 
-function StateSync.getCapacity(_session)
-	return GameConfig.Aquarium.baseCapacity
+function StateSync.getCapacity(session)
+	local baseCapacity = GameConfig.Aquarium.baseCapacity
+	if session and session.capacityLevel and session.capacityLevel > 0 then
+		local upgrade = GameConfig.Upgrades.Capacity[session.capacityLevel]
+		if upgrade then
+			return upgrade.capacity
+		end
+	end
+	return baseCapacity
 end
 
 function StateSync.incomePerSec(session)
@@ -27,6 +34,9 @@ function StateSync.snapshot(session)
 		cash = math.floor(session.cash),
 		rodLevel = session.rodLevel,
 		baitLevel = session.baitLevel,
+		capacityLevel = session.capacityLevel or 0,
+		lockLevel = session.lockLevel or 0,
+		alarmLevel = session.alarmLevel or 0,
 		carried = #session.carried,
 		maxCarried = GameConfig.MaxCarried,
 		liveWellCount = #session.liveWell,
@@ -35,6 +45,8 @@ function StateSync.snapshot(session)
 		incomePerSec = StateSync.incomePerSec(session),
 		lockRemaining = math.max(0, session.lockedUntil - now),
 		lockCooldownRemaining = math.max(0, session.lockCooldownUntil - now),
+		stunRemaining = math.max(0, (session.stunUntil or 0) - now),
+		hasBoat = (session.boatModel ~= nil),
 	}
 end
 

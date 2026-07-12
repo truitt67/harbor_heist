@@ -8,6 +8,8 @@ local StateSync = require(script.StateSync)
 local FishingService = require(script.FishingService)
 local AquariumService = require(script.AquariumService)
 local ShopService = require(script.ShopService)
+local QuestService = require(script.QuestService)
+local BoatService = require(script.BoatService)
 
 Players.CharacterAutoLoads = false
 
@@ -21,11 +23,14 @@ local deps = {
 	dataManager = DataManager,
 	dockManager = DockManager,
 	stateSync = StateSync,
+	worldFolder = worldFolder,
 }
 
 FishingService.init(deps)
 AquariumService.init(deps)
 ShopService.init(deps)
+QuestService.init(deps)
+BoatService.init(deps)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
@@ -41,6 +46,28 @@ end
 local shopPrompt = worldFolder.Shop.Counter.ShopPrompt
 shopPrompt.Triggered:Connect(function(player)
 	Remotes.OpenShop:FireClient(player)
+end)
+
+local boatPrompt = worldFolder.BoatDock.PrimaryPart.BoatPrompt
+boatPrompt.Triggered:Connect(function(player)
+	local session = DataManager.get(player)
+	if session and not session.boatModel then
+		local dockModel = worldFolder.BoatDock
+		local spawnPart = dockModel:FindFirstChild("SpawnPoint")
+		if spawnPart then
+			local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 4)
+			local r = BoatService.spawnBoat(player, spawnCFrame)
+			if r.ok and player.Character then
+				local root = player.Character:FindFirstChild("HumanoidRootPart")
+				if root then
+					root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
+				end
+				Remotes.notify(player, "Boat launched! Drive to other docks to steal.", Color3.fromRGB(120, 220, 255))
+			end
+		end
+	else
+		Remotes.notify(player, "You already have a boat!", Color3.fromRGB(255, 170, 80))
+	end
 end)
 
 local function connectAquariumPrompt(dock)
@@ -61,6 +88,9 @@ end
 local function onPlayerAdded(player)
 	local session = DataManager.load(player)
 	StateSync.setupLeaderstats(player, session)
+
+	QuestService.initializeQuests(session)
+	QuestService.pushProgress(session)
 
 	local dock = DockManager.claim(player)
 	if dock then
@@ -108,6 +138,7 @@ local function onPlayerRemoving(player)
 	end
 	DataManager.save(player)
 	DockManager.release(player)
+	BoatService.onPlayerRemoving(player)
 	DataManager.remove(player)
 end
 
