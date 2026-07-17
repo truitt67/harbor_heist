@@ -20,10 +20,10 @@ function ShopService.init(deps)
 		local catalog, currentLevel
 		if kind == "rod" then
 			catalog = GameConfig.Rods
-			currentLevel = session.rodLevel
+			currentLevel = session.profile.Equipment.EquippedRodLevel
 		elseif kind == "bait" then
 			catalog = GameConfig.Baits
-			currentLevel = session.baitLevel
+			currentLevel = session.profile.Equipment.EquippedBaitLevel
 		else
 			return { ok = false, reason = "bad_kind" }
 		end
@@ -36,7 +36,7 @@ function ShopService.init(deps)
 			remotes.notify(player, "Buy upgrades in order, one tier at a time!", Color3.fromRGB(255, 170, 80))
 			return { ok = false, reason = "wrong_tier" }
 		end
-		if math.floor(session.cash) < item.cost then
+		if math.floor(session.profile.Coins) < item.cost then
 			remotes.notify(
 				player,
 				string.format("Not enough cash! %s costs $%d.", item.name, item.cost),
@@ -45,11 +45,20 @@ function ShopService.init(deps)
 			return { ok = false, reason = "poor" }
 		end
 
-		session.cash -= item.cost
+		session.profile.Coins = session.profile.Coins - item.cost
 		if kind == "rod" then
-			session.rodLevel = level
+			session.profile.Equipment.EquippedRodLevel = level
+			-- Track ownership
+			local owned = session.profile.Equipment.OwnedRodLevels
+			local alreadyOwned = false
+			for _, lvl in ipairs(owned) do
+				if lvl == level then alreadyOwned = true break end
+			end
+			if not alreadyOwned then
+				table.insert(owned, level)
+			end
 		else
-			session.baitLevel = level
+			session.profile.Equipment.EquippedBaitLevel = level
 		end
 		remotes.notify(
 			player,

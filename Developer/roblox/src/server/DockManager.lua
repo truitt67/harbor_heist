@@ -283,17 +283,17 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		return
 	end
 	
-	local rng = Random.new(dock.index * 1000 + #session.liveWell)
+	local rng = Random.new(dock.index * 1000 + #session.profile.Aquarium.StoredFish)
 	local display = dock.aquarium.FishDisplay
 	display:ClearAllChildren()
 
 	local GameConfigRarities = GameConfig.Rarities
 	local waterCFrame = dock.aquarium.Water.CFrame
-	local shown = math.min(#session.liveWell, GameConfig.Aquarium.maxVisibleFish)
-	
+	local shown = math.min(#session.profile.Aquarium.StoredFish, GameConfig.Aquarium.maxVisibleFish)
+
 	-- SECURITY: Validate each rarity index before creating visual representation
 	for i = 1, shown do
-		local rarityIndex = session.liveWell[i]
+		local rarityIndex = session.profile.Aquarium.StoredFish[i]
 		-- Validate rarity index is within bounds
 		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfigRarities) then
 			warn("[HarborHeist] Invalid rarity index in visual update: " .. tostring(rarityIndex))
@@ -328,10 +328,10 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local statusLabel = sign.StatusLabel
 	local locked = session.lockedUntil > os.clock()
 	if locked then
-		statusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.liveWell, capacity)
+		statusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.profile.Aquarium.StoredFish, capacity)
 		statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
 	else
-		statusLabel.Text = string.format("%d/%d fish", #session.liveWell, capacity)
+		statusLabel.Text = string.format("%d/%d fish", #session.profile.Aquarium.StoredFish, capacity)
 		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
 end

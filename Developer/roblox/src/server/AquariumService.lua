@@ -22,10 +22,11 @@ function AquariumService.init(deps)
 		if not session then
 			return { ok = false }
 		end
+		local storedFish = session.profile.Aquarium.StoredFish
 		local capacity = stateSync.getCapacity(session)
 		local stored = 0
-		while #session.carried > 0 and #session.liveWell < capacity do
-			table.insert(session.liveWell, table.remove(session.carried))
+		while #session.carried > 0 and #storedFish < capacity do
+			table.insert(storedFish, table.remove(session.carried))
 			stored += 1
 		end
 		if stored == 0 then
@@ -51,8 +52,9 @@ function AquariumService.init(deps)
 		if not session then
 			return { ok = false }
 		end
+		local storedFish = session.profile.Aquarium.StoredFish
 		local payout = 0
-		for _, rarityIndex in ipairs(session.liveWell) do
+		for _, rarityIndex in ipairs(storedFish) do
 			payout += GameConfig.Rarities[rarityIndex].value
 		end
 		for _, rarityIndex in ipairs(session.carried) do
@@ -62,9 +64,13 @@ function AquariumService.init(deps)
 			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
 			return { ok = false }
 		end
-		session.liveWell = {}
+		-- Clear the table in-place so the profile reference stays valid
+		for i = #storedFish, 1, -1 do
+			storedFish[i] = nil
+		end
 		session.carried = {}
-		session.cash += payout
+		session.profile.Coins = session.profile.Coins + payout
+		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
 		stateSync.push(session)
@@ -90,6 +96,9 @@ function AquariumService.init(deps)
 		end
 		session.lockedUntil = now + GameConfig.Aquarium.lockDuration
 		session.lockCooldownUntil = session.lockedUntil + GameConfig.Aquarium.lockCooldown
+		-- Also persist as epoch timestamps (TASK 1.1: structured profile)
+		session.profile.Aquarium.LockUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration
+		session.profile.Aquarium.LockCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration + GameConfig.Aquarium.lockCooldown
 		remotes.notify(
 			player,
 			string.format("Aquarium locked for %ds. Thieves can't touch it!", GameConfig.Aquarium.lockDuration),
@@ -155,16 +164,18 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		return
 	end
 
-	if #victimSession.liveWell == 0 then
+	if #victimSession.profile.Aquarium.StoredFish == 0 then
 		remotes.notify(attacker, "This aquarium is empty. Nothing to steal!", Color3.fromRGB(255, 170, 80))
 		return
 	end
 
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
+	attackerSession.profile.PvP.StealCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.stealCooldown
 
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
-		local stolenIndex = rng:NextInteger(1, #victimSession.liveWell)
-		local rarityIndex = table.remove(victimSession.liveWell, stolenIndex)
+		local victimFish = victimSession.profile.Aquarium.StoredFish
+		local stolenIndex = rng:NextInteger(1, #victimFish)
+		local rarityIndex = table.remove(victimFish, stolenIndex)
 		
 		-- SECURITY: Validate rarityIndex is a valid rarity before using it
 		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities) then
@@ -175,9 +186,10 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		local rarity = GameConfig.Rarities[rarityIndex]
 
 		local capacity = stateSync.getCapacity(attackerSession)
+		local attackerFish = attackerSession.profile.Aquarium.StoredFish
 		-- SECURITY: Double-check capacity before insertion
-		if #attackerSession.liveWell < capacity then
-			table.insert(attackerSession.liveWell, rarityIndex)
+		if #attackerFish < capacity then
+			table.insert(attackerFish, rarityIndex)
 			remotes.notify(
 				attacker,
 				string.format("Heist success! You stole a %s fish from %s!", rarity.name, victim.DisplayName),
@@ -189,7 +201,7 @@ function AquariumService.handleSteal(deps, attacker, dock)
 				warn("[HarborHeist] Invalid rarity value for index " .. rarityIndex)
 				return
 			end
-			attackerSession.cash += rarity.value
+			attackerSession.profile.Coins = attackerSession.profile.Coins + rarity.value
 			remotes.notify(
 				attacker,
 				string.format("Heist success! Fenced a %s fish for $%d!", rarity.name, rarity.value),
@@ -228,7 +240,8 @@ function AquariumService.startIncomeLoop(deps)
 			for _, session in pairs(dataManager.allSessions()) do
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
-					session.cash += income
+					session.profile.Coins = session.profile.Coins + income
+					session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + income
 				end
 				stateSync.push(session)
 			end

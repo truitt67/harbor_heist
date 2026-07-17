@@ -35,7 +35,7 @@ function FishingService.init(deps)
 		end
 
 		session.casting = true
-		local rod = GameConfig.Rods[session.rodLevel]
+		local rod = GameConfig.Rods[session.profile.Equipment.EquippedRodLevel]
 		if not rod then
 			session.casting = false
 			return
@@ -63,7 +63,7 @@ function FishingService.init(deps)
 				return
 			end
 
-			local luck = rod.luck + GameConfig.Baits[session.baitLevel].luck
+			local luck = rod.luck + GameConfig.Baits[session.profile.Equipment.EquippedBaitLevel].luck
 			local rarityIndex = GameConfig.rollRarity(luck, rng)
 			-- SECURITY: Validate rarity exists before adding to carried
 			if not (type(rarityIndex) == "number" and GameConfig.Rarities[rarityIndex]) then

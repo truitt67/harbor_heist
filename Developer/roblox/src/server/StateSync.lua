@@ -4,13 +4,14 @@ local StateSync = {}
 
 StateSync.remotes = nil
 
-function StateSync.getCapacity(_session)
-	return GameConfig.Aquarium.baseCapacity
+function StateSync.getCapacity(session)
+	-- Read from profile.Aquarium.Capacity (TASK 1.1 structured profile)
+	return session.profile.Aquarium.Capacity
 end
 
 function StateSync.incomePerSec(session)
 	local total = 0
-	for _, rarityIndex in ipairs(session.liveWell) do
+	for _, rarityIndex in ipairs(session.profile.Aquarium.StoredFish) do
 		total += GameConfig.Rarities[rarityIndex].incomePerSec
 	end
 	return total
@@ -18,21 +19,24 @@ end
 
 function StateSync.snapshot(session)
 	local now = os.clock()
+	local profile = session.profile
+	local aquarium = profile.Aquarium
 	local liveWellCounts = {}
-	for _, rarityIndex in ipairs(session.liveWell) do
+	for _, rarityIndex in ipairs(aquarium.StoredFish) do
 		local key = tostring(rarityIndex)
 		liveWellCounts[key] = (liveWellCounts[key] or 0) + 1
 	end
 	return {
-		cash = math.floor(session.cash),
-		rodLevel = session.rodLevel,
-		baitLevel = session.baitLevel,
+		cash = math.floor(profile.Coins),
+		rodLevel = profile.Equipment.EquippedRodLevel,
+		baitLevel = profile.Equipment.EquippedBaitLevel,
 		carried = #session.carried,
 		maxCarried = GameConfig.MaxCarried,
-		liveWellCount = #session.liveWell,
+		liveWellCount = #aquarium.StoredFish,
 		liveWellCounts = liveWellCounts,
 		capacity = StateSync.getCapacity(session),
 		incomePerSec = StateSync.incomePerSec(session),
+		-- os.clock() for runtime UI timers (these are session-relative, not persisted)
 		lockRemaining = math.max(0, session.lockedUntil - now),
 		lockCooldownRemaining = math.max(0, session.lockCooldownUntil - now),
 	}
@@ -44,7 +48,7 @@ function StateSync.push(session)
 	if leaderstats then
 		local cashValue = leaderstats:FindFirstChild("Cash")
 		if cashValue then
-			cashValue.Value = math.floor(session.cash)
+			cashValue.Value = math.floor(session.profile.Coins)
 		end
 	end
 	StateSync.remotes.StateChanged:FireClient(player, StateSync.snapshot(session))
@@ -55,7 +59,7 @@ function StateSync.setupLeaderstats(player, session)
 	leaderstats.Name = "leaderstats"
 	local cash = Instance.new("IntValue")
 	cash.Name = "Cash"
-	cash.Value = math.floor(session.cash)
+	cash.Value = math.floor(session.profile.Coins)
 	cash.Parent = leaderstats
 	leaderstats.Parent = player
 end
