@@ -146,9 +146,14 @@ local function sanitize(data)
 	-- Collection
 	if type(data.Collection) == "table" then
 		if type(data.Collection.DiscoveredSpecies) == "table" then
+			local FishDefinitions = require(game:GetService("ReplicatedStorage").Shared.FishDefinitions)
 			for speciesId, val in pairs(data.Collection.DiscoveredSpecies) do
 				if type(speciesId) == "string" and val == true then
-					clean.Collection.DiscoveredSpecies[speciesId] = true
+					-- Only keep species that exist in FishDefinitions
+					local ok = pcall(FishDefinitions.get, speciesId)
+					if ok then
+						clean.Collection.DiscoveredSpecies[speciesId] = true
+					end
 				end
 			end
 		end
