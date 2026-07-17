@@ -4,14 +4,17 @@
 	Each species has a SpeciesId, DisplayName, Rarity, ZoneIds, BaseSellValue,
 	IncomePerMinute, CatchWeight, ModelId, and CollectionOrder.
 
-	This is a MINIMAL stub (one species per rarity) created to unblock
-	TASK 1.2 (FishInstance). TASK 2.1 will expand this to the full
-	12-20 species catalog across starter and upgraded zones.
+	15 species across 5 rarity tiers and 2 zones (StarterPier, DeepWater).
+	Common species are weighted heavily; Legendary are rare. Income and sell
+	values scale exponentially with rarity to make progression feel rewarding.
 ]]
 
 local FishDefinitions = {}
 
 FishDefinitions.Species = {
+	-- ══════════════════════════════════════════════════════════════════════
+	-- COMMON (weight ~55 total) — StarterPier only
+	-- ══════════════════════════════════════════════════════════════════════
 	Bluegill = {
 		SpeciesId = "Bluegill",
 		DisplayName = "Bluegill",
@@ -19,11 +22,38 @@ FishDefinitions.Species = {
 		ZoneIds = { "StarterPier" },
 		BaseSellValue = 15,
 		IncomePerMinute = 1,
-		CatchWeight = 60,
+		CatchWeight = 30,
 		ModelId = "Fish_Bluegill",
 		CollectionOrder = 1,
 	},
 
+	Perch = {
+		SpeciesId = "Perch",
+		DisplayName = "Yellow Perch",
+		Rarity = "Common",
+		ZoneIds = { "StarterPier" },
+		BaseSellValue = 12,
+		IncomePerMinute = 1,
+		CatchWeight = 25,
+		ModelId = "Fish_Perch",
+		CollectionOrder = 2,
+	},
+
+	Sardine = {
+		SpeciesId = "Sardine",
+		DisplayName = "Sardine",
+		Rarity = "Common",
+		ZoneIds = { "StarterPier" },
+		BaseSellValue = 8,
+		IncomePerMinute = 0.5,
+		CatchWeight = 20,
+		ModelId = "Fish_Sardine",
+		CollectionOrder = 3,
+	},
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- UNCOMMON (weight ~25 total) — StarterPier
+	-- ══════════════════════════════════════════════════════════════════════
 	Mackerel = {
 		SpeciesId = "Mackerel",
 		DisplayName = "Mackerel",
@@ -31,11 +61,38 @@ FishDefinitions.Species = {
 		ZoneIds = { "StarterPier" },
 		BaseSellValue = 30,
 		IncomePerMinute = 3,
-		CatchWeight = 25,
+		CatchWeight = 15,
 		ModelId = "Fish_Mackerel",
-		CollectionOrder = 2,
+		CollectionOrder = 4,
 	},
 
+	Trout = {
+		SpeciesId = "Trout",
+		DisplayName = "Rainbow Trout",
+		Rarity = "Uncommon",
+		ZoneIds = { "StarterPier" },
+		BaseSellValue = 35,
+		IncomePerMinute = 3.5,
+		CatchWeight = 12,
+		ModelId = "Fish_Trout",
+		CollectionOrder = 5,
+	},
+
+	Bass = {
+		SpeciesId = "Bass",
+		DisplayName = "Largemouth Bass",
+		Rarity = "Uncommon",
+		ZoneIds = { "StarterPier" },
+		BaseSellValue = 40,
+		IncomePerMinute = 4,
+		CatchWeight = 10,
+		ModelId = "Fish_Bass",
+		CollectionOrder = 6,
+	},
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- RARE (weight ~12 total) — StarterPier + DeepWater
+	-- ══════════════════════════════════════════════════════════════════════
 	Snapper = {
 		SpeciesId = "Snapper",
 		DisplayName = "Red Snapper",
@@ -43,11 +100,38 @@ FishDefinitions.Species = {
 		ZoneIds = { "StarterPier", "DeepWater" },
 		BaseSellValue = 80,
 		IncomePerMinute = 8,
-		CatchWeight = 12,
+		CatchWeight = 8,
 		ModelId = "Fish_Snapper",
-		CollectionOrder = 3,
+		CollectionOrder = 7,
 	},
 
+	Grouper = {
+		SpeciesId = "Grouper",
+		DisplayName = "Goliath Grouper",
+		Rarity = "Rare",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 95,
+		IncomePerMinute = 9,
+		CatchWeight = 6,
+		ModelId = "Fish_Grouper",
+		CollectionOrder = 8,
+	},
+
+	Tuna = {
+		SpeciesId = "Tuna",
+		DisplayName = "Bluefin Tuna",
+		Rarity = "Rare",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 110,
+		IncomePerMinute = 10,
+		CatchWeight = 5,
+		ModelId = "Fish_Tuna",
+		CollectionOrder = 9,
+	},
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- EPIC (weight ~6 total) — DeepWater only
+	-- ══════════════════════════════════════════════════════════════════════
 	Swordfish = {
 		SpeciesId = "Swordfish",
 		DisplayName = "Swordfish",
@@ -55,11 +139,38 @@ FishDefinitions.Species = {
 		ZoneIds = { "DeepWater" },
 		BaseSellValue = 200,
 		IncomePerMinute = 20,
-		CatchWeight = 6,
+		CatchWeight = 4,
 		ModelId = "Fish_Swordfish",
-		CollectionOrder = 4,
+		CollectionOrder = 10,
 	},
 
+	Marlin = {
+		SpeciesId = "Marlin",
+		DisplayName = "Blue Marlin",
+		Rarity = "Epic",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 250,
+		IncomePerMinute = 25,
+		CatchWeight = 3,
+		ModelId = "Fish_Marlin",
+		CollectionOrder = 11,
+	},
+
+	Sturgeon = {
+		SpeciesId = "Sturgeon",
+		DisplayName = "Ancient Sturgeon",
+		Rarity = "Epic",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 300,
+		IncomePerMinute = 30,
+		CatchWeight = 2,
+		ModelId = "Fish_Sturgeon",
+		CollectionOrder = 12,
+	},
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- LEGENDARY (weight ~2 total) — DeepWater only
+	-- ══════════════════════════════════════════════════════════════════════
 	GoldenKoi = {
 		SpeciesId = "GoldenKoi",
 		DisplayName = "Golden Koi",
@@ -67,9 +178,33 @@ FishDefinitions.Species = {
 		ZoneIds = { "DeepWater" },
 		BaseSellValue = 600,
 		IncomePerMinute = 60,
-		CatchWeight = 2,
+		CatchWeight = 1,
 		ModelId = "Fish_GoldenKoi",
-		CollectionOrder = 5,
+		CollectionOrder = 13,
+	},
+
+	AbyssalEel = {
+		SpeciesId = "AbyssalEel",
+		DisplayName = "Abyssal Eel",
+		Rarity = "Legendary",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 750,
+		IncomePerMinute = 75,
+		CatchWeight = 1,
+		ModelId = "Fish_AbyssalEel",
+		CollectionOrder = 14,
+	},
+
+	HarborKing = {
+		SpeciesId = "HarborKing",
+		DisplayName = "The Harbor King",
+		Rarity = "Legendary",
+		ZoneIds = { "DeepWater" },
+		BaseSellValue = 1000,
+		IncomePerMinute = 100,
+		CatchWeight = 0.5,
+		ModelId = "Fish_HarborKing",
+		CollectionOrder = 15,
 	},
 }
 
