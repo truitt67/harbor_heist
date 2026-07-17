@@ -1,4 +1,5 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local FishInstance = require(game:GetService("ReplicatedStorage").Shared.FishInstance)
 
 local FishingService = {}
 
@@ -70,12 +71,14 @@ function FishingService.init(deps)
 				warn("[HarborHeist] Invalid rarityIndex caught: " .. tostring(rarityIndex))
 				return
 			end
-			local rarity = GameConfig.Rarities[rarityIndex]
-			table.insert(session.carried, rarityIndex)
+			-- Create FishInstance record (TASK 1.2)
+			local fish = FishInstance.fromRarityIndex(rarityIndex)
+			table.insert(session.carried, fish)
 
+			local rarity = GameConfig.Rarities[rarityIndex]
 			remotes.notify(
 				player,
-				string.format("You caught a %s fish! (worth $%d)", rarity.name, rarity.value),
+				string.format("You caught a %s %s! (worth $%d)", rarity.name, fish.SpeciesId, fish.BaseSellValue),
 				rarity.color
 			)
 			stateSync.push(session)

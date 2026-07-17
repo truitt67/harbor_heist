@@ -291,25 +291,29 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local waterCFrame = dock.aquarium.Water.CFrame
 	local shown = math.min(#session.profile.Aquarium.StoredFish, GameConfig.Aquarium.maxVisibleFish)
 
-	-- SECURITY: Validate each rarity index before creating visual representation
+	-- SECURITY: Validate each fish before creating visual representation
 	for i = 1, shown do
-		local rarityIndex = session.profile.Aquarium.StoredFish[i]
-		-- Validate rarity index is within bounds
-		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfigRarities) then
-			warn("[HarborHeist] Invalid rarity index in visual update: " .. tostring(rarityIndex))
+		local fishData = session.profile.Aquarium.StoredFish[i]
+		-- Validate fish record exists and has required fields
+		if type(fishData) ~= "table" or type(fishData.Rarity) ~= "string" then
+			warn("[HarborHeist] Invalid fish record in visual update at index " .. i)
 			continue
 		end
-		
-		local rarity = GameConfigRarities[rarityIndex]
-		if not rarity then
-			continue
+
+		-- Find rarity color by name
+		local rarityColor = Color3.fromRGB(255, 255, 255)
+		for _, r in ipairs(GameConfigRarities) do
+			if r.name == fishData.Rarity then
+				rarityColor = r.color
+				break
+			end
 		end
-		
+
 		local fish = Instance.new("Part")
 		fish.Name = "Fish"
 		fish.Shape = Enum.PartType.Ball
 		fish.Size = Vector3.new(0.7, 0.5, 1.1)
-		fish.Color = rarity.color
+		fish.Color = rarityColor
 		fish.Material = Enum.Material.Neon
 		fish.Anchored = true
 		fish.CanCollide = false

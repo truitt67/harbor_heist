@@ -26,7 +26,8 @@ function AquariumService.init(deps)
 		local capacity = stateSync.getCapacity(session)
 		local stored = 0
 		while #session.carried > 0 and #storedFish < capacity do
-			table.insert(storedFish, table.remove(session.carried))
+			local fish = table.remove(session.carried)
+			table.insert(storedFish, fish)
 			stored += 1
 		end
 		if stored == 0 then
@@ -54,11 +55,13 @@ function AquariumService.init(deps)
 		end
 		local storedFish = session.profile.Aquarium.StoredFish
 		local payout = 0
-		for _, rarityIndex in ipairs(storedFish) do
-			payout += GameConfig.Rarities[rarityIndex].value
+		-- Sell stored fish (FishInstance records)
+		for _, fish in ipairs(storedFish) do
+			payout += fish.BaseSellValue
 		end
-		for _, rarityIndex in ipairs(session.carried) do
-			payout += GameConfig.Rarities[rarityIndex].value
+		-- Sell carried fish (FishInstance records)
+		for _, fish in ipairs(session.carried) do
+			payout += fish.BaseSellValue
 		end
 		if payout <= 0 then
 			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
@@ -174,43 +177,50 @@ function AquariumService.handleSteal(deps, attacker, dock)
 
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
 		local victimFish = victimSession.profile.Aquarium.StoredFish
-		local stolenIndex = rng:NextInteger(1, #victimFish)
-		local rarityIndex = table.remove(victimFish, stolenIndex)
-		
-		-- SECURITY: Validate rarityIndex is a valid rarity before using it
-		if not (type(rarityIndex) == "number" and rarityIndex >= 1 and rarityIndex <= #GameConfig.Rarities) then
-			warn("[HarborHeist] Invalid rarityIndex stolen: " .. tostring(rarityIndex))
+		-- Filter out raid-protected fish (Legendary)
+		local eligible = {}
+		for i, fish in ipairs(victimFish) do
+			if not fish.IsRaidProtected then
+				table.insert(eligible, i)
+			end
+		end
+		if #eligible == 0 then
+			remotes.notify(attacker, "All fish here are protected! Nothing to steal.", Color3.fromRGB(255, 170, 80))
 			return
 		end
+		local stolenIndex = eligible[rng:NextInteger(1, #eligible)]
+		local stolenFish = table.remove(victimFish, stolenIndex)
 		
-		local rarity = GameConfig.Rarities[rarityIndex]
+		local rarityName = stolenFish.Rarity
+		local rarityColor = Color3.fromRGB(255, 255, 255)
+		for _, r in ipairs(GameConfig.Rarities) do
+			if r.name == rarityName then
+				rarityColor = r.color
+				break
+			end
+		end
 
 		local capacity = stateSync.getCapacity(attackerSession)
 		local attackerFish = attackerSession.profile.Aquarium.StoredFish
 		-- SECURITY: Double-check capacity before insertion
 		if #attackerFish < capacity then
-			table.insert(attackerFish, rarityIndex)
+			table.insert(attackerFish, stolenFish)
 			remotes.notify(
 				attacker,
-				string.format("Heist success! You stole a %s fish from %s!", rarity.name, victim.DisplayName),
-				rarity.color
+				string.format("Heist success! You stole a %s %s from %s!", rarityName, stolenFish.SpeciesId, victim.DisplayName),
+				rarityColor
 			)
 		else
-			-- SECURITY: Validate rarity value before adding to cash
-			if type(rarity.value) ~= "number" or rarity.value < 0 then
-				warn("[HarborHeist] Invalid rarity value for index " .. rarityIndex)
-				return
-			end
-			attackerSession.profile.Coins = attackerSession.profile.Coins + rarity.value
+			attackerSession.profile.Coins = attackerSession.profile.Coins + stolenFish.BaseSellValue
 			remotes.notify(
 				attacker,
-				string.format("Heist success! Fenced a %s fish for $%d!", rarity.name, rarity.value),
-				rarity.color
+				string.format("Heist success! Fenced a %s %s for $%d!", rarityName, stolenFish.SpeciesId, stolenFish.BaseSellValue),
+				rarityColor
 			)
 		end
 		remotes.notify(
 			victim,
-			string.format("%s stole a %s fish from your aquarium! Lock it up!", attacker.DisplayName, rarity.name),
+			string.format("%s stole a %s %s from your aquarium! Lock it up!", attacker.DisplayName, rarityName, stolenFish.SpeciesId),
 			Color3.fromRGB(255, 100, 100)
 		)
 		AquariumService.refreshVisual(victimSession)

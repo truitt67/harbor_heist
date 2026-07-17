@@ -33,11 +33,14 @@ local function sanitizeStoredFish(list)
 	if type(list) ~= "table" then
 		return clean
 	end
+	local FishInstance = require(game:GetService("ReplicatedStorage").Shared.FishInstance)
 	for _, item in ipairs(list) do
-		-- Currently items are rarity indexes (1..#Rarities).
-		-- TASK 1.2 will add FishInstance validation here.
-		if type(item) == "number" and item >= 1 and item <= #GameConfig.Rarities then
-			table.insert(clean, math.floor(item))
+		if type(item) == "table" and FishInstance.validate(item) then
+			table.insert(clean, item)
+		elseif type(item) == "number" and item >= 1 and item <= #GameConfig.Rarities then
+			-- Legacy rarity index -> convert to FishInstance
+			local fish = FishInstance.fromRarityIndex(item)
+			table.insert(clean, fish)
 		end
 	end
 	return clean
@@ -54,12 +57,23 @@ local function sanitize(data)
 		clean.Version = data.Version
 	end
 
+	-- Legacy v1 fallback: convert old flat fields
+	if type(data.cash) == "number" then
+		clean.Coins = PlayerProfile.clampCoins(data.cash)
+	end
+	if type(data.rodLevel) == "number" and GameConfig.Rods[data.rodLevel] then
+		clean.Equipment.EquippedRodLevel = data.rodLevel
+	end
+	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
+		clean.Equipment.EquippedBaitLevel = data.baitLevel
+	end
+	if type(data.liveWell) == "table" then
+		clean.Aquarium.StoredFish = sanitizeStoredFish(data.liveWell)
+	end
+
 	-- Coins
 	if type(data.Coins) == "number" then
 		clean.Coins = PlayerProfile.clampCoins(data.Coins)
-	elseif type(data.cash) == "number" then
-		-- Legacy v1 fallback (migration path)
-		clean.Coins = PlayerProfile.clampCoins(data.cash)
 	end
 	if type(data.TotalCoinsEarned) == "number" then
 		clean.TotalCoinsEarned = math.max(0, math.floor(data.TotalCoinsEarned))

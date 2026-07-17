@@ -11,8 +11,8 @@ end
 
 function StateSync.incomePerSec(session)
 	local total = 0
-	for _, rarityIndex in ipairs(session.profile.Aquarium.StoredFish) do
-		total += GameConfig.Rarities[rarityIndex].incomePerSec
+	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
+		total += fish.IncomePerMinute / 60
 	end
 	return total
 end
@@ -22,8 +22,8 @@ function StateSync.snapshot(session)
 	local profile = session.profile
 	local aquarium = profile.Aquarium
 	local liveWellCounts = {}
-	for _, rarityIndex in ipairs(aquarium.StoredFish) do
-		local key = tostring(rarityIndex)
+	for _, fish in ipairs(aquarium.StoredFish) do
+		local key = fish.Rarity
 		liveWellCounts[key] = (liveWellCounts[key] or 0) + 1
 	end
 	return {

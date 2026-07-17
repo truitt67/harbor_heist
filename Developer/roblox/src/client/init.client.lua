@@ -361,7 +361,7 @@ local function render()
 
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
-		local count = state.liveWellCounts[i] or state.liveWellCounts[tostring(i)] or 0
+		local count = state.liveWellCounts[rarity.name] or 0
 		table.insert(lines, string.format(
 			'<font color="%s">%s</font>: %d fish ($%d each, +$%.1f/s)',
 			toHex(rarity.color), rarity.name, count, rarity.value, rarity.incomePerSec
