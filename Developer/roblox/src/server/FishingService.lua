@@ -181,7 +181,7 @@ function FishingService.init(deps)
 		)
 		stateSync.push(session)
 		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue }
-	end)
+	end
 end
 
 return FishingService

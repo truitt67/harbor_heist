@@ -8,6 +8,7 @@ local StateSync = require(script.StateSync)
 local FishingService = require(script.FishingService)
 local AquariumService = require(script.AquariumService)
 local ShopService = require(script.ShopService)
+local FishInventoryService = require(script.FishInventoryService)
 
 Players.CharacterAutoLoads = false
 
@@ -26,6 +27,7 @@ local deps = {
 FishingService.init(deps)
 AquariumService.init(deps)
 ShopService.init(deps)
+FishInventoryService.init(deps)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
