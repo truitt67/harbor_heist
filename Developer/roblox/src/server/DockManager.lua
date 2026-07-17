@@ -157,12 +157,40 @@ local function buildDock(index)
 	local zoneLabel = Instance.new("TextLabel")
 	zoneLabel.Size = UDim2.new(1, 0, 1, 0)
 	zoneLabel.BackgroundTransparency = 1
-	zoneLabel.Text = "Fishing Zone"
+	zoneLabel.Text = "Starter Pier"
 	zoneLabel.TextColor3 = Color3.fromRGB(160, 230, 255)
 	zoneLabel.TextStrokeTransparency = 0.4
 	zoneLabel.TextScaled = true
 	zoneLabel.Font = Enum.Font.FredokaOne
 	zoneLabel.Parent = zoneSign
+
+	-- Deep Water zone: further out, requires better rod (TASK 2.2)
+	local deepEndPos = direction * (PLAZA_RADIUS + DOCK_LENGTH + 14)
+	local deepWaterZone = makePart({
+		Name = "DeepWaterZone",
+		Size = Vector3.new(DOCK_WIDTH + 2, 6, 10),
+		CFrame = CFrame.lookAt(deepEndPos, deepEndPos + direction) * CFrame.new(0, 4, 0),
+		Transparency = 0.9,
+		Color = Color3.fromRGB(30, 80, 180),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = dockModel,
+	})
+
+	local deepSign = Instance.new("BillboardGui")
+	deepSign.Size = UDim2.new(0, 160, 0, 32)
+	deepSign.StudsOffset = Vector3.new(0, 4, 0)
+	deepSign.MaxDistance = 60
+	deepSign.Parent = deepWaterZone
+	local deepLabel = Instance.new("TextLabel")
+	deepLabel.Size = UDim2.new(1, 0, 1, 0)
+	deepLabel.BackgroundTransparency = 1
+	deepLabel.Text = "Deep Water (Rod 2+)"
+	deepLabel.TextColor3 = Color3.fromRGB(100, 150, 255)
+	deepLabel.TextStrokeTransparency = 0.4
+	deepLabel.TextScaled = true
+	deepLabel.Font = Enum.Font.FredokaOne
+	deepLabel.Parent = deepSign
 
 	local aquariumOffset = lookCFrame * CFrame.new(DOCK_WIDTH / 2 + 3.5, -0.5, -DOCK_LENGTH / 2 + 4)
 	local aquarium = buildAquarium(dockModel, aquariumOffset)
@@ -183,6 +211,7 @@ local function buildDock(index)
 		model = dockModel,
 		walkway = walkway,
 		fishingZone = fishingZone,
+		deepWaterZone = deepWaterZone,
 		aquarium = aquarium,
 		spawnCFrame = spawnCFrame,
 		owner = nil,
@@ -267,14 +296,25 @@ end
 function DockManager.isInFishingZone(dock, character)
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root then
-		return false
+		return false, nil
 	end
-	local zone = dock.fishingZone
-	local relative = zone.CFrame:PointToObjectSpace(root.Position)
-	local half = zone.Size / 2
-	return math.abs(relative.X) <= half.X + 2
-		and math.abs(relative.Y) <= half.Y + 3
-		and math.abs(relative.Z) <= half.Z + 2
+	local zones = {
+		{ zone = dock.fishingZone, zoneId = "StarterPier" },
+		{ zone = dock.deepWaterZone, zoneId = "DeepWater" },
+	}
+	for _, entry in ipairs(zones) do
+		local zone = entry.zone
+		if zone then
+			local relative = zone.CFrame:PointToObjectSpace(root.Position)
+			local half = zone.Size / 2
+			if math.abs(relative.X) <= half.X + 2
+				and math.abs(relative.Y) <= half.Y + 3
+				and math.abs(relative.Z) <= half.Z + 2 then
+				return true, entry.zoneId
+			end
+		end
+	end
+	return false, nil
 end
 
 function DockManager.updateAquariumVisual(dock, session, capacity)

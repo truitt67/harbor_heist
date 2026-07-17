@@ -30,8 +30,19 @@ function FishingService.init(deps)
 			return
 		end
 		-- SECURITY: Verify character exists before checking fishing zone
-		if not player.Character or not dockManager.isInFishingZone(dock, player.Character) then
-			remotes.notify(player, "Stand in the glowing Fishing Zone at the end of your dock!", Color3.fromRGB(255, 170, 80))
+		local inZone, zoneId = false, nil
+		if player.Character then
+			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
+		end
+		if not inZone then
+			remotes.notify(player, "Stand in a fishing zone at your dock!", Color3.fromRGB(255, 170, 80))
+			return
+		end
+		-- TASK 2.2: Enforce rod-level zone access
+		local ZoneDefinitions = require(game:GetService("ReplicatedStorage").Shared.ZoneDefinitions)
+		if not ZoneDefinitions.canAccess(zoneId, session.profile.Equipment.EquippedRodLevel) then
+			local zone = ZoneDefinitions.get(zoneId)
+			remotes.notify(player, string.format("You need a better rod to fish in %s!", zone.DisplayName), Color3.fromRGB(255, 170, 80))
 			return
 		end
 
