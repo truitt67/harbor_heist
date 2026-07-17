@@ -381,6 +381,125 @@ local function render()
 	end
 end
 
+-- ============ Bite Timing Minigame (TASK 3.2) ============
+local minigameFrame = Instance.new("Frame")
+minigameFrame.Size = UDim2.new(0, 400, 0, 120)
+minigameFrame.Position = UDim2.new(0.5, -200, 0.5, -60)
+minigameFrame.BackgroundColor3 = COLORS.panel
+minigameFrame.Visible = false
+minigameFrame.Parent = screenGui
+corner(minigameFrame, 14)
+
+local minigameTitle = makeLabel(minigameFrame, {
+	Size = UDim2.new(1, 0, 0, 28),
+	Position = UDim2.new(0, 0, 0, 8),
+	Text = "FISH ON! Tap when the marker is in the zone!",
+	TextColor3 = COLORS.warn,
+})
+
+-- The bar track
+local barTrack = Instance.new("Frame")
+barTrack.Size = UDim2.new(1, -40, 0, 20)
+barTrack.Position = UDim2.new(0, 20, 0, 50)
+barTrack.BackgroundColor3 = COLORS.panelLight
+barTrack.Parent = minigameFrame
+corner(barTrack, 8)
+
+-- The target zone (center 30% by default)
+local targetZone = Instance.new("Frame")
+targetZone.Size = UDim2.new(0.3, 0, 1, 0)
+targetZone.Position = UDim2.new(0.35, 0, 0, 0)
+targetZone.BackgroundColor3 = COLORS.good
+targetZone.BackgroundTransparency = 0.5
+targetZone.Parent = barTrack
+corner(targetZone, 8)
+
+-- The moving marker
+local marker = Instance.new("Frame")
+marker.Size = UDim2.new(0, 4, 1, 4)
+marker.Position = UDim2.new(0, 0, 0, -2)
+marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+marker.Parent = barTrack
+corner(marker, 2)
+
+-- Result text
+local minigameResult = makeLabel(minigameFrame, {
+	Size = UDim2.new(1, 0, 0, 24),
+	Position = UDim2.new(0, 0, 0, 80),
+	Text = "",
+	TextColor3 = COLORS.text,
+})
+
+local minigameActive = false
+local minigameStartTime = 0
+local minigameWindow = 3.0
+local minigameZoneId = nil
+
+-- Animate the marker sweeping back and forth
+local function runMinigame(zoneId, windowSeconds)
+	if minigameActive then return end
+	minigameActive = true
+	minigameZoneId = zoneId
+	minigameWindow = windowSeconds
+	minigameStartTime = os.clock()
+	minigameFrame.Visible = true
+	minigameResult.Text = ""
+
+	task.spawn(function()
+		local sweepDuration = 1.2 -- seconds for one full sweep
+		while minigameActive do
+			local elapsed = os.clock() - minigameStartTime
+			if elapsed > minigameWindow then
+				-- Time expired
+				minigameActive = false
+				minigameFrame.Visible = false
+				Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
+				break
+			end
+
+			-- Ping-pong sweep: 0 -> 1 -> 0
+			local t = (elapsed % sweepDuration) / sweepDuration
+			local pos
+			if t < 0.5 then
+				pos = t * 2 -- 0 -> 1
+			else
+				pos = 2 - t * 2 -- 1 -> 0
+			end
+			marker.Position = UDim2.new(pos, -2, 0, -2)
+			task.wait()
+		end
+	end)
+end
+
+-- Player taps/ clicks to stop the marker
+local function onMinigameTap()
+	if not minigameActive then return end
+	local elapsed = os.clock() - minigameStartTime
+	local markerPos = marker.Position.X.Scale
+	-- Check if marker is in the target zone (0.35 to 0.65)
+	local hit = markerPos >= 0.35 and markerPos <= 0.65
+	minigameActive = false
+	minigameFrame.Visible = false
+	Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+end
+
+minigameFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		onMinigameTap()
+	end
+end)
+
+-- Also allow tapping anywhere on screen during minigame
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if not minigameActive then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		onMinigameTap()
+	end
+end)
+
 -- ============ Actions ============
 local function doFish()
 	if not casting then
@@ -430,6 +549,11 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 Remotes.CastState.OnClientEvent:Connect(function(isCasting)
 	casting = isCasting
 	render()
+end)
+
+Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
+	-- Start the timing minigame when the server says a fish is biting
+	runMinigame(zoneId, windowSeconds)
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
