@@ -11,7 +11,67 @@ local function makePart(props)
 	return part
 end
 
+function WorldBuilder.setupEnvironment()
+	local lighting = game:GetService("Lighting")
+	lighting.ClockTime = 15.6
+	lighting.Brightness = 2.4
+	lighting.ExposureCompensation = 0.15
+	lighting.EnvironmentDiffuseScale = 0.6
+	lighting.EnvironmentSpecularScale = 0.8
+	lighting.GlobalShadows = true
+	lighting.ShadowSoftness = 0.35
+	lighting.Ambient = Color3.fromRGB(96, 110, 128)
+	lighting.OutdoorAmbient = Color3.fromRGB(128, 140, 156)
+
+	local atmosphere = lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
+	atmosphere.Density = 0.32
+	atmosphere.Offset = 0.6
+	atmosphere.Color = Color3.fromRGB(199, 214, 230)
+	atmosphere.Decay = Color3.fromRGB(106, 132, 165)
+	atmosphere.Glare = 0.25
+	atmosphere.Haze = 1.6
+	atmosphere.Parent = lighting
+
+	local bloom = lighting:FindFirstChild("HarborBloom") or Instance.new("BloomEffect")
+	bloom.Name = "HarborBloom"
+	bloom.Intensity = 0.6
+	bloom.Size = 32
+	bloom.Threshold = 1.05
+	bloom.Parent = lighting
+
+	local color = lighting:FindFirstChild("HarborColor") or Instance.new("ColorCorrectionEffect")
+	color.Name = "HarborColor"
+	color.Brightness = 0.02
+	color.Contrast = 0.08
+	color.Saturation = 0.12
+	color.TintColor = Color3.fromRGB(255, 250, 242)
+	color.Parent = lighting
+
+	local sunRays = lighting:FindFirstChild("HarborSunRays") or Instance.new("SunRaysEffect")
+	sunRays.Name = "HarborSunRays"
+	sunRays.Intensity = 0.08
+	sunRays.Spread = 0.6
+	sunRays.Parent = lighting
+
+	if not workspace.Terrain:FindFirstChildOfClass("Clouds") then
+		local clouds = Instance.new("Clouds")
+		clouds.Cover = 0.42
+		clouds.Density = 0.28
+		clouds.Color = Color3.fromRGB(235, 240, 248)
+		clouds.Parent = workspace.Terrain
+	end
+
+	local terrain = workspace.Terrain
+	terrain.WaterColor = Color3.fromRGB(28, 92, 128)
+	terrain.WaterReflectance = 0.6
+	terrain.WaterTransparency = 0.7
+	terrain.WaterWaveSize = 0.12
+	terrain.WaterWaveSpeed = 12
+end
+
 function WorldBuilder.build()
+	WorldBuilder.setupEnvironment()
+
 	local worldFolder = Instance.new("Folder")
 	worldFolder.Name = "HarborWorld"
 	worldFolder.Parent = workspace
@@ -56,8 +116,75 @@ function WorldBuilder.build()
 
 	WorldBuilder.buildShop(worldFolder)
 	WorldBuilder.buildDecorations(worldFolder)
+	WorldBuilder.buildBoatDock(worldFolder)
 
 	return worldFolder
+end
+
+function WorldBuilder.buildBoatDock(parent)
+	local boatDock = Instance.new("Model")
+	boatDock.Name = "BoatDock"
+	boatDock.Parent = parent
+
+	local dockZ = 38
+	local platform = makePart({
+		Name = "Platform",
+		Size = Vector3.new(10, 1, 14),
+		CFrame = CFrame.new(0, 0.5, dockZ),
+		Color = Color3.fromRGB(150, 105, 70),
+		Material = Enum.Material.WoodPlanks,
+		Parent = boatDock,
+	})
+
+	for _, xOffset in ipairs({ -5, 5 }) do
+		makePart({
+			Name = "Railing",
+			Size = Vector3.new(0.5, 1.5, 14),
+			CFrame = CFrame.new(xOffset, 1.5, dockZ),
+			Color = Color3.fromRGB(100, 70, 45),
+			Material = Enum.Material.Wood,
+			Parent = boatDock,
+		})
+	end
+
+	local spawnPoint = Instance.new("Part")
+	spawnPoint.Name = "SpawnPoint"
+	spawnPoint.Size = Vector3.new(6, 0.1, 6)
+	spawnPoint.CFrame = CFrame.new(0, 0.6, dockZ + 4)
+	spawnPoint.Transparency = 1
+	spawnPoint.CanCollide = false
+	spawnPoint.Anchored = true
+	spawnPoint.Parent = boatDock
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "BoatSign"
+	billboard.Size = UDim2.new(0, 160, 0, 42)
+	billboard.StudsOffset = Vector3.new(0, 5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 110
+	billboard.Parent = platform
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "BOAT DOCK"
+	label.TextColor3 = Color3.fromRGB(100, 200, 255)
+	label.TextStrokeTransparency = 0.2
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "BoatPrompt"
+	prompt.ActionText = "Spawn Boat"
+	prompt.ObjectText = "Boat Dock"
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = platform
+
+	boatDock.PrimaryPart = platform
+	return prompt
 end
 
 function WorldBuilder.buildShop(parent)

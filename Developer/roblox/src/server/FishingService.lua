@@ -17,6 +17,30 @@ function FishingService.init(deps)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
+	local rodService = deps.rodService
+
+	local pendingCasts = {} -- [player] = { deadline, hitZoneWidth, dock }
+
+	local function failCast(player, reason)
+		-- RELIABILITY: Always clear the pending entry, even when the session is
+		-- already gone (player left) - otherwise the Player key leaks in the table.
+		pendingCasts[player] = nil
+		if rodService then
+			rodService.endCast(player, false)
+		end
+		local session = dataManager.get(player)
+		if not session then
+			return
+		end
+		session.casting = false
+		session.castDeadline = 0
+		remotes.CastState:FireClient(player, false, 0, nil)
+		if reason and session.player and session.player.Parent then
+			remotes.notify(player, reason, Color3.fromRGB(255, 120, 120))
+		end
+		stateSync.push(session)
+	end
 
 	-- Track active bite state per player (not persisted)
 	local activeBites = {} -- player -> { zoneId, rod, baitLevel, biteTime }
@@ -33,14 +57,12 @@ function FishingService.init(deps)
 
 	remotes.Cast.OnServerEvent:Connect(function(player)
 		local session = dataManager.get(player)
-		-- SECURITY: Verify player session exists and player is still in game
 		if not session or not player.Parent then
 			return
 		end
 		if session.casting then
 			return
 		end
-		-- SECURITY: Double-check carried array is within bounds
 		if #session.carried >= GameConfig.MaxCarried then
 			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 			return
@@ -49,7 +71,7 @@ function FishingService.init(deps)
 		if not dock then
 			return
 		end
-		-- SECURITY: Verify character exists and is in a fishing zone
+	-- SECURITY: Verify character exists and is in a fishing zone
 		local inZone, zoneId = false, nil
 		if player.Character then
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
@@ -71,8 +93,8 @@ function FishingService.init(deps)
 			session.casting = false
 			return
 		end
+	-- TASK 3.1: Server-side bite roll
 
-		-- TASK 3.1: Server-side bite roll
 		-- Bite delay is randomized; better rods = shorter average wait
 		local baseDelay = rod.castTime
 		local biteDelay = baseDelay + rng:NextNumber(BITE_MIN_DELAY, BITE_MAX_DELAY)

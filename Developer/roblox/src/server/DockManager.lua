@@ -1,3 +1,4 @@
+local TweenService = game:GetService("TweenService")
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 
 local DockManager = {}
@@ -59,6 +60,28 @@ local function buildAquarium(dockModel, cframe)
 	local fishFolder = Instance.new("Folder")
 	fishFolder.Name = "FishDisplay"
 	fishFolder.Parent = aquarium
+
+	-- Gentle bubble column rising through the tank.
+	local bubbleAttachment = Instance.new("Attachment")
+	bubbleAttachment.Position = Vector3.new(1.8, 0.5, 0)
+	bubbleAttachment.Parent = base
+	local bubbles = Instance.new("ParticleEmitter")
+	bubbles.Name = "Bubbles"
+	bubbles.Rate = 3
+	bubbles.Lifetime = NumberRange.new(1.2, 1.8)
+	bubbles.Speed = NumberRange.new(1.2, 2)
+	bubbles.SpreadAngle = Vector2.new(8, 8)
+	bubbles.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.08),
+		NumberSequenceKeypoint.new(1, 0.16),
+	})
+	bubbles.Color = ColorSequence.new(Color3.fromRGB(210, 240, 255))
+	bubbles.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	bubbles.EmissionDirection = Enum.NormalId.Top
+	bubbles.Parent = bubbleAttachment
 
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "InfoSign"
@@ -353,18 +376,63 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 			end
 		end
 
-		local fish = Instance.new("Part")
-		fish.Name = "Fish"
-		fish.Shape = Enum.PartType.Ball
-		fish.Size = Vector3.new(0.7, 0.5, 1.1)
-		fish.Color = rarityColor
-		fish.Material = Enum.Material.Neon
-		fish.Anchored = true
-		fish.CanCollide = false
-		fish.CFrame = waterCFrame
-			* CFrame.new(rng:NextNumber(-2, 2), rng:NextNumber(-1, 1), rng:NextNumber(-1.2, 1.2))
-			* CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
-		fish.Parent = display
+	-- Build a small fish model: body + welded tail fin that follows the body.
+		-- (RedBear's richer visual: animated swim tween, not a static ball.)
+		local body = Instance.new("Part")
+		body.Name = "Fish"
+		body.Shape = Enum.PartType.Ball
+		body.Size = Vector3.new(0.55, 0.45, 1.1)
+		body.Color = rarityColor
+		body.Material = Enum.Material.Neon
+		body.Anchored = true
+		body.CanCollide = false
+		body.CanQuery = false
+		body.CanTouch = false
+		body.CastShadow = false
+
+		local tail = Instance.new("WedgePart")
+		tail.Name = "Tail"
+		tail.Size = Vector3.new(0.12, 0.4, 0.45)
+		tail.Color = rarityColor
+		tail.Material = Enum.Material.Neon
+		tail.Anchored = false
+		tail.Massless = true
+		tail.CanCollide = false
+		tail.CanQuery = false
+		tail.CanTouch = false
+		tail.CastShadow = false
+
+		local startYaw = rng:NextNumber(0, math.pi * 2)
+		local startCFrame = waterCFrame
+			* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
+			* CFrame.Angles(0, startYaw, 0)
+		body.CFrame = startCFrame
+		tail.CFrame = startCFrame * CFrame.new(0, 0, 0.72) * CFrame.Angles(math.rad(-90), 0, 0)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = body
+		weld.Part1 = tail
+		weld.Parent = body
+		tail.Parent = body
+		body.Parent = display
+
+		-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
+		local driftCFrame = startCFrame
+			* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
+			* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
+		local swimTween = TweenService:Create(
+			body,
+			TweenInfo.new(
+				rng:NextNumber(2.2, 3.6),
+				Enum.EasingStyle.Sine,
+				Enum.EasingDirection.InOut,
+				-1,
+				true,
+				rng:NextNumber(0, 1.5)
+			),
+			{ CFrame = driftCFrame }
+		)
+		swimTween:Play()
 	end
 
 	-- SECURITY: Verify sign elements exist before updating

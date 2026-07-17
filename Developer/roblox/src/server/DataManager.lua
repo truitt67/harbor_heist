@@ -46,12 +46,39 @@ local function sanitizeStoredFish(list)
 	return clean
 end
 
+-- SECURITY: Quests are persisted so rewards can't be re-claimed by rejoining.
+-- Validate structure since DataStore contents may be corrupt.
+local function sanitizeQuestList(list)
+	local clean = {}
+	if type(list) ~= "table" then
+		return clean
+	end
+	for _, q in ipairs(list) do
+		if type(q) == "table"
+			and type(q.type) == "string"
+			and type(q.target) == "number" and q.target > 0
+			and type(q.reward) == "number" and q.reward >= 0
+		then
+			table.insert(clean, {
+				id = type(q.id) == "string" and q.id or "",
+				type = q.type,
+				target = q.target,
+				rarity = type(q.rarity) == "number" and q.rarity or nil,
+				progress = type(q.progress) == "number" and math.clamp(q.progress, 0, q.target) or 0,
+				claimed = q.claimed == true,
+				reward = q.reward,
+				desc = type(q.desc) == "string" and q.desc or "",
+			})
+		end
+	end
+	return clean
+end
+
 local function sanitize(data)
 	local clean = PlayerProfile.default()
 	if type(data) ~= "table" then
 		return clean
 	end
-
 	-- Version
 	if type(data.Version) == "number" and data.Version >= 1 then
 		clean.Version = data.Version
@@ -66,6 +93,15 @@ local function sanitize(data)
 	end
 	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
 		clean.Equipment.EquippedBaitLevel = data.baitLevel
+	end
+	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel <= #GameConfig.Upgrades.Capacity then
+		clean.capacityLevel = math.floor(data.capacityLevel)
+	end
+	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel <= #GameConfig.Upgrades.Lock then
+		clean.lockLevel = math.floor(data.lockLevel)
+	end
+	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel <= #GameConfig.Upgrades.Alarm then
+		clean.alarmLevel = math.floor(data.alarmLevel)
 	end
 	if type(data.liveWell) == "table" then
 		clean.Aquarium.StoredFish = sanitizeStoredFish(data.liveWell)
@@ -220,6 +256,16 @@ local function sanitize(data)
 		end
 	end
 
+	-- Quests (RedBear feature: persisted so rewards can't be re-claimed by rejoining)
+	if type(data.dailyQuestKey) == "string" then
+		clean.dailyQuestKey = data.dailyQuestKey
+	end
+	if type(data.weeklyQuestKey) == "string" then
+		clean.weeklyQuestKey = data.weeklyQuestKey
+	end
+	clean.dailyQuests = sanitizeQuestList(data.dailyQuests)
+	clean.weeklyQuests = sanitizeQuestList(data.weeklyQuests)
+
 	return clean
 end
 
@@ -267,7 +313,6 @@ function DataManager.load(player)
 		profile = profile,
 		-- Convenience aliases: these point INTO the profile so reads/writes
 		-- go to the canonical nested structure. Services update gradually.
-		cash = nil, -- DEPRECATED: use profile.Coins; kept nil to force compile-error discovery
 		carried = {}, -- SECURITY: Always empty on load (client data untrusted)
 		casting = false,
 		dockIndex = nil,
@@ -276,6 +321,21 @@ function DataManager.load(player)
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
 		stealCooldownUntil = 0, -- legacy; RaidService (TASK 8.x) will replace
+		-- RedBear additions: stun + boat runtime state (session-scoped)
+		stunUntil = 0,
+		castDeadline = 0,
+		castHitZoneStart = 0,
+		castHitZoneEnd = 0,
+		boatModel = nil,
+		boatDespawnTask = nil,
+		seatConnection = nil,
+		heistCount = 0, -- today's steal counter for quest hook
+		incomeSinceTick = 0,
+		-- Quest runtime fields (persisted via sanitize; runtime-mutable here)
+		dailyQuestKey = data.dailyQuestKey,
+		dailyQuests = data.dailyQuests,
+		weeklyQuestKey = data.weeklyQuestKey,
+		weeklyQuests = data.weeklyQuests,
 	}
 	-- Restore lock timers from persisted epoch timestamps if still active
 	local nowEpoch = os.time()
@@ -302,8 +362,15 @@ function DataManager.save(player)
 		return
 	end
 
+	-- RELIABILITY: If a save is already in flight (e.g. autosave), WAIT for it
+	-- instead of skipping - skipping the final save on leave/shutdown loses data.
+	local waited = 0
+	while session.isSaving and waited < 15 do
+		task.wait(0.1)
+		waited += 0.1
+	end
 	if session.isSaving then
-		warn("[HarborHeist] Save already in progress for " .. player.Name)
+		warn("[HarborHeist] Timed out waiting for in-flight save for " .. player.Name)
 		return
 	end
 
@@ -340,6 +407,11 @@ function DataManager.save(player)
 			existing.Collection = profile.Collection
 			existing.PvP = profile.PvP
 			existing.Onboarding = profile.Onboarding
+			-- Persist quest data (RedBear feature)
+			existing.dailyQuestKey = session.dailyQuestKey
+			existing.dailyQuests = session.dailyQuests
+			existing.weeklyQuestKey = session.weeklyQuestKey
+			existing.weeklyQuests = session.weeklyQuests
 
 			return existing
 		end)
@@ -364,8 +436,19 @@ function DataManager.startAutosave()
 	task.spawn(function()
 		while true do
 			task.wait(60)
+			-- RELIABILITY: save() yields, and players joining mid-loop would add
+			-- new keys to `sessions` during pairs() traversal (undefined behavior
+			-- that can error and kill this loop). Snapshot the list first.
+			local players = {}
 			for player in pairs(sessions) do
-				DataManager.save(player)
+				table.insert(players, player)
+			end
+			for _, player in ipairs(players) do
+				if sessions[player] then
+					task.spawn(function()
+						DataManager.save(player)
+					end)
+				end
 			end
 		end
 	end)
@@ -376,8 +459,20 @@ function DataManager.bindToClose()
 		if RunService:IsStudio() and not storeOk then
 			return
 		end
+		-- RELIABILITY: Save all players in parallel - sequential saves (each with
+		-- retries) could easily blow past the 30s BindToClose budget.
+		local remaining = 0
 		for player in pairs(sessions) do
-			DataManager.save(player)
+			remaining += 1
+			task.spawn(function()
+				-- RELIABILITY: pcall so an unexpected error can never leave the
+				-- `remaining` counter stuck and hang BindToClose for the full 30s.
+				pcall(DataManager.save, player)
+				remaining -= 1
+			end)
+		end
+		while remaining > 0 do
+			task.wait(0.1)
 		end
 	end)
 end

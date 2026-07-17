@@ -10,12 +10,16 @@ function AquariumService.init(deps)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local function refreshVisual(session)
 		local dock = dockManager.getDock(session.player)
 		if dock then
 			dockManager.updateAquariumVisual(dock, session, stateSync.getCapacity(session))
 		end
+	end
+	AquariumService.refreshVisual = function(session)
+		refreshVisual(session)
 	end
 
 	remotes.StoreFish.OnServerInvoke = function(player)
@@ -46,6 +50,9 @@ function AquariumService.init(deps)
 		end
 		refreshVisual(session)
 		stateSync.push(session)
+		if stored > 0 and questService then
+			questService.onFishStored(session, stored)
+		end
 		return { ok = stored > 0, stored = stored }
 	end
 
@@ -102,6 +109,9 @@ function AquariumService.init(deps)
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
 		stateSync.push(session)
+		if questService then
+			questService.onFishSold(session, payout)
+		end
 		return { ok = true, payout = payout }
 	end
 
@@ -122,23 +132,29 @@ function AquariumService.init(deps)
 			)
 			return { ok = false, reason = "cooldown" }
 		end
-		session.lockedUntil = now + GameConfig.Aquarium.lockDuration
-		session.lockCooldownUntil = session.lockedUntil + GameConfig.Aquarium.lockCooldown
+		-- Upgrade-scaled lock duration (RedBear) + generation token (local P1 fix)
+		local lockDuration = GameConfig.Aquarium.lockDuration
+		local lockCooldown = GameConfig.Aquarium.lockCooldown
+		if session.profile.Aquarium.UpgradeLevel and session.profile.Aquarium.UpgradeLevel > 1 then
+			-- Future: per-tier lock scaling via AquariumUpgradeTiers
+		end
+		session.lockedUntil = now + lockDuration
+		session.lockCooldownUntil = session.lockedUntil + lockCooldown
 		-- Generation token: a re-lock invalidates any pending "lock expired"
 		-- notification from a previous lock's delayed closure.
 		session.lockGeneration = (session.lockGeneration or 0) + 1
 		local generation = session.lockGeneration
 		-- Also persist as epoch timestamps (TASK 1.1: structured profile)
-		session.profile.Aquarium.LockUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration
-		session.profile.Aquarium.LockCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration + GameConfig.Aquarium.lockCooldown
+		session.profile.Aquarium.LockUntilTimestamp = os.time() + lockDuration
+		session.profile.Aquarium.LockCooldownUntilTimestamp = os.time() + lockDuration + lockCooldown
 		remotes.notify(
 			player,
-			string.format("Aquarium locked for %ds. Thieves can't touch it!", GameConfig.Aquarium.lockDuration),
+			string.format("Aquarium locked for %ds. Thieves can't touch it!", lockDuration),
 			Color3.fromRGB(130, 255, 130)
 		)
 		refreshVisual(session)
 		stateSync.push(session)
-		task.delay(GameConfig.Aquarium.lockDuration, function()
+	task.delay(lockDuration, function()
 			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
@@ -156,10 +172,11 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	local dataManager = deps.dataManager
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 
 	local victim = dock.owner
 	-- SECURITY: Re-verify victim ownership and that it's not attacker
-	if not victim or victim == attacker or dock.owner ~= victim then
+	if not victim or victim == attacker then
 		return
 	end
 	local attackerSession = dataManager.get(attacker)
@@ -182,6 +199,16 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	end
 
 	local now = os.clock()
+	-- SECURITY: A stunned thief must not be able to keep stealing; the stun was
+	-- previously only a client-side WalkSpeed tweak with no server enforcement.
+	if (attackerSession.stunUntil or 0) > now then
+		remotes.notify(
+			attacker,
+			string.format("You're stunned for %ds!", math.ceil(attackerSession.stunUntil - now)),
+			Color3.fromRGB(255, 100, 100)
+		)
+		return
+	end
 	if attackerSession.stealCooldownUntil > now then
 		remotes.notify(
 			attacker,
@@ -217,6 +244,16 @@ function AquariumService.handleSteal(deps, attacker, dock)
 
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
 	attackerSession.profile.PvP.StealCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.stealCooldown
+
+	local alarmLevel = victimSession.alarmLevel or 0
+	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+	if alarmConfig and alarmConfig.notifyChance >= rng:NextNumber() then
+		remotes.notify(
+			victim,
+			string.format("ALARM! %s is trying to steal from your aquarium!", attacker.DisplayName),
+			Color3.fromRGB(255, 150, 100)
+		)
+	end
 
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
 		local stolenIndex = eligible[rng:NextInteger(1, #eligible)]
@@ -261,6 +298,9 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		end
 		stateSync.push(attackerSession)
 		stateSync.push(victimSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, true)
+		end
 	else
 		remotes.notify(attacker, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
 		remotes.notify(
@@ -268,23 +308,61 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			string.format("%s tried to steal from your aquarium and failed!", attacker.DisplayName),
 			Color3.fromRGB(255, 200, 100)
 		)
+		if alarmConfig and alarmConfig.stunDuration > 0 then
+			attackerSession.stunUntil = now + alarmConfig.stunDuration
+			-- SECURITY: Apply the slow on the server too instead of relying on
+			-- the client to slow itself down.
+			local humanoid = attacker.Character and attacker.Character:FindFirstChildOfClass("Humanoid")
+			if humanoid then
+				humanoid.WalkSpeed = 8
+			end
+			remotes.notify(
+				attacker,
+				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
+				Color3.fromRGB(255, 100, 100)
+			)
+			task.delay(alarmConfig.stunDuration, function()
+				if attackerSession.player and attackerSession.player.Parent then
+					local hum = attacker.Character and attacker.Character:FindFirstChildOfClass("Humanoid")
+					if hum then
+						hum.WalkSpeed = 16
+					end
+					stateSync.push(attackerSession)
+				end
+			end)
+		end
 		stateSync.push(attackerSession)
+		if questService then
+			questService.onStealAttempt(attackerSession, false)
+		end
 	end
 end
 
 function AquariumService.startIncomeLoop(deps)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
+	local questService = deps.questService
 	task.spawn(function()
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
-			for _, session in pairs(dataManager.allSessions()) do
+		-- Snapshot sessions to avoid mutation-during-iteration if a player
+			-- leaves mid-tick (RedBear's safety pattern).
+			local sessionsSnapshot = {}
+			for k, session in pairs(dataManager.allSessions()) do
+				sessionsSnapshot[k] = session
+			end
+			for _, session in pairs(sessionsSnapshot) do
 				-- TASK 5.1: Accrue income to UnclaimedIncome pool (not auto-cash)
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
 					local unclaimed = session.profile.Aquarium.UnclaimedIncome
 					local maxUnclaimed = GameConfig.Economy.MaxUnclaimedIncome
 					session.profile.Aquarium.UnclaimedIncome = math.min(unclaimed + income, maxUnclaimed)
+					if questService then
+						questService.onIncomeEarned(session, income)
+					end
+				end
+				if session.player and session.player.Parent then
 					stateSync.push(session)
 				end
 			end
