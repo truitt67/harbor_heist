@@ -11,6 +11,7 @@
 
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local FishInstance = require(game:GetService("ReplicatedStorage").Shared.FishInstance)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local FishInventoryService = {}
 
@@ -47,18 +48,15 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "bad_id" }
 		end
 
-		-- Find in carried first
+		-- Find the fish in carried inventory.
+		-- N3 (CRITICAL): previously fell through to search Aquarium.StoredFish
+		-- on a miss, which let an exploiter fire SellFish(id) + StoreSingleFish(id)
+		-- in the same frame to double-pay. SellFish now only sells from carried;
+		-- aquarium sells must go through SellAll or an explicit fromAquarium flag.
 		local idx = findFishIndex(session.carried, instanceId)
 		local fish = nil
 		if idx then
 			fish = table.remove(session.carried, idx)
-		else
-			-- Also allow selling from aquarium (stored fish)
-			local storedFish = session.profile.Aquarium.StoredFish
-			idx = findFishIndex(storedFish, instanceId)
-			if idx then
-				fish = table.remove(storedFish, idx)
-			end
 		end
 
 		if not fish then
@@ -72,7 +70,8 @@ function FishInventoryService.init(deps)
 		end
 
 		local payout = fish.BaseSellValue
-		session.profile.Coins = session.profile.Coins + payout
+		-- N5: clampCoins on the per-fish sell path too.
+		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 
 		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))

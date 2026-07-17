@@ -5,7 +5,6 @@ local StateSync = {}
 StateSync.remotes = nil
 
 function StateSync.getCapacity(session)
-	-- Read from profile.Aquarium.Capacity (TASK 1.1 structured profile)
 	return session.profile.Aquarium.Capacity
 end
 
@@ -28,6 +27,7 @@ function StateSync.snapshot(session)
 	end
 	return {
 		cash = math.floor(profile.Coins),
+		totalEarned = math.floor(profile.TotalCoinsEarned),
 		rodLevel = profile.Equipment.EquippedRodLevel,
 		baitLevel = profile.Equipment.EquippedBaitLevel,
 		carried = #session.carried,
@@ -36,9 +36,11 @@ function StateSync.snapshot(session)
 		liveWellCounts = liveWellCounts,
 		capacity = StateSync.getCapacity(session),
 		incomePerSec = StateSync.incomePerSec(session),
-		-- os.clock() for runtime UI timers (these are session-relative, not persisted)
-		lockRemaining = math.max(0, session.lockedUntil - now),
-		lockCooldownRemaining = math.max(0, session.lockCooldownUntil - now),
+		unclaimedIncome = math.floor(aquarium.UnclaimedIncome),
+		lockedUntil = math.max(0, session.lockedUntil - now),
+		lockCooldownUntil = math.max(0, session.lockCooldownUntil - now),
+		stealCooldownUntil = math.max(0, session.stealCooldownUntil - now),
+		dockIndex = session.dockIndex,
 	}
 end
 

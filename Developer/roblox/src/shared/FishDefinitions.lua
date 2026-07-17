@@ -237,19 +237,33 @@ function FishDefinitions.get(speciesId)
 	return def
 end
 
-function FishDefinitions.getRandomInZone(zoneId, rng)
+-- Rarity ordinal for luck weighting (higher = rarer)
+local RARITY_ORDER = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+
+--[[
+	Weighted random species pick within a zone.
+	luck (optional, rod+bait) multiplies each species' CatchWeight by
+	(1 + luck/100 * (rarityOrder - 1)) — luck 0 leaves weights untouched,
+	higher luck progressively favors rarer species (same curve as
+	GameConfig.rollRarity but applied to the species table).
+]]
+function FishDefinitions.getRandomInZone(zoneId, rng, luck)
 	local pool = FishDefinitions.ByZone[zoneId]
 	if not pool or #pool == 0 then
 		return nil
 	end
+	luck = luck or 0
 	local total = 0
-	for _, def in ipairs(pool) do
-		total += def.CatchWeight
+	local weights = {}
+	for i, def in ipairs(pool) do
+		local w = def.CatchWeight * (1 + (luck / 100) * ((RARITY_ORDER[def.Rarity] or 1) - 1))
+		weights[i] = w
+		total += w
 	end
 	local roll = (rng and rng:NextNumber() or math.random()) * total
 	local acc = 0
-	for _, def in ipairs(pool) do
-		acc += def.CatchWeight
+	for i, def in ipairs(pool) do
+		acc += weights[i]
 		if roll <= acc then
 			return def
 		end

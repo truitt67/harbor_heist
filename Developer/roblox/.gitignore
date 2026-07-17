@@ -1,2 +1,5 @@
 *.rbxlx.lock
 *.rbxl.lock
+
+# bv (beads viewer) local config and caches
+.bv/

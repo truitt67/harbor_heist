@@ -1,4 +1,5 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local AquariumService = {}
 
@@ -48,6 +49,26 @@ function AquariumService.init(deps)
 		return { ok = stored > 0, stored = stored }
 	end
 
+	remotes.ClaimIncome.OnServerInvoke = function(player)
+		local session = dataManager.get(player)
+		if not session then
+			return { ok = false, reason = "no_session" }
+		end
+		local unclaimed = session.profile.Aquarium.UnclaimedIncome
+		if unclaimed <= 0 then
+			return { ok = false, reason = "nothing_to_claim" }
+		end
+		-- Transfer unclaimed income to coins
+		-- N5: route every coin write through clampCoins so the MAX_COINS cap
+		-- cannot be overflowed by claiming a large pool near the ceiling.
+		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + unclaimed)
+		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + unclaimed
+		session.profile.Aquarium.UnclaimedIncome = 0
+		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130))
+		stateSync.push(session)
+		return { ok = true, amount = unclaimed }
+	end
+
 	remotes.SellAll.OnServerInvoke = function(player)
 		local session = dataManager.get(player)
 		if not session then
@@ -71,8 +92,12 @@ function AquariumService.init(deps)
 		for i = #storedFish, 1, -1 do
 			storedFish[i] = nil
 		end
-		session.carried = {}
-		session.profile.Coins = session.profile.Coins + payout
+		-- Clear carried in-place too (never reassign the table reference)
+		for i = #session.carried, 1, -1 do
+			session.carried[i] = nil
+		end
+		-- N5: same clampCoins discipline on the sell path.
+		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
@@ -99,6 +124,10 @@ function AquariumService.init(deps)
 		end
 		session.lockedUntil = now + GameConfig.Aquarium.lockDuration
 		session.lockCooldownUntil = session.lockedUntil + GameConfig.Aquarium.lockCooldown
+		-- Generation token: a re-lock invalidates any pending "lock expired"
+		-- notification from a previous lock's delayed closure.
+		session.lockGeneration = (session.lockGeneration or 0) + 1
+		local generation = session.lockGeneration
 		-- Also persist as epoch timestamps (TASK 1.1: structured profile)
 		session.profile.Aquarium.LockUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration
 		session.profile.Aquarium.LockCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.lockDuration + GameConfig.Aquarium.lockCooldown
@@ -110,7 +139,7 @@ function AquariumService.init(deps)
 		refreshVisual(session)
 		stateSync.push(session)
 		task.delay(GameConfig.Aquarium.lockDuration, function()
-			if session.player.Parent then
+			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
 				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80))
@@ -172,22 +201,24 @@ function AquariumService.handleSteal(deps, attacker, dock)
 		return
 	end
 
+	local victimFish = victimSession.profile.Aquarium.StoredFish
+	-- Check eligibility BEFORE consuming the attacker's cooldown:
+	-- an aquarium whose fish are all raid-protected must not burn it.
+	local eligible = {}
+	for i, fish in ipairs(victimFish) do
+		if not fish.IsRaidProtected then
+			table.insert(eligible, i)
+		end
+	end
+	if #eligible == 0 then
+		remotes.notify(attacker, "All fish here are protected! Nothing to steal.", Color3.fromRGB(255, 170, 80))
+		return
+	end
+
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
 	attackerSession.profile.PvP.StealCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.stealCooldown
 
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
-		local victimFish = victimSession.profile.Aquarium.StoredFish
-		-- Filter out raid-protected fish (Legendary)
-		local eligible = {}
-		for i, fish in ipairs(victimFish) do
-			if not fish.IsRaidProtected then
-				table.insert(eligible, i)
-			end
-		end
-		if #eligible == 0 then
-			remotes.notify(attacker, "All fish here are protected! Nothing to steal.", Color3.fromRGB(255, 170, 80))
-			return
-		end
 		local stolenIndex = eligible[rng:NextInteger(1, #eligible)]
 		local stolenFish = table.remove(victimFish, stolenIndex)
 		
@@ -248,12 +279,14 @@ function AquariumService.startIncomeLoop(deps)
 		while true do
 			task.wait(GameConfig.IncomeTickSeconds)
 			for _, session in pairs(dataManager.allSessions()) do
+				-- TASK 5.1: Accrue income to UnclaimedIncome pool (not auto-cash)
 				local income = stateSync.incomePerSec(session) * GameConfig.IncomeTickSeconds
 				if income > 0 then
-					session.profile.Coins = session.profile.Coins + income
-					session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + income
+					local unclaimed = session.profile.Aquarium.UnclaimedIncome
+					local maxUnclaimed = GameConfig.Economy.MaxUnclaimedIncome
+					session.profile.Aquarium.UnclaimedIncome = math.min(unclaimed + income, maxUnclaimed)
+					stateSync.push(session)
 				end
-				stateSync.push(session)
 			end
 		end
 	end)

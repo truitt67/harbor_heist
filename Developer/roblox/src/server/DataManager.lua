@@ -120,6 +120,22 @@ local function sanitize(data)
 		if type(aq.LockCooldownUntilTimestamp) == "number" then
 			clean.Aquarium.LockCooldownUntilTimestamp = aq.LockCooldownUntilTimestamp
 		end
+		-- N6: Recompute capacity from UpgradeLevel against the authoritative tier
+		-- table so a crafted/exploited Capacity value cannot inflate storage.
+		local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
+		local upLevel = clean.Aquarium.UpgradeLevel or 1
+		if AquariumUpgradeTiers and #AquariumUpgradeTiers > 0 then
+			upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
+			clean.Aquarium.UpgradeLevel = upLevel
+			clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
+		end
+		-- #11 (CRITICAL): only replace StoredFish if the source actually
+		-- carried one. Without this guard, a v1 save that ALSO has a partial
+		-- Aquarium table (but no StoredFish) overwrites the just-migrated
+		-- liveWell fish with an empty array — silent data loss.
+		if type(aq.StoredFish) == "table" then
+			clean.Aquarium.StoredFish = sanitizeStoredFish(aq.StoredFish)
+		end
 		if type(aq.RaidProtectionUntilTimestamp) == "number" then
 			clean.Aquarium.RaidProtectionUntilTimestamp = aq.RaidProtectionUntilTimestamp
 		end
@@ -186,6 +202,12 @@ local function sanitize(data)
 		end
 		if type(data.PvP.RaidsLost) == "number" then
 			clean.PvP.RaidsLost = math.max(0, math.floor(data.PvP.RaidsLost))
+		end
+		-- N1 (CRITICAL): StealCooldownUntilTimestamp was written on save but
+		-- never copied back in sanitize, so leaving and rejoining reset the 20s
+		-- steal cooldown to 0. Persist it so the cooldown survives a relog.
+		if type(data.PvP.StealCooldownUntilTimestamp) == "number" then
+			clean.PvP.StealCooldownUntilTimestamp = data.PvP.StealCooldownUntilTimestamp
 		end
 	end
 

@@ -212,10 +212,17 @@ local sellButton = makeButton(aquariumPanel, {
 })
 
 local lockButton = makeButton(aquariumPanel, {
-	Size = UDim2.new(0.5, -20, 0, 46),
-	Position = UDim2.new(0.5, 6, 1, -60),
-	Text = "LOCK (60s)",
+	Size = UDim2.new(1, -16, 0, 34),
+	Position = UDim2.new(0, 8, 1, -80),
+	Text = "LOCK AQUARIUM",
 	BackgroundColor3 = COLORS.warn,
+})
+
+local claimButton = makeButton(aquariumPanel, {
+	Size = UDim2.new(1, -16, 0, 34),
+	Position = UDim2.new(0, 8, 1, -122),
+	Text = "CLAIM $0",
+	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
 })
 
 -- ============ Shop panel ============
@@ -368,16 +375,25 @@ local function render()
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")
-
-	if state.lockRemaining > 0 then
-		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockRemaining))
+	-- Lock button state
+	if state.lockedUntil > 0 then
+		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockButton.BackgroundColor3 = COLORS.bad
-	elseif state.lockCooldownRemaining > 0 then
-		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownRemaining))
+	elseif state.lockCooldownUntil > 0 then
+		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
 		lockButton.BackgroundColor3 = Color3.fromRGB(100, 110, 120)
 	else
 		lockButton.Text = string.format("LOCK (%ds)", GameConfig.Aquarium.lockDuration)
 		lockButton.BackgroundColor3 = COLORS.warn
+	end
+
+	-- Claim income button (TASK 5.1)
+	if state.unclaimedIncome > 0 then
+		claimButton.Text = string.format("CLAIM $%d", state.unclaimedIncome)
+		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+	else
+		claimButton.Text = "CLAIM $0"
+		claimButton.BackgroundColor3 = Color3.fromRGB(60, 70, 80)
 	end
 end
 
@@ -480,7 +496,12 @@ local function onMinigameTap()
 	local hit = markerPos >= 0.35 and markerPos <= 0.65
 	minigameActive = false
 	minigameFrame.Visible = false
-	Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
+	-- so an on-zone tap can still be rejected — surface that honestly.
+	if hit and result and result.ok == false and result.reason == "missed" then
+		showNotification("So close! The fish shook off the hook...", COLORS.warn)
+	end
 end
 
 minigameFrame.InputBegan:Connect(function(input)
@@ -526,6 +547,10 @@ sellButton.Activated:Connect(function()
 end)
 lockButton.Activated:Connect(function()
 	Remotes.LockAquarium:InvokeServer()
+end)
+-- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
+claimButton.Activated:Connect(function()
+	Remotes.ClaimIncome:InvokeServer()
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

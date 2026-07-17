@@ -24,7 +24,7 @@ local deps = {
 	stateSync = StateSync,
 }
 
-FishingService.init(deps)
+local fishingCleanup = FishingService.init(deps).onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)
 FishInventoryService.init(deps)
@@ -108,6 +108,7 @@ local function onPlayerRemoving(player)
 	if session and session.characterConnection then
 		session.characterConnection:Disconnect()
 	end
+	fishingCleanup(player) -- clear activeBites + casting BEFORE remove() (TASK 14.3)
 	DataManager.save(player)
 	DockManager.release(player)
 	DataManager.remove(player)

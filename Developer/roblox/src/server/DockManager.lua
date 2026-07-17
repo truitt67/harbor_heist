@@ -242,7 +242,10 @@ function DockManager.claim(player)
 end
 
 function DockManager.release(player)
-	-- RELIABILITY: Clean up dock when player leaves to reset state
+	-- RELIABILITY: Clean up dock when player leaves to reset state.
+	-- N7: clear ALL docks whose owner == player, not just the first — a
+	-- double-claim (double-fired onPlayerAdded, rejoin race) can leave a
+	-- second dock stuck enabled with a stale owner Player ref.
 	for _, dock in ipairs(docks) do
 		if dock.owner == player then
 			dock.owner = nil
@@ -270,7 +273,8 @@ function DockManager.release(player)
 			if fishDisplay then
 				fishDisplay:ClearAllChildren()
 			end
-			return
+			-- N7: no early return — keep scanning so any other dock this player
+			-- may own from a double-claim race is also released.
 		end
 	end
 end
