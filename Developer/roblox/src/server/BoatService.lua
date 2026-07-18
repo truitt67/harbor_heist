@@ -410,6 +410,16 @@ function BoatService.init(deps)
 		if boats[player] then
 			return { ok = false, reason = "already_has_boat" }
 		end
+		-- EXPLOIT FIX (fresh-eyes fellow-agent review): a stunned thief could
+		-- call SpawnBoat to teleport from the victim's aquarium straight to
+		-- the boat dock, escaping the stun's WalkSpeed=8 penalty that exists
+		-- precisely to slow their getaway. Block the spawn while stunned,
+		-- matching the steal handler's stun check (AquariumService).
+		local session = dataManager and dataManager.get(player)
+		if session and (session.stunUntil or 0) > os.clock() then
+			remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
+			return { ok = false, reason = "stunned" }
+		end
 		local boatDock = worldFolder and worldFolder:FindFirstChild("BoatDock")
 		if not boatDock then
 			return { ok = false, reason = "no_dock" }
