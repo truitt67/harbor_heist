@@ -12,6 +12,7 @@ local FishInventoryService = require(script.FishInventoryService)
 local QuestService = require(script.QuestService)
 local BoatService = require(script.BoatService)
 local RodService = require(script.RodService)
+local AnalyticsService = require(script.AnalyticsService) -- EPIC 11 / TASK 11.1
 
 Players.CharacterAutoLoads = false
 
@@ -28,6 +29,7 @@ local deps = {
 	worldFolder = worldFolder,
 	questService = QuestService,
 	rodService = RodService,
+	analytics = AnalyticsService, -- EPIC 11
 }
 
 local fishingCleanup = FishingService.init(deps).onPlayerRemoving
@@ -105,6 +107,11 @@ local function onPlayerAdded(player)
 	end
 	StateSync.setupLeaderstats(player, session)
 
+	-- EPIC 11 (TASK 11.2): tutorial_started fires once per player join.
+	-- The actual onboarding flow (EPIC 9) isn't built yet, so this marks
+	-- "player entered the world" as the funnel entry point.
+	AnalyticsService.track(player, "tutorial_started")
+
 	QuestService.initializeQuests(session)
 	QuestService.pushProgress(session)
 
@@ -134,6 +141,14 @@ local function onPlayerAdded(player)
 			character:PivotTo(targetDock.spawnCFrame)
 		end
 		RodService.equip(player, DataManager.get(player))
+		-- EPIC 11 (TASK 11.2): starter_rod_received fires ONCE per session
+		-- (first character load only). CORRECTED (fresh-eyes): previously
+		-- fired on every CharacterAdded (every respawn), inflating the event
+		-- count. Gated by session.starterRodTracked so respawns don't re-fire.
+		if not session.starterRodTracked then
+			session.starterRodTracked = true
+			AnalyticsService.track(player, "starter_rod_received")
+		end
 	end)
 	session.characterConnection = characterConnection
 
@@ -155,9 +170,27 @@ local function onPlayerRemoving(player)
 	end
 	fishingCleanup(player) -- clear activeBites + casting BEFORE remove() (TASK 14.3)
 	DataManager.save(player)
+
+	-- EPIC 11 (TASK 11.2): churn signals. Fire BEFORE clearSession so the
+	-- funnel state is still readable. A player who leaves without catching
+	-- or upgrading is a retention red flag — these events power the
+	-- "where did they drop off?" funnel analysis.
+	local funnel = AnalyticsService.getFunnelState(player.UserId)
+	if not funnel.firstCatchAt then
+		AnalyticsService.track(player, "player_left_before_first_catch")
+	end
+	if not funnel.firstUpgradeAt then
+		AnalyticsService.track(player, "player_left_before_first_upgrade")
+	end
+
 	DockManager.release(player)
 	BoatService.onPlayerRemoving(player)
 	RodService.onPlayerRemoving(player)
+	-- EPIC 11 (TASK 11.1): clear analytics session to prevent unbounded
+	-- growth of the sessions table across long server uptimes. Called AFTER
+	-- other cleanup so any churn events fired by those services still have
+	-- a valid session to read, and BEFORE DataManager.remove so UserId resolves.
+	AnalyticsService.clearSession(player)
 	DataManager.remove(player)
 end
 

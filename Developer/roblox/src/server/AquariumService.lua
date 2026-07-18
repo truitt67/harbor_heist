@@ -11,6 +11,7 @@ function AquariumService.init(deps)
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
 	local questService = deps.questService
+	local analytics = deps.analytics -- EPIC 11
 
 	local function refreshVisual(session)
 		local dock = dockManager.getDock(session.player)
@@ -73,6 +74,11 @@ function AquariumService.init(deps)
 		session.profile.Aquarium.UnclaimedIncome = 0
 		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130))
 		stateSync.push(session)
+		-- EPIC 11 (TASK 11.2): income_claimed. Amount is the key field —
+		-- dashboard uses it to track economy flow + claim frequency.
+		if analytics then
+			analytics.track(player, "income_claimed", { amount = unclaimed })
+		end
 		return { ok = true, amount = unclaimed }
 	end
 
@@ -132,11 +138,17 @@ function AquariumService.init(deps)
 			)
 			return { ok = false, reason = "cooldown" }
 		end
-		-- Upgrade-scaled lock duration (RedBear) + generation token (local P1 fix)
+		-- Upgrade-scaled lock duration. The base config is the fallback; each
+		-- Lock tier in GameConfig.Upgrades.Lock overrides duration + cooldown.
+		-- N7: previously this block was a stub (`if UpgradeLevel > 1 then` with
+		-- an empty body), so buying Lock I/II/III changed nothing about the lock.
+		local lockLevel = session.profile.Aquarium.LockLevel or 0
 		local lockDuration = GameConfig.Aquarium.lockDuration
 		local lockCooldown = GameConfig.Aquarium.lockCooldown
-		if session.profile.Aquarium.UpgradeLevel and session.profile.Aquarium.UpgradeLevel > 1 then
-			-- Future: per-tier lock scaling via AquariumUpgradeTiers
+		if lockLevel > 0 and GameConfig.Upgrades.Lock[lockLevel] then
+			local tier = GameConfig.Upgrades.Lock[lockLevel]
+			lockDuration = tier.lockDuration
+			lockCooldown = tier.lockCooldown
 		end
 		session.lockedUntil = now + lockDuration
 		session.lockCooldownUntil = session.lockedUntil + lockCooldown
@@ -154,7 +166,14 @@ function AquariumService.init(deps)
 		)
 		refreshVisual(session)
 		stateSync.push(session)
-	task.delay(lockDuration, function()
+		-- EPIC 11 (TASK 11.2): aquarium_locked. Tracks defensive engagement.
+		if analytics then
+			analytics.track(player, "aquarium_locked", {
+				lock_level = lockLevel,
+				duration = lockDuration,
+			})
+		end
+		task.delay(lockDuration, function()
 			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
@@ -245,7 +264,14 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	attackerSession.stealCooldownUntil = now + GameConfig.Aquarium.stealCooldown
 	attackerSession.profile.PvP.StealCooldownUntilTimestamp = os.time() + GameConfig.Aquarium.stealCooldown
 
-	local alarmLevel = victimSession.alarmLevel or 0
+	-- EPIC 11 (TASK 11.2): raid_attempted fires once per committed steal
+	-- attempt (after eligibility passes + cooldown consumed). outcome is
+	-- resolved below into raid_succeeded or raid_defended.
+	if analytics then
+		analytics.track(attacker, "raid_attempted", { victim_id = victim.UserId })
+	end
+
+	local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
 	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
 	if alarmConfig and alarmConfig.notifyChance >= rng:NextNumber() then
 		remotes.notify(
@@ -256,8 +282,35 @@ function AquariumService.handleSteal(deps, attacker, dock)
 	end
 
 	if rng:NextNumber() <= GameConfig.Aquarium.stealChance then
+		-- N15 (C6 TOCTOU): capture the fish REFERENCE at selection time, not
+		-- just its index. The index can shift if the victim sells/stores a fish
+		-- between the eligibility snapshot (line 241) and this remove. Re-find
+		-- the reference in the live list and re-validate it's still
+		-- non-raid-protected before removing — a stale index could otherwise
+		-- hand the attacker a raid-protected Legendary (PVP-08 violation).
 		local stolenIndex = eligible[rng:NextInteger(1, #eligible)]
-		local stolenFish = table.remove(victimFish, stolenIndex)
+		local targetFish = victimFish[stolenIndex]
+		local liveIndex = nil
+		if targetFish and not targetFish.IsRaidProtected then
+			for i, fish in ipairs(victimFish) do
+				if fish == targetFish and not fish.IsRaidProtected then
+					liveIndex = i
+					break
+				end
+			end
+		end
+		if not liveIndex then
+			-- The target was removed or became protected between snapshot and
+			-- resolution. Treat as a miss rather than stealing the wrong fish.
+			remotes.notify(attacker, "The fish got away in the chaos!", Color3.fromRGB(255, 120, 120))
+			stateSync.push(attackerSession)
+			stateSync.push(victimSession)
+			if questService then
+				questService.onStealAttempt(attackerSession, false)
+			end
+			return
+		end
+		local stolenFish = table.remove(victimFish, liveIndex)
 		
 		local rarityName = stolenFish.Rarity
 		local rarityColor = Color3.fromRGB(255, 255, 255)
@@ -279,7 +332,10 @@ function AquariumService.handleSteal(deps, attacker, dock)
 				rarityColor
 			)
 		else
-			attackerSession.profile.Coins = attackerSession.profile.Coins + stolenFish.BaseSellValue
+			-- N12: route through clampCoins like every other coin grant. The raw
+			-- write could overflow past MAX_COINS near the ceiling.
+			attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
+			attackerSession.profile.TotalCoinsEarned = attackerSession.profile.TotalCoinsEarned + stolenFish.BaseSellValue
 			remotes.notify(
 				attacker,
 				string.format("Heist success! Fenced a %s %s for $%d!", rarityName, stolenFish.SpeciesId, stolenFish.BaseSellValue),
@@ -291,6 +347,16 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			string.format("%s stole a %s %s from your aquarium! Lock it up!", attacker.DisplayName, rarityName, stolenFish.SpeciesId),
 			Color3.fromRGB(255, 100, 100)
 		)
+		-- EPIC 11 (TASK 11.2): raid_succeeded (attacker) + raid_defended=false
+		-- from victim's perspective. Fire on both sides for funnel analysis.
+		if analytics then
+			analytics.track(attacker, "raid_succeeded", {
+				victim_id = victim.UserId,
+				species_id = stolenFish.SpeciesId,
+				rarity = rarityName,
+			})
+			analytics.track(victim, "raid_defended", { defended = false, attacker_id = attacker.UserId })
+		end
 		AquariumService.refreshVisual(victimSession)
 		local attackerDock = dockManager.getDock(attacker)
 		if attackerDock then
@@ -308,6 +374,12 @@ function AquariumService.handleSteal(deps, attacker, dock)
 			string.format("%s tried to steal from your aquarium and failed!", attacker.DisplayName),
 			Color3.fromRGB(255, 200, 100)
 		)
+		-- EPIC 11 (TASK 11.2): raid_defended=true (victim perspective).
+		-- Attacker's raid_attempted already fired above; this captures the
+		-- defense outcome for the victim-side funnel.
+		if analytics then
+			analytics.track(victim, "raid_defended", { defended = true, attacker_id = attacker.UserId })
+		end
 		if alarmConfig and alarmConfig.stunDuration > 0 then
 			attackerSession.stunUntil = now + alarmConfig.stunDuration
 			-- SECURITY: Apply the slow on the server too instead of relying on
