@@ -93,20 +93,20 @@ GameConfig.BaitDefinitions = {
 -- TASK 2.5: Aquarium Capacity Upgrade Tiers
 -- ════════════════════════════════════════════════════════════════════════════
 GameConfig.AquariumUpgradeTiers = {
-	{ level = 1, capacity = 20,  cost = 0,    incomeMultiplier = 1.0 },
-	{ level = 2, capacity = 35,  cost = 800,  incomeMultiplier = 1.1 },
-	{ level = 3, capacity = 50,  cost = 3000, incomeMultiplier = 1.25 },
-	{ level = 4, capacity = 75,  cost = 8000, incomeMultiplier = 1.5 },
+	{ level = 1, name = "Starter Tank",  capacity = 20,  cost = 0,    incomeMultiplier = 1.0,  desc = "Base aquarium" },
+	{ level = 2, name = "Expanded Tank", capacity = 35,  cost = 800,  incomeMultiplier = 1.1,  desc = "+75% capacity, +10% income" },
+	{ level = 3, name = "Large Tank",    capacity = 50,  cost = 3000, incomeMultiplier = 1.25, desc = "+150% capacity, +25% income" },
+	{ level = 4, name = "Mega Tank",     capacity = 75,  cost = 8000, incomeMultiplier = 1.5,  desc = "+275% capacity, +50% income" },
 }
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- TASK 2.6: Dock Upgrade Tiers
 -- ════════════════════════════════════════════════════════════════════════════
 GameConfig.DockUpgradeTiers = {
-	{ level = 1, cost = 0,     incomeMultiplier = 1.0,  cosmeticUnlocks = {} },
-	{ level = 2, cost = 1200,  incomeMultiplier = 1.15, cosmeticUnlocks = { "LampPost" } },
-	{ level = 3, cost = 4000,  incomeMultiplier = 1.35, cosmeticUnlocks = { "LampPost", "Planters" } },
-	{ level = 4, cost = 10000, incomeMultiplier = 1.6,  cosmeticUnlocks = { "LampPost", "Planters", "GoldenTrim" } },
+	{ level = 1, name = "Basic Dock",         cost = 0,     incomeMultiplier = 1.0,  cosmeticUnlocks = {},                                        desc = "Your starting dock" },
+	{ level = 2, name = "Lamp-Lit Dock",      cost = 1200,  incomeMultiplier = 1.15, cosmeticUnlocks = { "LampPost" },                            desc = "+15% income, adds lamp posts" },
+	{ level = 3, name = "Garden Dock",        cost = 4000,  incomeMultiplier = 1.35, cosmeticUnlocks = { "LampPost", "Planters" },                desc = "+35% income, adds planters" },
+	{ level = 4, name = "Golden Harbor Dock", cost = 10000, incomeMultiplier = 1.6,  cosmeticUnlocks = { "LampPost", "Planters", "GoldenTrim" },  desc = "+60% income, golden trim" },
 }
 
 -- ════════════════════════════════════════════════════════════════════════════

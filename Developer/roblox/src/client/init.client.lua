@@ -53,7 +53,7 @@ local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirectio
 
 local state = nil
 local casting = false
-local castHitZone = { start_ = 0.35, finish = 0.65 }
+local castHitZone = { perfectStart_ = 0.35, perfectEnd_ = 0.65, goodStart_ = 0.15, goodEnd_ = 0.85 }
 local castDeadline = 0
 local castInputConn = nil
 local questData = nil
@@ -596,9 +596,19 @@ local function addCatalog(kind, items, orderBase)
 end
 addCatalog("rod", GameConfig.Rods, 0)
 addCatalog("bait", GameConfig.Baits, 10)
-addCatalog("capacity", GameConfig.Upgrades.Capacity, 20)
+-- N10: the capacity shop must use the SAME catalog the server sells from
+-- (AquariumUpgradeTiers) and the SAME kind string the server dispatches on
+-- ("aquarium"). Previously this used GameConfig.Upgrades.Capacity with kind
+-- "capacity", but the BuyItem handler rejects "capacity" (bad_kind) — so
+-- every capacity purchase silently failed, and the displayed prices/tiers
+-- didn't match what the server would have charged.
+addCatalog("aquarium", GameConfig.AquariumUpgradeTiers, 20)
 addCatalog("lock", GameConfig.Upgrades.Lock, 30)
 addCatalog("alarm", GameConfig.Upgrades.Alarm, 40)
+-- N17 (TASK 17.4): the dock upgrade track. Uses GameConfig.DockUpgradeTiers
+-- (the SAME table the server sells from in ShopService kind="dock") and the
+-- kind string the server dispatches on. Order base 50 so dock rows sort last.
+addCatalog("dock", GameConfig.DockUpgradeTiers, 50)
 table.sort(SHOP_CATALOG, function(a, b)
 	return a.order < b.order
 end)
@@ -606,9 +616,10 @@ end)
 local KIND_META = {
 	rod = { tag = "ROD", color = UI.accent },
 	bait = { tag = "BAIT", color = UI.good },
-	capacity = { tag = "TANK", color = UI.purple },
+	aquarium = { tag = "TANK", color = UI.purple },
 	lock = { tag = "LOCK", color = UI.warn },
 	alarm = { tag = "ALARM", color = UI.bad },
+	dock = { tag = "DOCK", color = UI.boat },
 }
 
 local function itemDisplayName(entry)
@@ -619,12 +630,20 @@ local function itemSubText(entry)
 	local it = entry.item
 	if entry.kind == "rod" or entry.kind == "bait" then
 		return (it.desc or "") .. "  •  +" .. (it.luck or 0) .. " luck"
-	elseif entry.kind == "capacity" then
-		return "Holds " .. (it.capacity or 0) .. " fish"
+	elseif entry.kind == "aquarium" then
+		-- AquariumUpgradeTiers use `capacity` + `incomeMultiplier`.
+		return "Holds " .. (it.capacity or 0) .. " fish  •  +" .. math.floor(((it.incomeMultiplier or 1) - 1) * 100 + 0.5) .. "% income"
 	elseif entry.kind == "lock" then
 		return "Lock " .. (it.lockDuration or 0) .. "s • recharge " .. (it.lockCooldown or 0) .. "s"
 	elseif entry.kind == "alarm" then
 		return "Stuns thieves " .. (it.stunDuration or 0) .. "s"
+	elseif entry.kind == "dock" then
+		-- DockUpgradeTiers use `incomeMultiplier` + `cosmeticUnlocks`.
+		local mult = "+" .. math.floor(((it.incomeMultiplier or 1) - 1) * 100 + 0.5) .. "% income"
+		if it.cosmeticUnlocks and #it.cosmeticUnlocks > 0 then
+			return mult .. "  •  " .. table.concat(it.cosmeticUnlocks, ", ")
+		end
+		return mult
 	end
 	return it.desc or ""
 end
@@ -717,12 +736,19 @@ function refreshShop()
 			currentLevel = state.rodLevel
 		elseif entry.kind == "bait" then
 			currentLevel = state.baitLevel
-		elseif entry.kind == "capacity" then
-			currentLevel = state.capacityLevel or 0
+		elseif entry.kind == "aquarium" then
+			-- N9: capacity tier maps to Aquarium.UpgradeLevel. The state field
+			-- is upgradeLevel (1-4). The shop catalog is 1-indexed per tier,
+			-- so level N in the catalog == upgradeLevel N.
+			currentLevel = state.upgradeLevel or 1
 		elseif entry.kind == "lock" then
 			currentLevel = state.lockLevel or 0
 		elseif entry.kind == "alarm" then
 			currentLevel = state.alarmLevel or 0
+		elseif entry.kind == "dock" then
+			-- N17 (TASK 17.4): dock tier maps to Dock.UpgradeLevel via the
+			-- snapshot's dockLevel field (1-4, 1-indexed like the catalog).
+			currentLevel = state.dockLevel or 1
 		end
 		if entry.level <= currentLevel then
 			entry.buyButton.Text = "OWNED"
@@ -1122,7 +1148,7 @@ local function render()
 	aquariumStats.Text = string.format(
 		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>$%.1f / sec</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
-		state.capacityLevel or 0, state.lockLevel or 0, state.alarmLevel or 0
+		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
 	local capacityRatio = math.clamp(state.liveWellCount / math.max(1, state.capacity), 0, 1)
 	TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0) }):Play()
@@ -1399,16 +1425,51 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
 	if isCasting then
+		-- N16: read the server-authoritative hit-zone bounds (3rd arg).
+		-- hitZoneStart/hitZoneEnd = outer "good" zone; goodStart/goodEnd =
+		-- inner "perfect" zone. Falls back to hardcoded defaults if absent
+		-- (e.g. older server), but the round-2 server always sends them.
 		if hitZone then
-			castHitZone.start_ = hitZone.hitZoneStart or 0.35
-			castHitZone.finish = hitZone.hitZoneEnd or 0.65
+			-- N16 (round-2 fix): server sends hitZoneStart/hitZoneEnd = INNER
+			-- perfect bullseye (narrow), goodStart/goodEnd = OUTER good band
+			-- (wide). The outer frame (hitZoneFrame) renders the GOOD band;
+			-- the inner frame (perfectZoneFrame) renders the PERFECT bullseye.
+			castHitZone.perfectStart_ = hitZone.hitZoneStart
+			castHitZone.perfectEnd_ = hitZone.hitZoneEnd
+			castHitZone.goodStart_ = hitZone.goodStart
+			castHitZone.goodEnd_ = hitZone.goodEnd
 		else
-			castHitZone.start_ = 0.35
-			castHitZone.finish = 0.65
+			-- Fallback (older server): good = wide outer, perfect = narrow inner
+			castHitZone.perfectStart_ = 0.35
+			castHitZone.perfectEnd_ = 0.65
+			castHitZone.goodStart_ = 0.15
+			castHitZone.goodEnd_ = 0.85
 		end
-		local zoneWidth = castHitZone.finish - castHitZone.start_
-		hitZoneFrame.Size = UDim2.new(zoneWidth, 0, 1, 0)
-		hitZoneFrame.Position = UDim2.new(castHitZone.start_, 0, 0, 0)
+		-- Outer "good" band frame (wider), rendered in the base green
+		local goodStart = castHitZone.goodStart_ or 0.15
+		local goodEnd = castHitZone.goodEnd_ or 0.85
+		local goodWidth = goodEnd - goodStart
+		hitZoneFrame.Size = UDim2.new(goodWidth, 0, 1, 0)
+		hitZoneFrame.Position = UDim2.new(goodStart, 0, 0, 0)
+
+		-- Inner "perfect" bullseye frame (narrower), a CHILD of the good frame.
+		-- Its size/position are expressed as a FRACTION of the good frame, so
+		-- convert the perfect band's track-space bounds into good-frame-space.
+		if castHitZone.perfectStart_ and castHitZone.perfectEnd_ then
+			local pWidth = castHitZone.perfectEnd_ - castHitZone.perfectStart_
+			local pCenter = (castHitZone.perfectStart_ + castHitZone.perfectEnd_) / 2
+			-- Width of perfect zone relative to the good band
+			local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
+			-- Center of perfect zone as a fraction within the good band [0,1]
+			local relCenter = goodWidth > 0
+				and ((pCenter - goodStart) / goodWidth)
+				or 0.5
+			perfectZoneFrame.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
+			perfectZoneFrame.Position = UDim2.new(math.clamp(relCenter, 0, 1), 0, 0, 4)
+			perfectZoneFrame.Visible = true
+		else
+			perfectZoneFrame.Visible = false
+		end
 
 		castOverlay.Visible = true
 		marker.Position = UDim2.new(0, 0, 0, -3)

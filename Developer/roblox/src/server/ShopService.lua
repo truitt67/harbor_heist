@@ -3,37 +3,11 @@ local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.Player
 
 local ShopService = {}
 
-local KIND_CATALOGS = {
-	rod = { catalog = "Rods", field = "rodLevel" },
-	bait = { catalog = "Baits", field = "baitLevel" },
-	capacity = { catalog = "Upgrades.Capacity", field = "capacityLevel" },
-	lock = { catalog = "Upgrades.Lock", field = "lockLevel" },
-	alarm = { catalog = "Upgrades.Alarm", field = "alarmLevel" },
-}
-
-local function getCatalog(kind)
-	local entry = KIND_CATALOGS[kind]
-	if not entry then
-		return nil, nil
-	end
-	if entry.catalog == "Upgrades.Capacity" then
-		return GameConfig.Upgrades.Capacity, entry.field
-	elseif entry.catalog == "Upgrades.Lock" then
-		return GameConfig.Upgrades.Lock, entry.field
-	elseif entry.catalog == "Upgrades.Alarm" then
-		return GameConfig.Upgrades.Alarm, entry.field
-	elseif entry.catalog == "Rods" then
-		return GameConfig.Rods, entry.field
-	elseif entry.catalog == "Baits" then
-		return GameConfig.Baits, entry.field
-	end
-	return nil, nil
-end
-
 function ShopService.init(deps)
 	local remotes = deps.remotes
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
+	local analytics = deps.analytics -- EPIC 11
 
 	remotes.BuyItem.OnServerInvoke = function(player, kind, level)
 		local session = dataManager.get(player)
@@ -48,6 +22,8 @@ function ShopService.init(deps)
 		-- Resolve catalog and current level using the local profile schema.
 		-- Supports rod, bait (from Equipment) and upgrades that the local
 		-- track stores as profile.Aquarium.UpgradeLevel / profile.Dock.UpgradeLevel.
+		-- N6: lock and alarm were missing from this dispatch, so buying them
+		-- returned bad_kind even though the shop UI listed them for sale.
 		local catalog, currentLevel
 		if kind == "rod" then
 			catalog = GameConfig.Rods
@@ -59,6 +35,18 @@ function ShopService.init(deps)
 			-- TASK 2.5: aquarium capacity upgrade
 			catalog = GameConfig.AquariumUpgradeTiers
 			currentLevel = session.profile.Aquarium.UpgradeLevel or 1
+		elseif kind == "lock" then
+			catalog = GameConfig.Upgrades.Lock
+			currentLevel = session.profile.Aquarium.LockLevel or 0
+		elseif kind == "alarm" then
+			catalog = GameConfig.Upgrades.Alarm
+			currentLevel = session.profile.Aquarium.AlarmLevel or 0
+		elseif kind == "dock" then
+			-- TASK 17.2 (EPIC 17): dock upgrade tiers. Distinct from the aquarium
+			-- track — dock upgrades multiply income (1.0→1.6) without changing
+			-- capacity, giving a second parallel investment path.
+			catalog = GameConfig.DockUpgradeTiers
+			currentLevel = session.profile.Dock.UpgradeLevel or 1
 		else
 			return { ok = false, reason = "bad_kind" }
 		end
@@ -99,6 +87,12 @@ function ShopService.init(deps)
 			-- TASK 2.5: apply upgrade level + recompute capacity
 			session.profile.Aquarium.UpgradeLevel = level
 			session.profile.Aquarium.Capacity = catalog[level].capacity or catalog[level].Capacity or session.profile.Aquarium.Capacity
+		elseif kind == "lock" then
+			session.profile.Aquarium.LockLevel = level
+		elseif kind == "alarm" then
+			session.profile.Aquarium.AlarmLevel = level
+		elseif kind == "dock" then
+			session.profile.Dock.UpgradeLevel = level
 		end
 		remotes.notify(
 			player,
@@ -106,6 +100,19 @@ function ShopService.init(deps)
 			Color3.fromRGB(130, 255, 130)
 		)
 		stateSync.push(session)
+		-- EPIC 11 (TASK 11.2): upgrade_purchased + first_upgrade (ONCE, gated).
+		-- CORRECTED (fresh-eyes): previously first_upgrade fired every
+		-- purchase. kind + level + price feed the monetization funnel.
+		if analytics then
+			analytics.track(player, "upgrade_purchased", {
+				kind = kind,
+				level = level,
+				price = price,
+			})
+			if analytics.isFirst(player.UserId, "first_upgrade") then
+				analytics.track(player, "first_upgrade", { kind = kind })
+			end
+		end
 		return { ok = true }
 	end
 end

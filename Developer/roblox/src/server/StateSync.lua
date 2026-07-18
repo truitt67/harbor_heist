@@ -16,6 +16,26 @@ function StateSync.incomePerSec(session)
 	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
 		total += fish.IncomePerMinute / 60
 	end
+	-- N13: apply the aquarium tier income multiplier. AquariumUpgradeTiers
+	-- defines a per-level multiplier (1.0 at level 1, up to 1.5 at level 4)
+	-- that was advertised in the shop but never actually applied to income,
+	-- so buying a bigger tank gave more capacity but NOT the promised income
+	-- bonus. This is the missing consumer.
+	local upLevel = session.profile.Aquarium.UpgradeLevel or 1
+	local tier = GameConfig.AquariumUpgradeTiers[upLevel]
+	if tier and tier.incomeMultiplier then
+		total *= tier.incomeMultiplier
+	end
+	-- N17 (TASK 17.3): apply the dock tier income multiplier. DockUpgradeTiers
+	-- defines a larger per-level multiplier (1.0 at level 1, up to 1.6 at
+	-- level 4) as a second parallel investment track. Stacks multiplicatively
+	-- with the aquarium multiplier: maxed players get 1.5 * 1.6 = 2.4x base
+	-- income per fish.
+	local dockLevel = session.profile.Dock.UpgradeLevel or 1
+	local dockTier = GameConfig.DockUpgradeTiers[dockLevel]
+	if dockTier and dockTier.incomeMultiplier then
+		total *= dockTier.incomeMultiplier
+	end
 	return total
 end
 
@@ -34,6 +54,15 @@ function StateSync.snapshot(session)
 		totalEarned = math.floor(profile.TotalCoinsEarned),
 		rodLevel = profile.Equipment.EquippedRodLevel,
 		baitLevel = profile.Equipment.EquippedBaitLevel,
+		-- N8: expose defense upgrade levels so the client shop + aquarium
+		-- panels reflect purchased tiers. Previously these were always nil
+		-- on the client, so owned upgrades showed as level 0 / locked.
+		upgradeLevel = profile.Aquarium.UpgradeLevel or 1,
+		lockLevel = profile.Aquarium.LockLevel or 0,
+		alarmLevel = profile.Aquarium.AlarmLevel or 0,
+		-- N17 (TASK 17.4): expose dock tier so the client shop reflects
+		-- owned/locked/affordable states for the dock upgrade track.
+		dockLevel = profile.Dock.UpgradeLevel or 1,
 		-- RedBear additions: stun + boat state (session-scoped, nil-safe)
 		stunRemaining = math.max(0, (session.stunUntil or 0) - now),
 		hasBoat = (session.boatModel ~= nil),
