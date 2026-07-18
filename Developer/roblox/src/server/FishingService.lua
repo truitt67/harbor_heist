@@ -18,14 +18,12 @@ function FishingService.init(deps)
 	local dockManager = deps.dockManager
 	local stateSync = deps.stateSync
 	local questService = deps.questService
+	local analytics = deps.analytics -- EPIC 11
 	local rodService = deps.rodService
-
-	local pendingCasts = {} -- [player] = { deadline, hitZoneWidth, dock }
 
 	local function failCast(player, reason)
 		-- RELIABILITY: Always clear the pending entry, even when the session is
 		-- already gone (player left) - otherwise the Player key leaks in the table.
-		pendingCasts[player] = nil
 		if rodService then
 			rodService.endCast(player, false)
 		end
@@ -93,12 +91,60 @@ function FishingService.init(deps)
 			session.casting = false
 			return
 		end
-	-- TASK 3.1: Server-side bite roll
+		-- TASK 3.1: Server-side bite roll
 
 		-- Bite delay is randomized; better rods = shorter average wait
 		local baseDelay = rod.castTime
 		local biteDelay = baseDelay + rng:NextNumber(BITE_MIN_DELAY, BITE_MAX_DELAY)
-		remotes.CastState:FireClient(player, true, biteDelay)
+
+		-- N16 (CastResult wiring): compute the cast-overlay hit zone bounds from
+		-- the authoritative RodDefinitions table. The client renders the zone
+		-- from these bounds, and CastResult's accuracy is validated against them
+		-- when the marker stops. Better rods get a wider target zone.
+		--
+		-- ZONE SEMANTICS (fixed round-2): the OUTER, WIDER band is the "good"
+		-- zone (goodZoneWidth, 0.5); the INNER, NARROWER band is the "perfect"
+		-- bullseye (hitZoneWidth, 0.3, overridden by rod.minigameZoneSize).
+		-- The config field names are confusingly swapped — hitZoneWidth is the
+		-- NARROW inner perfect target, goodZoneWidth is the WIDE outer good band.
+		-- The client's perfectZoneFrame is nested INSIDE hitZoneFrame, confirming
+		-- the perfect region is the inner one. A perfectly-timed click earns the
+		-- accuracyLuckBonus.perfect tier; landing in the good band earns .good.
+		local rodDef = GameConfig.RodDefinitions[session.profile.Equipment.EquippedRodLevel]
+		local perfectSize = (rodDef and rodDef.minigameZoneSize) or GameConfig.MiniGame.hitZoneWidth
+		local goodSize = GameConfig.MiniGame.goodZoneWidth
+		-- Center the GOOD (outer) zone so it fits fully inside [0,1]. Clamping on
+		-- the OUTER band guarantees the inner perfect band (narrower) also fits.
+		local halfGood = goodSize / 2
+		local zoneCenter = rng:NextNumber(halfGood, 1 - halfGood)
+		-- Outer "good" band (wider)
+		local goodStart = zoneCenter - halfGood
+		local goodEnd = zoneCenter + halfGood
+		-- Inner "perfect" bullseye (narrower, centered on the same point)
+		local halfPerfect = perfectSize / 2
+		local hitZoneStart = zoneCenter - halfPerfect
+		local hitZoneEnd = zoneCenter + halfPerfect
+		-- The cast deadline is the absolute os.clock() at which the marker reaches
+		-- position 1.0 (end of track). The client computes accuracy from where the
+		-- marker was when the player clicked.
+		local castDeadline = os.clock() + biteDelay
+
+		remotes.CastState:FireClient(player, true, biteDelay, {
+			hitZoneStart = hitZoneStart, -- inner perfect bounds
+			hitZoneEnd = hitZoneEnd,
+			goodStart = goodStart,       -- outer good bounds
+			goodEnd = goodEnd,
+			castDeadline = castDeadline,
+		})
+
+		-- EPIC 11 (TASK 11.2): first_cast fires ONCE per player (the wrapper
+		-- stamps firstCastAt). CORRECTED (fresh-eyes): gate on isFirst so it
+		-- doesn't fire on every cast and pollute the funnel metric.
+		if analytics then
+			if analytics.isFirst(player.UserId, "first_cast") then
+				analytics.track(player, "first_cast", { zone_id = zoneId })
+			end
+		end
 
 		-- Store bite state for later validation
 		activeBites[player] = {
@@ -106,6 +152,16 @@ function FishingService.init(deps)
 			rodLevel = session.profile.Equipment.EquippedRodLevel,
 			baitLevel = session.profile.Equipment.EquippedBaitLevel,
 			biteTime = os.clock() + biteDelay,
+			-- N16: cast-overlay bounds + deadline, consumed by CastResult to
+			-- derive an accuracy tier. luckBonus starts at 0 and is set when the
+			-- player submits their cast result (well before the bite fires).
+			hitZoneStart = hitZoneStart,
+			hitZoneEnd = hitZoneEnd,
+			goodStart = goodStart,
+			goodEnd = goodEnd,
+			castDeadline = castDeadline,
+			luckBonus = 0,
+			castResultReceived = false,
 		}
 
 		-- Fire the bite event to the client when the bite occurs
@@ -147,6 +203,63 @@ function FishingService.init(deps)
 		end)
 	end)
 
+	-- N16 (CastResult wiring): the cast-overlay timing bar sends the marker's
+	-- position when the player clicked. The server re-derives the accuracy
+	-- tier from its OWN authoritative bounds (stored on activeBites by the
+	-- Cast handler) rather than trusting any tier the client might claim.
+	-- The luckBonus is then consumed by the species roll in SubmitCatchInput.
+	remotes.CastResult.OnServerEvent:Connect(function(player, accuracy)
+		local session = dataManager.get(player)
+		if not session or not player.Parent then
+			return
+		end
+
+		local biteData = activeBites[player]
+		if not biteData or biteData.castResultReceived then
+			-- No active cast, or the player already submitted (double-fire guard).
+			-- The bite may also have already fired, in which case the bonus is
+			-- moot for this cast — silently ignore.
+			return
+		end
+
+		-- Clamp the client's reported marker position to the valid [0,1] range.
+		-- A crafted client could send -99 or 99; clamping prevents nonsense.
+		accuracy = type(accuracy) == "number" and math.clamp(accuracy, 0, 1) or 0
+
+		-- Derive the accuracy tier from the server-authoritative bounds.
+		-- hitZoneStart/hitZoneEnd is the INNER "perfect" bullseye (narrow);
+		-- goodStart/goodEnd is the OUTER "good" band (wide, contains perfect).
+		-- Check the inner band FIRST (it's a subset of the outer). Anything
+		-- outside the outer band is "ok" (no bonus).
+		local tier
+		if accuracy >= biteData.hitZoneStart and accuracy <= biteData.hitZoneEnd then
+			tier = "perfect"
+		elseif accuracy >= biteData.goodStart and accuracy <= biteData.goodEnd then
+			tier = "good"
+		else
+			tier = "ok"
+		end
+
+		-- Map the tier to a luck bonus from the authoritative config.
+		-- The client cannot inflate this: it only controls the raw position,
+		-- and the server re-computes the tier against its own bounds.
+		biteData.luckBonus = GameConfig.MiniGame.accuracyLuckBonus[tier] or 0
+		biteData.castResultReceived = true
+
+		-- EPIC 11 (TASK 11.2): record the cast-accuracy tier distribution.
+		-- Powers the "are players engaging with the cast minigame?" question.
+		if analytics then
+			analytics.track(player, "cast_result_tier", { tier = tier })
+		end
+
+		-- Feedback so the player knows their cast quality registered.
+		if tier == "perfect" then
+			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", Color3.fromRGB(134, 239, 172))
+		elseif tier == "good" then
+			remotes.notify(player, "Good cast. +Luck on this catch.", Color3.fromRGB(120, 190, 255))
+		end
+	end)
+
 	-- TASK 3.3: Client submits catch input after the minigame
 	remotes.SubmitCatchInput.OnServerInvoke = function(player, timingResult)
 		local session = dataManager.get(player)
@@ -164,6 +277,9 @@ function FishingService.init(deps)
 		if elapsed > BITE_WINDOW_SECONDS then
 			activeBites[player] = nil
 			remotes.notify(player, "Too slow! The fish got away...", Color3.fromRGB(255, 120, 120))
+			if analytics then
+				analytics.track(player, "fish_catch_failed", { reason = "too_slow" })
+			end
 			return { ok = false, reason = "too_slow" }
 		end
 
@@ -177,6 +293,9 @@ function FishingService.init(deps)
 
 		if not timingResult.hit then
 			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			if analytics then
+				analytics.track(player, "fish_catch_failed", { reason = "missed" })
+			end
 			return { ok = false, reason = "missed" }
 		end
 
@@ -191,6 +310,9 @@ function FishingService.init(deps)
 		local zoneSize = (rodDef and rodDef.minigameZoneSize) or 0.30
 		if rng:NextNumber() > zoneSize then
 			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			if analytics then
+				analytics.track(player, "fish_catch_failed", { reason = "missed_reroll" })
+			end
 			return { ok = false, reason = "missed" }
 		end
 
@@ -204,7 +326,11 @@ function FishingService.init(deps)
 
 		-- Roll species from the zone's fish table, weighted by CatchWeight and
 		-- luck-shifted toward rarer species (TASK FISH-02: luck is now real).
-		local luck = rod.luck + bait.luck
+		-- N16 (CastResult): add the cast-accuracy luck bonus on top of the gear
+		-- luck. A well-timed cast (perfect = +25, good = +12) measurably shifts
+		-- the species distribution toward rarer fish, rewarding skill expression.
+		-- Defaults to 0 when no CastResult was submitted (e.g. player idled).
+		local luck = rod.luck + bait.luck + (biteData.luckBonus or 0)
 		local speciesDef = FishDefinitions.getRandomInZone(zoneId, rng, luck)
 		if not speciesDef then
 			warn("[HarborHeist] No species found in zone: " .. zoneId)
@@ -214,6 +340,29 @@ function FishingService.init(deps)
 		-- Create FishInstance record
 		local fish = FishInstance.new(speciesDef.SpeciesId, zoneId)
 		table.insert(session.carried, fish)
+
+		-- EPIC 11 (TASK 11.2): fish_caught fires every successful catch.
+		-- first_catch fires ONCE (gated by isFirst). CORRECTED (fresh-eyes):
+		-- previously fired every catch, polluting the funnel metric.
+		-- Includes rarity + species so the dashboard can break down catch
+		-- composition.
+		if analytics then
+			analytics.track(player, "fish_caught", {
+				species_id = fish.SpeciesId,
+				rarity = fish.Rarity,
+				zone_id = zoneId,
+			})
+			if analytics.isFirst(player.UserId, "first_catch") then
+				analytics.track(player, "first_catch", { species_id = fish.SpeciesId })
+			end
+		end
+
+		-- N11: fire the catch quest hook. This was defined on QuestService but
+		-- never called, so `catch_rarity` quests (3 of the 11 quest templates)
+		-- could never progress. Pass the string rarity; QuestService normalizes.
+		if questService then
+			questService.onFishCaught(session, fish.Rarity)
+		end
 
 		-- TASK 7.1: Track species discovery
 		if not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] then
