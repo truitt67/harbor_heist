@@ -13,6 +13,7 @@ local QuestService = require(script.QuestService)
 local BoatService = require(script.BoatService)
 local RodService = require(script.RodService)
 local AnalyticsService = require(script.AnalyticsService) -- EPIC 11 / TASK 11.1
+local CollectionService = require(script.CollectionService) -- EPIC 7 / TASK 7.2
 
 Players.CharacterAutoLoads = false
 
@@ -38,6 +39,7 @@ ShopService.init(deps)
 FishInventoryService.init(deps)
 QuestService.init(deps)
 BoatService.init(deps)
+CollectionService.init(deps) -- EPIC 7 / TASK 7.2 (collection book remote)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()

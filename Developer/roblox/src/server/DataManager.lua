@@ -243,10 +243,21 @@ local function sanitize(data)
 				end
 			end
 		end
+		-- MilestonesClaimed is a SET keyed by milestone id (map form), matching
+		-- how CollectionService writes it (MilestonesClaimed[id] = true) and how
+		-- DiscoveredSpecies works above. The earlier array-style sanitize
+		-- (ipairs + table.insert) silently dropped every claimed milestone on
+		-- reload because string keys aren't array indices — claims never
+		-- persisted. Handle both shapes for forward/backward compat: if the
+		-- data is array-form (legacy), convert to the map set.
 		if type(data.Collection.MilestonesClaimed) == "table" then
-			for _, m in ipairs(data.Collection.MilestonesClaimed) do
-				if type(m) == "string" then
-					table.insert(clean.Collection.MilestonesClaimed, m)
+			for key, val in pairs(data.Collection.MilestonesClaimed) do
+				if type(key) == "string" and val == true then
+					-- Map form: { [milestoneId] = true }
+					clean.Collection.MilestonesClaimed[key] = true
+				elseif type(key) == "number" and type(val) == "string" then
+					-- Legacy array form: { "milestoneId", ... } -> convert to set
+					clean.Collection.MilestonesClaimed[val] = true
 				end
 			end
 		end
