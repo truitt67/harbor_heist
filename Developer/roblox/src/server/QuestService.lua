@@ -1,4 +1,5 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local QuestService = {}
 
@@ -84,7 +85,13 @@ local function processList(session, list, scope, predicate, incrFn)
 			if q.progress >= q.target then
 				q.progress = q.target
 				q.claimed = true
-				session.cash += q.reward
+				-- N4 (CRITICAL): session has no `cash` field — money lives in
+				-- session.profile.Coins. The old `session.cash += q.reward` line
+				-- errored on every quest completion ("arithmetic on nil value")
+				-- AND credited nothing. Route through clampCoins + track lifetime
+				-- earnings, matching every other coin-grant path in the codebase.
+				session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + q.reward)
+				session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward
 				if remotes and session.player and session.player.Parent then
 					remotes.notify(
 						session.player,
@@ -119,7 +126,15 @@ local function progressQuests(session, predicate, incrFn)
 	end
 end
 
-function QuestService.onFishCaught(session, rarityIndex)
+-- Map rarity name -> ordinal for `catch_rarity` quest comparisons.
+-- FishInstance.Rarity is a string ("Common".."Legendary"); quests store a
+-- numeric threshold (3 = Rare+, 4 = Epic+, 5 = Legendary).
+local RARITY_ORDINAL = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+
+function QuestService.onFishCaught(session, rarity)
+	-- Accept either a string rarity name (from FishInstance) or a numeric
+	-- ordinal (legacy callers). Normalize to a number before comparing.
+	local rarityIndex = type(rarity) == "number" and rarity or RARITY_ORDINAL[rarity] or 1
 	progressQuests(
 		session,
 		function(q) return q.type == "catch_rarity" and (rarityIndex >= (q.rarity or 1)) end,

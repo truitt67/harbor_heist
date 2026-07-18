@@ -53,6 +53,12 @@ function PlayerProfile.default()
 			LockCooldownUntilTimestamp = 0,
 			RaidProtectionUntilTimestamp = 0,
 			RaidOptIn = false,
+			-- N5: defense upgrade tiers. These were referenced across the codebase
+			-- (ShopService, AquariumService, StateSync, client) but never declared
+			-- in the schema, so sanitize dropped them on every save/load and they
+			-- were always nil at runtime — making lock and alarm upgrades do nothing.
+			LockLevel = 0,
+			AlarmLevel = 0,
 		},
 
 		Dock = {

@@ -148,7 +148,10 @@ function RodService.equip(player, session)
 		return
 	end
 
-	local level = session.rodLevel or 1
+	-- N14: read the equipped rod level from the profile, not a nonexistent
+	-- session.rodLevel field. Without this fix the rod visual was always level 1
+	-- (Basic Rod) even after purchasing a Steel or Golden Rod.
+	local level = (session.profile and session.profile.Equipment and session.profile.Equipment.EquippedRodLevel) or 1
 	local model, tipAttachment = buildRodModel(level)
 
 	-- Grip pose: rod points forward and tilted up out of the right hand.
