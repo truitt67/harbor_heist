@@ -7,12 +7,29 @@ local PlayerProfile = require(ReplicatedStorage.Shared.PlayerProfile)
 
 local DataManager = {}
 
--- TASK 1.6 will decide whether to bump this to _v2. For now, same key with
--- in-load migration (TASK 1.3) handles the v1->v2 format upgrade.
-local STORE_NAME = "HarborHeist_PlayerData_v1"
-local dataStore = nil
+-- TASK 1.6 (Option b — new key with copy+migrate): bump the DataStore key to
+-- _v2. The structured profile (TASK 1.1, CURRENT_VERSION=2) is a breaking
+-- format change from v1's flat fields (cash/rodLevel/liveWell). Using a NEW
+-- key instead of overwriting v1 in place means: (1) rollback is possible if
+-- the migration misbehaves (v1 data is untouched until proven), (2) a bad
+-- migration can't permanently corrupt the only copy of a player's data.
+--
+-- Migration flow (DataManager.load): read v2 first. If empty, read v1,
+-- sanitize() (which handles the flat->structured conversion, TASK 1.3), then
+-- write the migrated profile to v2 and mark it migrated. v1 is left intact
+-- for one grace period as a rollback anchor; a future task can delete it once
+-- the closed test confirms migration stability.
+local STORE_NAME_V2 = "HarborHeist_PlayerData_v2"
+local STORE_NAME_V1 = "HarborHeist_PlayerData_v1"
+local dataStore = nil      -- v2 (current, authoritative)
+local dataStoreV1 = nil    -- v1 (legacy, read-only migration source)
 local storeOk = pcall(function()
-	dataStore = DataStoreService:GetDataStore(STORE_NAME)
+	dataStore = DataStoreService:GetDataStore(STORE_NAME_V2)
+end)
+-- v1 store is only needed for migration reads; failure here is non-fatal
+-- (players without v1 data just skip migration).
+pcall(function()
+	dataStoreV1 = DataStoreService:GetDataStore(STORE_NAME_V1)
 end)
 
 local sessions = {}
@@ -95,13 +112,13 @@ local function sanitize(data)
 		clean.Equipment.EquippedBaitLevel = data.baitLevel
 	end
 	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel <= #GameConfig.Upgrades.Capacity then
-		clean.capacityLevel = math.floor(data.capacityLevel)
+		clean.Aquarium.UpgradeLevel = math.floor(data.capacityLevel) + 1
 	end
 	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel <= #GameConfig.Upgrades.Lock then
-		clean.lockLevel = math.floor(data.lockLevel)
+		clean.Aquarium.LockLevel = math.floor(data.lockLevel)
 	end
 	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel <= #GameConfig.Upgrades.Alarm then
-		clean.alarmLevel = math.floor(data.alarmLevel)
+		clean.Aquarium.AlarmLevel = math.floor(data.alarmLevel)
 	end
 	if type(data.liveWell) == "table" then
 		clean.Aquarium.StoredFish = sanitizeStoredFish(data.liveWell)
@@ -143,7 +160,14 @@ local function sanitize(data)
 		if type(aq.UpgradeLevel) == "number" and aq.UpgradeLevel >= 1 then
 			clean.Aquarium.UpgradeLevel = math.floor(aq.UpgradeLevel)
 		end
-		clean.Aquarium.StoredFish = sanitizeStoredFish(aq.StoredFish)
+		-- N3 (CRITICAL): only migrate v2 StoredFish when it actually exists.
+		-- The unconditional version wiped the legacy `liveWell` migration above:
+		-- sanitizeStoredFish(nil) returns {}, clobbering fish just converted
+		-- from the v1 liveWell format. A v1 save with a partial Aquarium table
+		-- (but no StoredFish) would silently lose every fish on first load.
+		if type(aq.StoredFish) == "table" then
+			clean.Aquarium.StoredFish = sanitizeStoredFish(aq.StoredFish)
+		end
 		if type(aq.UnclaimedIncome) == "number" then
 			clean.Aquarium.UnclaimedIncome = math.max(0, math.min(PlayerProfile.MAX_UNCLAIMED_INCOME, aq.UnclaimedIncome))
 		end
@@ -165,18 +189,18 @@ local function sanitize(data)
 			clean.Aquarium.UpgradeLevel = upLevel
 			clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
 		end
-		-- #11 (CRITICAL): only replace StoredFish if the source actually
-		-- carried one. Without this guard, a v1 save that ALSO has a partial
-		-- Aquarium table (but no StoredFish) overwrites the just-migrated
-		-- liveWell fish with an empty array — silent data loss.
-		if type(aq.StoredFish) == "table" then
-			clean.Aquarium.StoredFish = sanitizeStoredFish(aq.StoredFish)
-		end
 		if type(aq.RaidProtectionUntilTimestamp) == "number" then
 			clean.Aquarium.RaidProtectionUntilTimestamp = aq.RaidProtectionUntilTimestamp
 		end
 		if type(aq.RaidOptIn) == "boolean" then
 			clean.Aquarium.RaidOptIn = aq.RaidOptIn
+		end
+		-- N5: persist defense upgrade levels from the v2 schema location.
+		if type(aq.LockLevel) == "number" and aq.LockLevel >= 0 and aq.LockLevel <= #GameConfig.Upgrades.Lock then
+			clean.Aquarium.LockLevel = math.floor(aq.LockLevel)
+		end
+		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel >= 0 and aq.AlarmLevel <= #GameConfig.Upgrades.Alarm then
+			clean.Aquarium.AlarmLevel = math.floor(aq.AlarmLevel)
 		end
 	end
 
@@ -184,6 +208,16 @@ local function sanitize(data)
 	if type(data.Dock) == "table" then
 		if type(data.Dock.UpgradeLevel) == "number" and data.Dock.UpgradeLevel >= 1 then
 			clean.Dock.UpgradeLevel = math.floor(data.Dock.UpgradeLevel)
+		end
+		-- N17 (TASK 17.6): clamp Dock.UpgradeLevel against the authoritative
+		-- DockUpgradeTiers table, mirroring the Aquarium N6 pattern. A crafted
+		-- save with UpgradeLevel=999 would otherwise be honored, causing
+		-- DockUpgradeTiers[999] lookups to return nil downstream.
+		local DockUpgradeTiers = GameConfig.DockUpgradeTiers
+		local dockLevel = clean.Dock.UpgradeLevel or 1
+		if DockUpgradeTiers and #DockUpgradeTiers > 0 then
+			dockLevel = math.max(1, math.min(dockLevel, #DockUpgradeTiers))
+			clean.Dock.UpgradeLevel = dockLevel
 		end
 		if type(data.Dock.CosmeticUnlocks) == "table" then
 			clean.Dock.CosmeticUnlocks = {}
@@ -303,7 +337,32 @@ function DataManager.load(player)
 		end
 	end
 
+	-- TASK 1.6: v1->v2 migration. If v2 has no data but the legacy v1 store
+	-- does, load v1 (sanitize() converts flat->structured), then write the
+	-- migrated profile to v2 so subsequent loads hit v2 directly. The v1 key
+	-- is left intact as a rollback anchor for the closed-test grace period.
+	local migratedFromV1 = false
+	if saved == nil and dataStoreV1 then
+		local okV1, resultV1 = withRetries(function()
+			return dataStoreV1:GetAsync(keyFor(player))
+		end)
+		if okV1 and resultV1 ~= nil then
+			saved = resultV1
+			migratedFromV1 = true
+			-- print (not warn): this is a routine, expected one-time-per-player
+			-- migration, not an error. warn() would spam the console and
+			-- drown out real errors once the closed test onboards legacy players.
+			print(("[HarborHeist] Migrating %s from v1 DataStore to v2."):format(player.Name))
+		end
+	end
+
 	local profile = sanitize(saved)
+
+	-- TASK 1.6: if this profile came from the v1 store, persist it to v2
+	-- immediately so the next load reads v2 directly (and so the player's
+	-- data exists in the authoritative store even if they disconnect before
+	-- the first autosave).
+	local needsMigrationSave = migratedFromV1
 
 	-- Session = profile + runtime-only fields (not persisted).
 	-- The profile sub-tables are the SAME table references so services can
@@ -331,11 +390,14 @@ function DataManager.load(player)
 		seatConnection = nil,
 		heistCount = 0, -- today's steal counter for quest hook
 		incomeSinceTick = 0,
-		-- Quest runtime fields (persisted via sanitize; runtime-mutable here)
-		dailyQuestKey = data.dailyQuestKey,
-		dailyQuests = data.dailyQuests,
-		weeklyQuestKey = data.weeklyQuestKey,
-		weeklyQuests = data.weeklyQuests,
+		-- Quest runtime fields (persisted via sanitize; runtime-mutable here).
+		-- N2 (CRITICAL): read from the sanitized `profile`, NOT the raw `data`
+		-- parameter — `data` is nil for brand-new players or when the datastore
+		-- load failed, and indexing nil here crashes EVERY first-time join.
+		dailyQuestKey = profile.dailyQuestKey,
+		dailyQuests = profile.dailyQuests,
+		weeklyQuestKey = profile.weeklyQuestKey,
+		weeklyQuests = profile.weeklyQuests,
 	}
 	-- Restore lock timers from persisted epoch timestamps if still active
 	local nowEpoch = os.time()
@@ -349,6 +411,18 @@ function DataManager.load(player)
 		session.stealCooldownUntil = os.clock() + (profile.PvP.StealCooldownUntilTimestamp - nowEpoch)
 	end
 	sessions[player] = session
+
+	-- TASK 1.6: persist the migrated profile to v2 immediately (deferred so
+	-- load returns promptly; DataManager.save reads the same session table).
+	-- Deferring one frame lets the caller finish wiring the session before
+	-- the async DataStore write runs.
+	if needsMigrationSave then
+		task.defer(function()
+			if session.player and session.player.Parent then
+				DataManager.save(session.player)
+			end
+		end)
+	end
 	return session
 end
 
