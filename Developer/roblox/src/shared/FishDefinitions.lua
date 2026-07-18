@@ -239,6 +239,9 @@ end
 
 -- Rarity ordinal for luck weighting (higher = rarer)
 local RARITY_ORDER = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+-- Export so consumers (CollectionService, etc.) share ONE source of truth
+-- instead of hardcoding a duplicate copy that could silently diverge.
+FishDefinitions.RARITY_ORDER = RARITY_ORDER
 
 --[[
 	Weighted random species pick within a zone.

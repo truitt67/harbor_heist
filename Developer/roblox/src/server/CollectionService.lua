@@ -32,8 +32,10 @@ local CollectionService = {}
 local remotes
 local dataManager
 
--- Rarity ordinal for sorting + milestone logic (Common=1 .. Legendary=5).
-local RARITY_ORDER = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+-- Rarity ordinal for milestone reward scaling. Uses the SINGLE source of
+-- truth exported by FishDefinitions (not a hardcoded duplicate that could
+-- silently diverge if a rarity is ever reordered).
+local RARITY_ORDER = FishDefinitions.RARITY_ORDER
 
 --- Build the ordered species catalog (sorted by CollectionOrder).
 -- Cached at module load — FishDefinitions is static.
