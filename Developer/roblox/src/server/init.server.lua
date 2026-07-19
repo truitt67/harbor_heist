@@ -15,6 +15,7 @@ local RodService = require(script.RodService)
 local AnalyticsService = require(script.AnalyticsService) -- EPIC 11 / TASK 11.1
 local CollectionService = require(script.CollectionService) -- EPIC 7 / TASK 7.2
 local OnboardingService = require(script.OnboardingService) -- EPIC 9 / TASK 9.1
+local RaidService = require(script.RaidService) -- EPIC 8 / TASK 8.1
 
 Players.CharacterAutoLoads = false
 
@@ -33,6 +34,7 @@ local deps = {
 	rodService = RodService,
 	analytics = AnalyticsService, -- EPIC 11
 	onboarding = OnboardingService, -- EPIC 9
+	raidService = RaidService, -- EPIC 8 (gdj.13 eligibility will gate on isWindowOpen)
 }
 
 local fishingCleanup = FishingService.init(deps).onPlayerRemoving
@@ -43,6 +45,7 @@ QuestService.init(deps)
 BoatService.init(deps)
 CollectionService.init(deps) -- EPIC 7 / TASK 7.2 (collection book remote)
 OnboardingService.init(deps) -- EPIC 9 / TASK 9.1 (onboarding flag writer)
+RaidService.init(deps) -- EPIC 8 / TASK 8.1 (raid-window scheduler)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()

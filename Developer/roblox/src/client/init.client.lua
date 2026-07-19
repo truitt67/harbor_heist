@@ -1458,6 +1458,30 @@ end)
 
 Remotes.Notify.OnClientEvent:Connect(showNotification)
 
+-- EPIC 8 (TASK 8.1 / gdj.1): raid-window state. The server fires
+-- RaidWindowChanged on window open/close edges and once to each late joiner.
+-- Payload is DURATIONS ONLY (server never sends absolute os.clock() values,
+-- which are machine-local): (isOpen, remainingSeconds, nextWindowInSeconds).
+-- We track the latest state and toast on transitions; the full countdown /
+-- "RAID WATERS OPEN" HUD banner is a later Epic 8 client bead — this keeps
+-- the window visible to players in the meantime and gives that bead a
+-- ready-made state source.
+local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
+Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSeconds, nextWindowInSeconds)
+	local wasOpen = raidWindow.open
+	raidWindow.open = isOpen == true
+	raidWindow.remainingSeconds = remainingSeconds or 0
+	raidWindow.nextWindowInSeconds = nextWindowInSeconds or 0
+	if raidWindow.open and not wasOpen then
+		showNotification(
+			string.format("RAID WATERS OPEN for %d minutes! Steal fish from other docks while the window lasts.", math.floor(raidWindow.remainingSeconds / 60)),
+			Color3.fromRGB(255, 120, 120)
+		)
+	elseif not raidWindow.open and wasOpen then
+		showNotification("Raid waters closed. The harbor is safe... for now.", UI.accentSoft)
+	end
+end)
+
 Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
 	if isCasting then

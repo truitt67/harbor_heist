@@ -67,6 +67,17 @@ GameConfig.Boat = {
 	despawnDelay = 10,
 }
 
+-- EPIC 8 (TASK 8.1 / gdj.1): raid-window scheduler tuning, per PRD
+-- "Recommended V1 raid rule": windows occur every 20-30 minutes and last
+-- 5 minutes. All values in seconds. The scheduler (RaidService) draws each
+-- gap independently from [min, max] so window timing isn't perfectly
+-- predictable.
+GameConfig.Raid = {
+	windowIntervalMin = 20 * 60,
+	windowIntervalMax = 30 * 60,
+	windowDuration = 5 * 60,
+}
+
 GameConfig.MaxCarried = 5
 GameConfig.IncomeTickSeconds = 1
 GameConfig.StartingCash = 0

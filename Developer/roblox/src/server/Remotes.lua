@@ -2,7 +2,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Remotes = {}
 
-local EVENT_NAMES = { "Cast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop", "BiteEvent", "QuestProgressChanged", "OpenQuests", "CastResult" }
+local EVENT_NAMES = { "Cast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop", "BiteEvent", "QuestProgressChanged", "OpenQuests", "CastResult", "RaidWindowChanged" }
 local FUNCTION_NAMES = { "StoreFish", "SellAll", "LockAquarium", "BuyItem", "GetState", "SubmitCatchInput", "SellFish", "StoreSingleFish", "ClaimIncome", "SpawnBoat", "RequestCollection", "ClaimCollectionReward" }
 
 local folder = Instance.new("Folder")
