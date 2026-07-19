@@ -1,5 +1,7 @@
 local TweenService = game:GetService("TweenService")
-local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+local FishVisuals = require(ReplicatedStorage.Shared.FishVisuals) -- TASK 2.8
 
 local DockManager = {}
 
@@ -354,7 +356,6 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local display = dock.aquarium.FishDisplay
 	display:ClearAllChildren()
 
-	local GameConfigRarities = GameConfig.Rarities
 	local waterCFrame = dock.aquarium.Water.CFrame
 	local shown = math.min(#session.profile.Aquarium.StoredFish, GameConfig.Aquarium.maxVisibleFish)
 
@@ -367,54 +368,21 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 			continue
 		end
 
-		-- Find rarity color by name
-		local rarityColor = Color3.fromRGB(255, 255, 255)
-		for _, r in ipairs(GameConfigRarities) do
-			if r.name == fishData.Rarity then
-				rarityColor = r.color
-				break
-			end
-		end
-
-	-- Build a small fish model: body + welded tail fin that follows the body.
-		-- (RedBear's richer visual: animated swim tween, not a static ball.)
-		local body = Instance.new("Part")
-		body.Name = "Fish"
-		body.Shape = Enum.PartType.Ball
-		body.Size = Vector3.new(0.55, 0.45, 1.1)
-		body.Color = rarityColor
-		body.Material = Enum.Material.Neon
-		body.Anchored = true
-		body.CanCollide = false
-		body.CanQuery = false
-		body.CanTouch = false
-		body.CastShadow = false
-
-		local tail = Instance.new("WedgePart")
-		tail.Name = "Tail"
-		tail.Size = Vector3.new(0.12, 0.4, 0.45)
-		tail.Color = rarityColor
-		tail.Material = Enum.Material.Neon
-		tail.Anchored = false
-		tail.Massless = true
-		tail.CanCollide = false
-		tail.CanQuery = false
-		tail.CanTouch = false
-		tail.CastShadow = false
+		-- TASK 2.8: build via the shared FishVisuals archetype factory.
+		-- Archetype (shape) comes from SpeciesId; rarity contributes
+		-- size/glow/particles on top of the base color. Falls back to a
+		-- default archetype for unknown species so one bad record can't
+		-- blank the whole aquarium.
+		local speciesId = fishData.SpeciesId
+		local fishModel = FishVisuals.build(speciesId, fishData.Rarity)
+		local body = fishModel.PrimaryPart
 
 		local startYaw = rng:NextNumber(0, math.pi * 2)
 		local startCFrame = waterCFrame
 			* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
 			* CFrame.Angles(0, startYaw, 0)
-		body.CFrame = startCFrame
-		tail.CFrame = startCFrame * CFrame.new(0, 0, 0.72) * CFrame.Angles(math.rad(-90), 0, 0)
-
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = body
-		weld.Part1 = tail
-		weld.Parent = body
-		tail.Parent = body
-		body.Parent = display
+		fishModel:SetPrimaryPartCFrame(startCFrame)
+		fishModel.Parent = display
 
 		-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
 		local driftCFrame = startCFrame
