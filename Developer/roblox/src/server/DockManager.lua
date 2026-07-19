@@ -362,8 +362,14 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	-- SECURITY: Validate each fish before creating visual representation
 	for i = 1, shown do
 		local fishData = session.profile.Aquarium.StoredFish[i]
-		-- Validate fish record exists and has required fields
-		if type(fishData) ~= "table" or type(fishData.Rarity) ~= "string" then
+		-- Validate fish record exists and has required fields. SpeciesId
+		-- must be a string (FishInstance contract) — a non-string would
+		-- fall through to FishVisuals' default-archetype path and warn,
+		-- but catching it here keeps the malformed-record logging in one
+		-- place and skips a wasted model build.
+		if type(fishData) ~= "table"
+			or type(fishData.Rarity) ~= "string"
+			or type(fishData.SpeciesId) ~= "string" then
 			warn("[HarborHeist] Invalid fish record in visual update at index " .. i)
 			continue
 		end

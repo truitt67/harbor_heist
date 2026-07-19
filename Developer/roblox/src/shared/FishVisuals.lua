@@ -154,8 +154,10 @@ FishVisuals.SPECIES_TO_ARCHETYPE = SPECIES_TO_ARCHETYPE
 FishVisuals.RARITY_VISUALS = RARITY_VISUALS
 
 -- Cache of unknown speciesIds already warned about, so a single bad record
--- doesn't spam the server log every aquarium refresh tick.
+-- doesn't spam the server log every aquarium refresh tick. Nil speciesIds
+-- use a sentinel key since Lua tables can't store nil keys.
 local _warnedUnknownSpecies = {}
+local NIL_SPECIES_SENTINEL = "__nil_species__"
 
 function FishVisuals.getArchetype(speciesId)
 	if speciesId == nil or SPECIES_TO_ARCHETYPE[speciesId] == nil then
@@ -163,13 +165,35 @@ function FishVisuals.getArchetype(speciesId)
 		-- default archetype; surface it so the malformed record is diagnosable
 		-- in server logs instead of being invisible. Warn-once per speciesId
 		-- so repeated renders of the same bad record don't flood the log.
-		if not _warnedUnknownSpecies[speciesId] then
-			_warnedUnknownSpecies[speciesId] = true
+		local cacheKey = speciesId
+		if cacheKey == nil then
+			cacheKey = NIL_SPECIES_SENTINEL
+		end
+		if not _warnedUnknownSpecies[cacheKey] then
+			_warnedUnknownSpecies[cacheKey] = true
 			warn("[FishVisuals] Unknown speciesId: " .. tostring(speciesId) .. " — using default archetype")
 		end
 		return DEFAULT_ARCHETYPE
 	end
 	return SPECIES_TO_ARCHETYPE[speciesId]
+end
+
+-- Cache of unknown rarity names already warned about. Same warn-once
+-- pattern as speciesId — corrupted rarity data shouldn't spam the log.
+local _warnedUnknownRarity = {}
+
+-- Internal: resolve + validate the rarity presentation row. Falls back to
+-- Common with a warn-once so corrupted data is diagnosable.
+local function resolveRarityVisuals(rarityName)
+	local vis = RARITY_VISUALS[rarityName]
+	if vis then
+		return vis, rarityName
+	end
+	if not _warnedUnknownRarity[rarityName] then
+		_warnedUnknownRarity[rarityName] = true
+		warn("[FishVisuals] Unknown rarity: " .. tostring(rarityName) .. " — using Common visuals")
+	end
+	return RARITY_VISUALS.Common, "Common"
 end
 
 -- Internal: look up rarity color from GameConfig.Rarities by name.
@@ -186,7 +210,7 @@ end
 local function buildInternal(speciesId, rarityName, mode)
 	local archetypeId = FishVisuals.getArchetype(speciesId)
 	local archetype = ARCHETYPES[archetypeId]
-	local rarityVis = RARITY_VISUALS[rarityName] or RARITY_VISUALS.Common
+	local rarityVis, resolvedRarity = resolveRarityVisuals(rarityName)
 
 	local model = Instance.new("Model")
 	model.Name = "Fish_" .. tostring(speciesId)
@@ -195,16 +219,25 @@ local function buildInternal(speciesId, rarityName, mode)
 	if mode == "silhouette" then
 		baseColor = Color3.fromRGB(20, 20, 25)
 	else
-		baseColor = rarityColor(rarityName)
+		baseColor = rarityColor(resolvedRarity)
 	end
 
+	-- TASK 2.8 (fresh-eyes fix): build parts root-relative from the start,
+	-- NOT at world origin. The original approach created each part at its
+	-- descriptor CFrame in world space (with the root at identity) and then
+	-- relied on Model:SetPrimaryPartCFrame's delta math to teleport the whole
+	-- assembly. That works only when the root's descriptor CFrame is identity
+	-- (which it is today) — a fragile invariant. Building root-relative makes
+	-- the geometry correct regardless of the root descriptor, and means the
+	-- parts are never transiently visible at the world origin.
 	local primaryPart = nil
+	local rootCFrame = CFrame.new() -- root starts at identity; parts computed relative to it
 	for i, partDef in ipairs(archetype.parts) do
 		local p = Instance.new("Part")
 		p.Name = partDef.name
 		p.Shape = partDef.shape
 		p.Size = partDef.size * rarityVis.sizeMult
-		p.CFrame = partDef.cframe -- relative; repositioned by caller via model:SetPrimaryPartCFrame
+		p.CFrame = rootCFrame * partDef.cframe
 		p.Color = baseColor
 		if mode == "silhouette" then
 			p.Material = Enum.Material.SmoothPlastic
@@ -236,12 +269,15 @@ local function buildInternal(speciesId, rarityName, mode)
 
 	model.PrimaryPart = primaryPart
 
-	-- Epic + Legendary: glow on the root part
+	-- Epic + Legendary: glow on the root part. Range is keyed off the
+	-- RESOLVED rarity (post-fallback), not the raw input, so a corrupted
+	-- "Legendary" string doesn't accidentally light up as Common while the
+	-- range check still thinks it's Legendary.
 	if mode == "full" and rarityVis.glow and primaryPart then
 		local light = Instance.new("PointLight")
 		light.Color = baseColor
 		light.Brightness = 1.5
-		light.Range = (rarityName == "Legendary") and 8 or 5
+		light.Range = (resolvedRarity == "Legendary") and 8 or 5
 		light.Parent = primaryPart
 	end
 
