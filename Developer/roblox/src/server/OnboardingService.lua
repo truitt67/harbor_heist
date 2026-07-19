@@ -82,13 +82,32 @@ function OnboardingService.getFlags(session)
 end
 
 --- True when the player has completed the core first-session funnel
--- (intro + first catch + first store). Used by 8.3 to gate PvP and by the
--- first-session success metric. Income claim is optional for this gate.
+-- (intro + first catch + first store). Used by 8.3 to gate PvP — a lighter
+-- bar than full first-session success, so a new player isn't locked out of
+-- the PvP explanation just because they haven't claimed income yet.
 function OnboardingService.hasCompletedCoreLoop(session)
 	local f = OnboardingService.getFlags(session)
 	return f.HasCompletedIntro == true
 		and f.HasCaughtFirstFish == true
 		and f.HasStoredFirstFish == true
+end
+
+--- True when the player satisfies the PRD first-session success condition
+-- (PRD line 80): "catches at least one fish, stores at least one fish,
+-- claims or observes passive income, and understands their next upgrade
+-- goal." CORRECTED (fresh-eyes): the original hasCompletedCoreLoop excluded
+-- income, but the PRD success condition includes it. "Observe income" is
+-- satisfied by HasClaimedIncome (an explicit claim) OR by having income
+-- accrue (which happens automatically once a fish is stored — so storing
+-- already implies "observe"). We require the explicit claim flag here to
+-- match the strongest reading of "understands their next upgrade goal" —
+-- a player who claims income has demonstrably engaged with the economy.
+function OnboardingService.hasCompletedFirstSession(session)
+	local f = OnboardingService.getFlags(session)
+	return f.HasCompletedIntro == true
+		and f.HasCaughtFirstFish == true
+		and f.HasStoredFirstFish == true
+		and f.HasClaimedIncome == true
 end
 
 function OnboardingService.init(deps)

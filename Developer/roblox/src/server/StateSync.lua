@@ -63,6 +63,13 @@ function StateSync.snapshot(session)
 		-- N17 (TASK 17.4): expose dock tier so the client shop reflects
 		-- owned/locked/affordable states for the dock upgrade track.
 		dockLevel = profile.Dock.UpgradeLevel or 1,
+		-- N9 (TASK 9.1): expose onboarding progression flags so the client can
+		-- drive contextual prompts (9.2). The flags are tracked server-side
+		-- (OnboardingService.mark) but were NOT in the snapshot — so the push
+		-- that mark() fires on every flip sent a snapshot with NO onboarding
+		-- data, and the client could never see them. The whole flag pipeline
+		-- was a black hole until this field existed.
+		onboarding = profile.Onboarding,
 		-- RedBear additions: stun + boat state (session-scoped, nil-safe)
 		stunRemaining = math.max(0, (session.stunUntil or 0) - now),
 		hasBoat = (session.boatModel ~= nil),
