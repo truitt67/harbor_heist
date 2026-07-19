@@ -295,7 +295,14 @@ local function sanitize(data)
 	-- Onboarding
 	if type(data.Onboarding) == "table" then
 		for flag, val in pairs(data.Onboarding) do
-			if type(flag) == "string" and type(val) == "boolean" then
+			-- Only accept flags that exist in the schema default. A corrupted
+			-- save with arbitrary Onboarding keys (e.g. { EvilFlag = true })
+			-- would otherwise inject junk keys into the profile; whitelist to
+			-- the 5 known progression flags.
+			if type(flag) == "string"
+				and type(val) == "boolean"
+				and clean.Onboarding[flag] ~= nil
+			then
 				clean.Onboarding[flag] = val
 			end
 		end

@@ -22,6 +22,7 @@ function FishInventoryService.init(deps)
 	local dockManager = deps.dockManager
 	local analytics = deps.analytics -- EPIC 11
 	local questService = deps.questService -- quest progress: store_count
+	local onboarding = deps.onboarding -- EPIC 9
 
 	-- Helper: find a fish in a list by InstanceId
 	local function findFishIndex(list, instanceId)
@@ -152,6 +153,11 @@ function FishInventoryService.init(deps)
 		-- same hook here (count=1) so both paths progress quests consistently.
 		if questService then
 			questService.onFishStored(session, 1)
+		end
+
+		-- EPIC 9 (TASK 9.1): flip the first-store onboarding flag. Idempotent.
+		if onboarding then
+			onboarding.mark(session, "HasStoredFirstFish")
 		end
 
 		-- EPIC 11 (TASK 11.2): fish_stored + first_store (ONCE, gated).

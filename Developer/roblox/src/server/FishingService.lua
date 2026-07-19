@@ -19,6 +19,7 @@ function FishingService.init(deps)
 	local stateSync = deps.stateSync
 	local questService = deps.questService
 	local analytics = deps.analytics -- EPIC 11
+	local onboarding = deps.onboarding -- EPIC 9
 	local rodService = deps.rodService
 
 	local function failCast(player, reason)
@@ -355,6 +356,11 @@ function FishingService.init(deps)
 			if analytics.isFirst(player.UserId, "first_catch") then
 				analytics.track(player, "first_catch", { species_id = fish.SpeciesId })
 			end
+		end
+
+		-- EPIC 9 (TASK 9.1): flip the first-catch onboarding flag. Idempotent.
+		if onboarding then
+			onboarding.mark(session, "HasCaughtFirstFish")
 		end
 
 		-- N11: fire the catch quest hook. This was defined on QuestService but

@@ -14,6 +14,7 @@ local BoatService = require(script.BoatService)
 local RodService = require(script.RodService)
 local AnalyticsService = require(script.AnalyticsService) -- EPIC 11 / TASK 11.1
 local CollectionService = require(script.CollectionService) -- EPIC 7 / TASK 7.2
+local OnboardingService = require(script.OnboardingService) -- EPIC 9 / TASK 9.1
 
 Players.CharacterAutoLoads = false
 
@@ -31,6 +32,7 @@ local deps = {
 	questService = QuestService,
 	rodService = RodService,
 	analytics = AnalyticsService, -- EPIC 11
+	onboarding = OnboardingService, -- EPIC 9
 }
 
 local fishingCleanup = FishingService.init(deps).onPlayerRemoving
@@ -40,6 +42,7 @@ FishInventoryService.init(deps)
 QuestService.init(deps)
 BoatService.init(deps)
 CollectionService.init(deps) -- EPIC 7 / TASK 7.2 (collection book remote)
+OnboardingService.init(deps) -- EPIC 9 / TASK 9.1 (onboarding flag writer)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
@@ -113,6 +116,11 @@ local function onPlayerAdded(player)
 	-- The actual onboarding flow (EPIC 9) isn't built yet, so this marks
 	-- "player entered the world" as the funnel entry point.
 	AnalyticsService.track(player, "tutorial_started")
+
+	-- EPIC 9 (TASK 9.1): mark the intro complete on join. Idempotent — the
+	-- OnboardingService early-returns if the flag is already set, so this is
+	-- safe to call on every join (including rejoins).
+	OnboardingService.mark(session, "HasCompletedIntro")
 
 	QuestService.initializeQuests(session)
 	QuestService.pushProgress(session)

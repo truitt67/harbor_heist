@@ -12,6 +12,7 @@ function AquariumService.init(deps)
 	local stateSync = deps.stateSync
 	local questService = deps.questService
 	local analytics = deps.analytics -- EPIC 11
+	local onboarding = deps.onboarding -- EPIC 9
 
 	local function refreshVisual(session)
 		local dock = dockManager.getDock(session.player)
@@ -54,6 +55,10 @@ function AquariumService.init(deps)
 		if stored > 0 and questService then
 			questService.onFishStored(session, stored)
 		end
+		-- EPIC 9 (TASK 9.1): flip the first-store onboarding flag (bulk path).
+		if stored > 0 and onboarding then
+			onboarding.mark(session, "HasStoredFirstFish")
+		end
 		return { ok = stored > 0, stored = stored }
 	end
 
@@ -78,6 +83,10 @@ function AquariumService.init(deps)
 		-- dashboard uses it to track economy flow + claim frequency.
 		if analytics then
 			analytics.track(player, "income_claimed", { amount = unclaimed })
+		end
+		-- EPIC 9 (TASK 9.1): flip the first-claim onboarding flag. Idempotent.
+		if onboarding then
+			onboarding.mark(session, "HasClaimedIncome")
 		end
 		return { ok = true, amount = unclaimed }
 	end
