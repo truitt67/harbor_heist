@@ -103,11 +103,16 @@ function ShopService.init(deps)
 		-- EPIC 11 (TASK 11.2): upgrade_purchased + first_upgrade (ONCE, gated).
 		-- CORRECTED (fresh-eyes): previously first_upgrade fired every
 		-- purchase. kind + level + price feed the monetization funnel.
+		-- CORRECTED (round-3 fellow-agent review): `price = price` referenced
+		-- an undeclared local and silently sent nil (the analytics pcall never
+		-- complained about a missing key, so the funnel lost the price
+		-- dimension on every purchase). Use item.cost — the authoritative
+		-- price the server just charged.
 		if analytics then
 			analytics.track(player, "upgrade_purchased", {
 				kind = kind,
 				level = level,
-				price = price,
+				price = item.cost,
 			})
 			if analytics.isFirst(player.UserId, "first_upgrade") then
 				analytics.track(player, "first_upgrade", { kind = kind })

@@ -1229,7 +1229,8 @@ barTrack.BackgroundColor3 = UI.surfaceHi
 barTrack.Parent = minigameFrame
 corner(barTrack, 8)
 
--- The target zone (center 30% by default)
+-- The target zone (centered; width comes from the equipped rod's
+-- minigameZoneSize — see runMinigame for the per-cast resize)
 local targetZone = Instance.new("Frame")
 targetZone.Size = UDim2.new(0.3, 0, 1, 0)
 targetZone.Position = UDim2.new(0.35, 0, 0, 0)
@@ -1258,6 +1259,11 @@ local minigameActive = false
 local minigameStartTime = 0
 local minigameWindow = 3.0
 local minigameZoneId = nil
+-- Half-width of the current target zone, refreshed per cast from the
+-- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
+-- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
+-- rod's advantage is actually visible to the player.
+local minigameZoneHalfWidth = 0.15
 
 -- Animate the marker sweeping back and forth
 local function runMinigame(zoneId, windowSeconds)
@@ -1268,6 +1274,26 @@ local function runMinigame(zoneId, windowSeconds)
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
 	minigameResult.Text = ""
+
+	-- ROUND-3 FIX (fellow-agent review): the minigame zone was hardcoded to
+	-- 30% ([0.35, 0.65]) in BOTH the visual frame and the tap hit-test, but
+	-- RodDefinitions gives better rods a wider minigameZoneSize (0.30/0.35/
+	-- 0.40). The server's authoritative reroll (TASK 14.16) already uses the
+	-- rod's zone size, so the client display was lying to honest players
+	-- with upgraded rods — taps in the outer 5% of their "real" zone read
+	-- as misses client-side. Size the zone from the equipped rod so what
+	-- the player sees matches what the server accepts.
+	local zoneSize = GameConfig.MiniGame.hitZoneWidth -- fallback 0.30
+	if state and state.rodLevel then
+		local rodDef = GameConfig.RodDefinitions[state.rodLevel]
+		if rodDef and rodDef.minigameZoneSize then
+			zoneSize = rodDef.minigameZoneSize
+		end
+	end
+	minigameZoneHalfWidth = zoneSize / 2
+	local zoneStart = 0.5 - minigameZoneHalfWidth
+	targetZone.Size = UDim2.new(zoneSize, 0, 1, 0)
+	targetZone.Position = UDim2.new(zoneStart, 0, 0, 0)
 
 	task.spawn(function()
 		local sweepDuration = 1.2 -- seconds for one full sweep
@@ -1300,8 +1326,13 @@ local function onMinigameTap()
 	if not minigameActive then return end
 	local elapsed = os.clock() - minigameStartTime
 	local markerPos = marker.Position.X.Scale
-	-- Check if marker is in the target zone (0.35 to 0.65)
-	local hit = markerPos >= 0.35 and markerPos <= 0.65
+	-- ROUND-3 FIX: validate against the per-rod zone (minigameZoneHalfWidth
+	-- was set by runMinigame from RodDefinitions), not the legacy hardcoded
+	-- [0.35, 0.65] band. The server is still authoritative (it re-rolls
+	-- against the rod's zone size in SubmitCatchInput); this just aligns
+	-- the client's pre-validation with the visual the player saw.
+	local halfWidth = minigameZoneHalfWidth or 0.15
+	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
 	minigameActive = false
 	minigameFrame.Visible = false
 	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
