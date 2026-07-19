@@ -62,28 +62,18 @@ end)
 
 local boatPrompt = worldFolder.BoatDock.PrimaryPart.BoatPrompt
 boatPrompt.Triggered:Connect(function(player)
-	local session = DataManager.get(player)
-	if not session then
-		return
-	end
-	if BoatService.getModel(player) then
+	-- UNIFIED (fresh-eyes review): delegate to BoatService.handleSpawnRequest,
+	-- the same entry point the SpawnBoat RemoteFunction uses. Previously this
+	-- handler was a hand-duplicated copy of the spawn logic — and it was
+	-- MISSING the stun check, so a stunned thief could bypass the slow debuff
+	-- by walking to the dock and prompt-spawning an escape boat. One canonical
+	-- path closes the exploit and prevents future drift.
+	local result = BoatService.handleSpawnRequest(player)
+	-- handleSpawnRequest already notifies on stun / success. Add the "already
+	-- have a boat" notify here since the prompt is the only UI surface where
+	-- that specific reason is surfaced (the RemoteFunction button just hides).
+	if result and not result.ok and result.reason == "already_has_boat" then
 		Remotes.notify(player, "You already have a boat!", Color3.fromRGB(255, 170, 80))
-		return
-	end
-	local dockModel = worldFolder.BoatDock
-	local spawnPart = dockModel:FindFirstChild("SpawnPoint")
-	if spawnPart then
-		-- Spawn in open water past the platform edge, bow facing out to sea
-		-- (kept in sync with the SpawnBoat remote in BoatService).
-		local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 12) * CFrame.Angles(0, math.rad(180), 0)
-		local r = BoatService.spawnBoat(player, spawnCFrame)
-		if r.ok and player.Character then
-			local root = player.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
-			end
-			Remotes.notify(player, "Boat launched! Drive to other docks to steal.", Color3.fromRGB(120, 220, 255))
-		end
 	end
 end)
 

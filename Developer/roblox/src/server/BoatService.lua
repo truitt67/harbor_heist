@@ -8,6 +8,7 @@ local seatConnections = {}
 
 local dataManager = nil
 local stateSync = nil
+local remotes = nil
 
 local function setSessionBoat(player, model)
 	if not dataManager then
@@ -400,47 +401,73 @@ function BoatService.onPlayerRemoving(player)
 	BoatService.despawnBoat(player)
 end
 
+-- Module-level ref to the world folder, captured in init() so the unified
+-- spawn handler can resolve the BoatDock without every caller passing it.
+local worldFolderRef = nil
+
+--- Canonical boat-spawn entry point. Handles the full spawn flow:
+---   1. already-has-boat check (early-out)
+---   2. stun check (EXPLOIT: a stunned thief must not teleport away)
+---   3. BoatDock + SpawnPoint resolution
+---   4. BoatService.spawnBoat + teleport player onto the new boat
+---   5. success notify
+---
+--- WHY THIS EXISTS (fresh-eyes review): the SpawnBoat RemoteFunction and the
+--- BoatDock ProximityPrompt in init.server.lua were TWO hand-duplicated copies
+--- of this same flow. A recent stun-check exploit fix was applied ONLY to the
+--- RemoteFunction copy, leaving the proximity prompt as a live bypass — a
+--- stunned thief could simply walk to the dock and prompt-spawn their escape
+--- boat. Unifying both call sites behind this one function closes the bypass
+--- and prevents future drift.
+---
+--- @param player Player
+--- @return table { ok = boolean, reason = string? }
+function BoatService.handleSpawnRequest(player)
+	if boats[player] then
+		return { ok = false, reason = "already_has_boat" }
+	end
+	-- EXPLOIT FIX (fresh-eyes fellow-agent review): a stunned thief could
+	-- call SpawnBoat to teleport from the victim's aquarium straight to
+	-- the boat dock, escaping the stun's WalkSpeed=8 penalty that exists
+	-- precisely to slow their getaway. Block the spawn while stunned,
+	-- matching the steal handler's stun check (AquariumService). Applies
+	-- to BOTH the RemoteFunction AND the ProximityPrompt entry point.
+	local session = dataManager and dataManager.get(player)
+	if session and (session.stunUntil or 0) > os.clock() then
+		remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
+		return { ok = false, reason = "stunned" }
+	end
+	local boatDock = worldFolderRef and worldFolderRef:FindFirstChild("BoatDock")
+	if not boatDock then
+		return { ok = false, reason = "no_dock" }
+	end
+	local spawnPart = boatDock:FindFirstChild("SpawnPoint")
+	if not spawnPart then
+		return { ok = false, reason = "no_spawn_point" }
+	end
+	-- Spawn in open water past the platform edge, bow facing out to sea.
+	local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 12) * CFrame.Angles(0, math.rad(180), 0)
+	local result = BoatService.spawnBoat(player, spawnCFrame)
+	if result.ok and player.Character then
+		local root = player.Character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
+		end
+	end
+	if result.ok then
+		remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", Color3.fromRGB(120, 220, 255))
+	end
+	return result
+end
+
 function BoatService.init(deps)
-	local remotes = deps.remotes
-	local worldFolder = deps.worldFolder
+	remotes = deps.remotes
+	worldFolderRef = deps.worldFolder
 	dataManager = deps.dataManager
 	stateSync = deps.stateSync
 
 	remotes.SpawnBoat.OnServerInvoke = function(player)
-		if boats[player] then
-			return { ok = false, reason = "already_has_boat" }
-		end
-		-- EXPLOIT FIX (fresh-eyes fellow-agent review): a stunned thief could
-		-- call SpawnBoat to teleport from the victim's aquarium straight to
-		-- the boat dock, escaping the stun's WalkSpeed=8 penalty that exists
-		-- precisely to slow their getaway. Block the spawn while stunned,
-		-- matching the steal handler's stun check (AquariumService).
-		local session = dataManager and dataManager.get(player)
-		if session and (session.stunUntil or 0) > os.clock() then
-			remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
-			return { ok = false, reason = "stunned" }
-		end
-		local boatDock = worldFolder and worldFolder:FindFirstChild("BoatDock")
-		if not boatDock then
-			return { ok = false, reason = "no_dock" }
-		end
-		local spawnPart = boatDock:FindFirstChild("SpawnPoint")
-		if not spawnPart then
-			return { ok = false, reason = "no_spawn_point" }
-		end
-		-- Spawn in open water past the platform edge, bow facing out to sea.
-		local spawnCFrame = spawnPart.CFrame * CFrame.new(0, 1, 12) * CFrame.Angles(0, math.rad(180), 0)
-		local result = BoatService.spawnBoat(player, spawnCFrame)
-		if result.ok and player.Character then
-			local root = player.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				root.CFrame = spawnCFrame * CFrame.new(0, 3, 0)
-			end
-		end
-		if result.ok then
-			remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", Color3.fromRGB(120, 220, 255))
-		end
-		return result
+		return BoatService.handleSpawnRequest(player)
 	end
 end
 

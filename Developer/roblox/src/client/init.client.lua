@@ -1411,6 +1411,11 @@ local function trySpawnBoat()
 		return
 	end
 	if not result.ok then
+		-- "stunned" is notified server-side (server sends a specific message);
+		-- skip the client fallback to avoid a double toast.
+		if result.reason == "stunned" then
+			return
+		end
 		local reasons = {
 			already_has_boat = "You already have a boat out!",
 			no_dock = "Boat dock is missing.",
