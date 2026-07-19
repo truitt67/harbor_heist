@@ -7,8 +7,15 @@ local POOL = {
 	{ type = "catch_rarity", target = 5,  rarity = 3, reward = 200, desc = "Catch 5 Rare or better fish" },
 	{ type = "catch_rarity", target = 3,  rarity = 4, reward = 350, desc = "Catch 3 Epic or better fish" },
 	{ type = "catch_rarity", target = 1,  rarity = 5, reward = 600, desc = "Catch a Legendary fish" },
-	{ type = "steal_count",  target = 3,  reward = 300, desc = "Successfully steal 3 fish" },
-	{ type = "steal_count",  target = 5,  reward = 500, desc = "Successfully steal 5 fish" },
+	-- TASK 8.0 (gdj.15) follow-up: the two legacy steal_count quests were
+	-- REMOVED from the pool. Removing the always-on steal handler made them
+	-- impossible to complete — a player could roll "Successfully steal 3
+	-- fish" as a daily and be permanently stuck. QuestService.onStealAttempt
+	-- (the progress hook) is KEPT so Epic 8 RaidService can re-add raid-based
+	-- quests against the same hook when the new PvP system lands. Players
+	-- with an already-active steal quest keep it until the daily/weekly
+	-- rotation replaces it (self-healing, no crash risk — processList only
+	-- touches quests whose predicate matches a live event).
 	{ type = "income_earned", target = 500,  reward = 250, desc = "Earn $500 from passive income" },
 	{ type = "income_earned", target = 1500, reward = 450, desc = "Earn $1,500 from passive income" },
 	{ type = "store_count",  target = 10, reward = 150, desc = "Store 10 fish in your aquarium" },

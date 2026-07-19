@@ -429,9 +429,10 @@ function BoatService.handleSpawnRequest(player)
 	-- EXPLOIT FIX (fresh-eyes fellow-agent review): a stunned thief could
 	-- call SpawnBoat to teleport from the victim's aquarium straight to
 	-- the boat dock, escaping the stun's WalkSpeed=8 penalty that exists
-	-- precisely to slow their getaway. Block the spawn while stunned,
-	-- matching the steal handler's stun check (AquariumService). Applies
-	-- to BOTH the RemoteFunction AND the ProximityPrompt entry point.
+	-- precisely to slow their getaway. Block the spawn while stunned.
+	-- (The legacy steal handler that set stunUntil was removed in gdj.15;
+	-- this check stays so Epic 8 RaidService's stun is respected too.)
+	-- Applies to BOTH the RemoteFunction AND the ProximityPrompt entry point.
 	local session = dataManager and dataManager.get(player)
 	if session and (session.stunUntil or 0) > os.clock() then
 		remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
