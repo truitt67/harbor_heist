@@ -24,8 +24,9 @@ GameConfig.Aquarium = {
 	baseCapacity = 20,
 	lockDuration = 60,
 	lockCooldown = 120,
-	stealChance = 0.5,
-	stealCooldown = 20,
+	-- TASK 8.0 (gdj.15): stealChance + stealCooldown REMOVED with the legacy
+	-- always-on steal handler. Raid tuning moves into RaidService config
+	-- (Epic 8).
 	maxVisibleFish = 10,
 }
 

@@ -80,10 +80,11 @@ end)
 local function connectAquariumPrompt(dock)
 	local prompt = dock.aquarium.PrimaryPart.AquariumPrompt
 	prompt.Triggered:Connect(function(player)
+		-- TASK 8.0 (gdj.15): legacy always-on steal REMOVED. The prompt now
+		-- ONLY opens the owner's aquarium panel. PvP interaction moves to
+		-- the scheduled RaidService (Epic 8) — no more walk-up griefing.
 		if dock.owner == player then
 			Remotes.OpenAquarium:FireClient(player)
-		elseif dock.owner ~= nil then
-			AquariumService.handleSteal(deps, player, dock)
 		end
 	end)
 end

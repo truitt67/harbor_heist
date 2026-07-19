@@ -284,12 +284,9 @@ local function sanitize(data)
 		if type(data.PvP.RaidsLost) == "number" then
 			clean.PvP.RaidsLost = math.max(0, math.floor(data.PvP.RaidsLost))
 		end
-		-- N1 (CRITICAL): StealCooldownUntilTimestamp was written on save but
-		-- never copied back in sanitize, so leaving and rejoining reset the 20s
-		-- steal cooldown to 0. Persist it so the cooldown survives a relog.
-		if type(data.PvP.StealCooldownUntilTimestamp) == "number" then
-			clean.PvP.StealCooldownUntilTimestamp = data.PvP.StealCooldownUntilTimestamp
-		end
+		-- TASK 8.0 (gdj.15): legacy StealCooldownUntilTimestamp sanitize REMOVED
+		-- with the always-on steal handler. Old saves that still carry the key
+		-- will silently drop it on next load (sanitize only copies known keys).
 	end
 
 	-- Onboarding
@@ -397,7 +394,8 @@ function DataManager.load(player)
 		-- Runtime-only os.clock timers (NOT persisted; persist as epoch in profile)
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
-		stealCooldownUntil = 0, -- legacy; RaidService (TASK 8.x) will replace
+		-- TASK 8.0 (gdj.15): legacy stealCooldownUntil session field REMOVED with
+		-- the always-on steal handler. RaidService (Epic 8) adds its own cooldown.
 		-- RedBear additions: stun + boat runtime state (session-scoped)
 		stunUntil = 0,
 		castDeadline = 0,
@@ -425,9 +423,9 @@ function DataManager.load(player)
 	if profile.Aquarium.LockCooldownUntilTimestamp > nowEpoch then
 		session.lockCooldownUntil = os.clock() + (profile.Aquarium.LockCooldownUntilTimestamp - nowEpoch)
 	end
-	if profile.PvP.StealCooldownUntilTimestamp > nowEpoch then
-		session.stealCooldownUntil = os.clock() + (profile.PvP.StealCooldownUntilTimestamp - nowEpoch)
-	end
+	-- TASK 8.0 (gdj.15): legacy StealCooldownUntilTimestamp rehydrate REMOVED
+	-- with the always-on steal handler. No replacement; RaidService manages
+	-- its own cooldown when it lands.
 	sessions[player] = session
 
 	-- TASK 1.6: persist the migrated profile to v2 immediately (deferred so
@@ -480,9 +478,8 @@ function DataManager.save(player)
 	if session.lockCooldownUntil > nowClock then
 		profile.Aquarium.LockCooldownUntilTimestamp = nowEpoch + math.floor(session.lockCooldownUntil - nowClock)
 	end
-	if session.stealCooldownUntil > nowClock then
-		profile.PvP.StealCooldownUntilTimestamp = nowEpoch + math.floor(session.stealCooldownUntil - nowClock)
-	end
+	-- TASK 8.0 (gdj.15): legacy stealCooldownUntil persist REMOVED with the
+	-- always-on steal handler. No session field exists to persist anymore.
 
 	local ok, err = withRetries(function()
 		return dataStore:UpdateAsync(keyFor(player), function(oldData)

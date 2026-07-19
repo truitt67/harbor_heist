@@ -84,7 +84,8 @@ function StateSync.snapshot(session)
 		unclaimedIncome = math.floor(aquarium.UnclaimedIncome),
 		lockedUntil = math.max(0, session.lockedUntil - now),
 		lockCooldownUntil = math.max(0, session.lockCooldownUntil - now),
-		stealCooldownUntil = math.max(0, session.stealCooldownUntil - now),
+		-- TASK 8.0 (gdj.15): stealCooldownUntil snapshot field REMOVED with the
+		-- always-on steal handler. Client never consumed it; no replacement.
 		dockIndex = session.dockIndex,
 	}
 end
