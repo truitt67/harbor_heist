@@ -300,7 +300,8 @@ end
 
 -- TASK 8.3: Check if a session is eligible to be a raid target.
 -- A player is a valid target only if: not new-player-protected, opted in,
--- not currently locked, not under raid protection immunity.
+-- not currently locked, not under raid protection immunity, and has at least
+-- one stealable (non-protected) fish.
 function AquariumService.isEligibleRaidTarget(session)
 	if not session or not session.profile then
 		return false, "no_session"
@@ -318,6 +319,10 @@ function AquariumService.isEligibleRaidTarget(session)
 	local protectionUntil = session.profile.Aquarium.RaidProtectionUntilTimestamp or 0
 	if protectionUntil > os.time() then
 		return false, "raid_protection"
+	end
+	-- TASK 8.8 (gdj.8): must have at least one non-protected fish to be worth targeting
+	if not AquariumService.hasStealableFish(session) then
+		return false, "no_stealable_fish"
 	end
 	return true, "ok"
 end
@@ -338,6 +343,52 @@ function AquariumService.isEligibleRaidAttacker(session)
 		return false, "stunned"
 	end
 	return true, "ok"
+end
+
+-- TASK 8.8 (gdj.8): Legendary fish raid protection (PVP-08).
+-- PRD: "Legendary fish either non-stealable or much lower raid probability."
+-- V1: Legendary fish are non-stealable (IsRaidProtected=true on FishInstance).
+-- These helpers filter the aquarium's fish list for raid eligibility.
+
+--- Returns true if the session has at least one fish that can be stolen.
+function AquariumService.hasStealableFish(session)
+	if not session or not session.profile or not session.profile.Aquarium then
+		return false
+	end
+	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
+		if not fish.IsRaidProtected then
+			return true
+		end
+	end
+	return false
+end
+
+--- Returns a list of stealable fish (non-protected) from the session's aquarium.
+function AquariumService.getStealableFish(session)
+	if not session or not session.profile or not session.profile.Aquarium then
+		return {}
+	end
+	local out = {}
+	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
+		if not fish.IsRaidProtected then
+			table.insert(out, fish)
+		end
+	end
+	return out
+end
+
+--- Returns a list of protected fish (Legendary) from the session's aquarium.
+function AquariumService.getProtectedFish(session)
+	if not session or not session.profile or not session.profile.Aquarium then
+		return {}
+	end
+	local out = {}
+	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
+		if fish.IsRaidProtected then
+			table.insert(out, fish)
+		end
+	end
+	return out
 end
 
 -- TASK 8.0 (gdj.15): the legacy always-on steal handler was REMOVED. The old

@@ -76,6 +76,24 @@ GameConfig.Raid = {
 	windowIntervalMin = 20 * 60,
 	windowIntervalMax = 30 * 60,
 	windowDuration = 5 * 60,
+	-- TASK 8.2 (gdj.2): raid opt-in. Per PRD PVP-02, raids may only target
+	-- players who opted in (dock flag toggle or Raid Waters pier zone).
+	-- optInDefault must stay false: a player should never lose fish because
+	-- they joined for the first time (PRD "opt-in or time-bounded").
+	optInDefault = false,
+	-- TASK 8.8 (gdj.8): Legendary fish raid protection (PVP-08).
+	-- PRD: "Legendary fish either non-stealable or much lower raid probability."
+	-- V1: Legendary fish are non-stealable (IsRaidProtected=true on FishInstance).
+	-- Epic fish have reduced steal weight (configurable for future tuning).
+	legendaryProtection = {
+		nonStealable = true,
+		epicStealWeightMultiplier = 0.3,
+	},
+	-- Raid outcome tuning
+	maxFishPerRaid = 1,
+	raiderCooldownSeconds = 5 * 60,
+	defenderProtectionSeconds = 15 * 60,
+	perVictimCooldownSeconds = 30 * 60,
 }
 
 GameConfig.MaxCarried = 5
