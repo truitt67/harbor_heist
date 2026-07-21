@@ -8,17 +8,12 @@ GameConfig.Rarities = {
 	{ name = "Legendary", weight = 2,  value = 500, incomePerSec = 15,  color = Color3.fromRGB(255, 170, 0) },
 }
 
-GameConfig.Rods = {
-	{ name = "Basic Rod",  cost = 0,    luck = 0,  castTime = 4, desc = "A trusty starter rod." },
-	{ name = "Steel Rod",  cost = 500,  luck = 8,  castTime = 3, desc = "+Luck, faster casts." },
-	{ name = "Golden Rod", cost = 2500, luck = 20, castTime = 2, desc = "++Luck, fastest casts." },
-}
-
-GameConfig.Baits = {
-	{ name = "Basic Bait",  cost = 0,    luck = 0,  desc = "Plain old worms." },
-	{ name = "Shrimp Bait", cost = 300,  luck = 6,  desc = "Rarer fish love shrimp." },
-	{ name = "Magic Bait",  cost = 1500, luck = 15, desc = "Glows with legendary promise." },
-}
+-- TASK 14.10 (wqw.10): the legacy Rods/Baits tables were REMOVED. They
+-- duplicated RodDefinitions/BaitDefinitions (below) minus the id and
+-- minigameZoneSize fields — two sources of truth that could silently
+-- diverge. RodDefinitions/BaitDefinitions are canonical; Rods/Baits are
+-- aliases defined next to them so every existing GameConfig.Rods[level]
+-- / GameConfig.Baits[level] access keeps working (same array layout).
 
 GameConfig.Aquarium = {
 	baseCapacity = 20,
@@ -110,6 +105,12 @@ GameConfig.RodDefinitions = {
 	{ id = 3, name = "Golden Rod", cost = 2500, luck = 20, castTime = 2, minigameZoneSize = 0.40, desc = "++Luck, fastest casts, widest target." },
 }
 
+-- TASK 14.10 (wqw.10): canonical rod table is RodDefinitions (superset:
+-- adds id + minigameZoneSize). Rods is kept as an alias for the many
+-- existing GameConfig.Rods[level] readers (ShopService, FishingService,
+-- DataManager sanitize, client HUD/shop).
+GameConfig.Rods = GameConfig.RodDefinitions
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- TASK 2.4: Bait Definitions (reusable tiers per DEC-5)
 -- ════════════════════════════════════════════════════════════════════════════
@@ -118,6 +119,11 @@ GameConfig.BaitDefinitions = {
 	{ id = 2, name = "Shrimp Bait", cost = 300,  luck = 6,  desc = "Rarer fish love shrimp." },
 	{ id = 3, name = "Magic Bait",  cost = 1500, luck = 15, desc = "Glows with legendary promise." },
 }
+
+-- TASK 14.10 (wqw.10): canonical bait table is BaitDefinitions (adds id).
+-- Baits is an alias for existing GameConfig.Baits[level] readers
+-- (ShopService, FishingService, DataManager sanitize, client HUD/shop).
+GameConfig.Baits = GameConfig.BaitDefinitions
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- TASK 2.5: Aquarium Capacity Upgrade Tiers
