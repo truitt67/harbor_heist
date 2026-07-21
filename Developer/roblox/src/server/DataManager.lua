@@ -284,9 +284,37 @@ local function sanitize(data)
 		if type(data.PvP.RaidsLost) == "number" then
 			clean.PvP.RaidsLost = math.max(0, math.floor(data.PvP.RaidsLost))
 		end
+		if type(data.PvP.TotalCatches) == "number" then
+			clean.PvP.TotalCatches = math.max(0, math.floor(data.PvP.TotalCatches))
+		end
 		-- TASK 8.0 (gdj.15): legacy StealCooldownUntilTimestamp sanitize REMOVED
 		-- with the always-on steal handler. Old saves that still carry the key
 		-- will silently drop it on next load (sanitize only copies known keys).
+	end
+
+	-- Stats (TASK 8.3: total catches for new-player protection gate)
+	if type(data.Stats) == "table" then
+		if type(data.Stats.TotalCatches) == "number" then
+			clean.Stats.TotalCatches = math.max(0, math.floor(data.Stats.TotalCatches))
+			-- Mirror into PvP for backward compat with any code reading PvP.TotalCatches
+			clean.PvP.TotalCatches = clean.Stats.TotalCatches
+		end
+	end
+	-- Also accept top-level TotalCatches from legacy saves
+	if type(data.TotalCatches) == "number" then
+		local v = math.max(0, math.floor(data.TotalCatches))
+		clean.Stats.TotalCatches = math.max(clean.Stats.TotalCatches, v)
+		clean.PvP.TotalCatches = math.max(clean.PvP.TotalCatches, v)
+	end
+
+	-- Defense (TASK 8.4: lock free uses)
+	if type(data.Defense) == "table" then
+		if type(data.Defense.LockFreeUsesRemaining) == "number" then
+			clean.Defense.LockFreeUsesRemaining = math.max(0, math.floor(data.Defense.LockFreeUsesRemaining))
+		end
+		if type(data.Defense.LockFreeUsesMax) == "number" then
+			clean.Defense.LockFreeUsesMax = math.max(1, math.floor(data.Defense.LockFreeUsesMax))
+		end
 	end
 
 	-- Onboarding
@@ -496,6 +524,8 @@ function DataManager.save(player)
 			existing.Collection = profile.Collection
 			existing.PvP = profile.PvP
 			existing.Onboarding = profile.Onboarding
+			existing.Stats = profile.Stats
+			existing.Defense = profile.Defense
 			-- Persist quest data (RedBear feature)
 			existing.dailyQuestKey = session.dailyQuestKey
 			existing.dailyQuests = session.dailyQuests

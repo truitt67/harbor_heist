@@ -84,6 +84,16 @@ function StateSync.snapshot(session)
 		unclaimedIncome = math.floor(aquarium.UnclaimedIncome),
 		lockedUntil = math.max(0, session.lockedUntil - now),
 		lockCooldownUntil = math.max(0, session.lockCooldownUntil - now),
+		-- TASK 8.2 (gdj.2): raid dock-flag state for the aquarium-panel RAID
+		-- toggle (PVP-02). Persisted profile field; false by default.
+		raidOptIn = aquarium.RaidOptIn == true,
+		-- TASK 8.3 (gdj.3): expose raid eligibility + protection state for client HUD.
+		-- totalCatches drives the "10 catches" half of DEC-4; raidOptIn is the opt-in flag.
+		totalCatches = (profile.Stats and profile.Stats.TotalCatches) or (profile.PvP and profile.PvP.TotalCatches) or 0,
+		raidOptIn = aquarium.RaidOptIn == true,
+		-- TASK 8.4 (gdj.4): expose lock free-use counts for client UI.
+		lockFreeUsesRemaining = (profile.Defense and profile.Defense.LockFreeUsesRemaining) or 0,
+		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or 3,
 		-- TASK 8.0 (gdj.15): stealCooldownUntil snapshot field REMOVED with the
 		-- always-on steal handler. Client never consumed it; no replacement.
 		dockIndex = session.dockIndex,

@@ -363,6 +363,16 @@ function FishingService.init(deps)
 			onboarding.mark(session, "HasCaughtFirstFish")
 		end
 
+		-- TASK 8.3 (gdj.3): track total catches for new-player protection gate.
+		-- DEC-4: "first aquarium upgrade OR 10 total catches" unlocks raid eligibility.
+		-- Increment on every successful catch; stored in both Stats and PvP for compat.
+		if session.profile.Stats then
+			session.profile.Stats.TotalCatches = (session.profile.Stats.TotalCatches or 0) + 1
+		end
+		if session.profile.PvP then
+			session.profile.PvP.TotalCatches = (session.profile.PvP.TotalCatches or 0) + 1
+		end
+
 		-- N11: fire the catch quest hook. This was defined on QuestService but
 		-- never called, so `catch_rarity` quests (3 of the 11 quest templates)
 		-- could never progress. Pass the string rarity; QuestService normalizes.

@@ -77,6 +77,7 @@ function PlayerProfile.default()
 			RecentTargetUserIds = {},
 			RaidsWon = 0,
 			RaidsLost = 0,
+			TotalCatches = 0,
 			-- TASK 8.0 (gdj.15): legacy StealCooldownUntilTimestamp REMOVED with
 			-- the always-on steal handler. RaidService (Epic 8) introduces its
 			-- own raid cooldown field when the new system lands.
@@ -88,6 +89,15 @@ function PlayerProfile.default()
 			HasStoredFirstFish = false,
 			HasClaimedIncome = false,
 			HasSeenRaidExplanation = false,
+		},
+
+		Stats = {
+			TotalCatches = 0,
+		},
+
+		Defense = {
+			LockFreeUsesRemaining = 3,
+			LockFreeUsesMax = 3,
 		},
 	}
 end

@@ -486,7 +486,7 @@ backdrop.Activated:Connect(hidePanels)
 -- ============================================================
 -- Aquarium panel
 -- ============================================================
-local aquariumPanel, aquariumContent, aquariumClose = makePanel("MY AQUARIUM", UI.purple, UDim2.new(0, 360, 0, 420))
+local aquariumPanel, aquariumContent, aquariumClose = makePanel("MY AQUARIUM", UI.purple, UDim2.new(0, 360, 0, 464))
 
 local aquariumStats = makeLabel(aquariumContent, {
 	Size = UDim2.new(1, 0, 0, 66),
@@ -538,7 +538,7 @@ makeLabel(aquariumContent, {
 })
 
 local rarityList = makeLabel(aquariumContent, {
-	Size = UDim2.new(1, 0, 1, -178),
+	Size = UDim2.new(1, 0, 1, -214),
 	Position = UDim2.new(0, 0, 0, 110),
 	Text = "",
 	Font = FONT_BODY,
@@ -566,7 +566,31 @@ local lockButton = makeButton(aquariumContent, {
 	ZIndex = 26,
 })
 
+-- TASK 8.2 (gdj.2): dock-flag raid opt-in toggle (PRD PVP-02). Server is
+-- authoritative; this button just requests the toggle and renders whatever
+-- state.raidOptIn the next StateChanged snapshot reports.
+local raidOptInButton = makeButton(aquariumContent, {
+	Size = UDim2.new(1, 0, 0, 30),
+	Position = UDim2.new(0, 0, 1, -buttonH - 40),
+	Text = "RAID FLAG: OFF",
+	BackgroundColor3 = UI.surfaceHi,
+	TextColor3 = UI.textDim,
+	TextSize = 12,
+	Font = FONT_BOLD,
+	ZIndex = 26,
+})
+
+-- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
+local raidOptInButton = makeButton(aquariumContent, {
+	Size = UDim2.new(1, 0, 0, 32),
+	Position = UDim2.new(0, 0, 1, -buttonH - 40),
+	Text = "RAID OPT-IN: OFF",
+	BackgroundColor3 = UI.surfaceHi,
+	ZIndex = 26,
+})
+
 -- ============================================================
+-- Shop panel
 -- Shop panel
 -- ============================================================
 local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", UI.warn, UDim2.new(0, 420, 0, 520))
@@ -1163,6 +1187,7 @@ local function render()
 	end
 	rarityList.Text = table.concat(lines, "\n")
 	-- Lock button state (LOCAL field names per StateSync.lua)
+	-- TASK 8.4: show free-use count in lock button text.
 	if state.lockedUntil > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockButton.BackgroundColor3 = UI.bad
@@ -1176,13 +1201,37 @@ local function render()
 		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
 			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
 		end
-		lockButton.Text = string.format("LOCK (%ds)", lockDur)
+		local freeUses = state.lockFreeUsesRemaining or 0
+		local freeMax = state.lockFreeUsesMax or 3
+		if freeUses > 0 then
+			lockButton.Text = string.format("LOCK (%ds) [%d/%d free]", lockDur, freeUses, freeMax)
+		else
+			lockButton.Text = string.format("LOCK (%ds) [no free]", lockDur)
+		end
 		lockButton.BackgroundColor3 = UI.warn
 		lockButton.TextColor3 = UI.ink
 	end
 
+	-- TASK 8.2/8.3: Raid opt-in toggle button state.
+	if state.raidOptIn then
+		raidOptInButton.Text = "RAID OPT-IN: ON (can be targeted)"
+		raidOptInButton.BackgroundColor3 = UI.bad
+		raidOptInButton.TextColor3 = UI.ink
+	else
+		local catches = state.totalCatches or 0
+		local hasUpgrade = (state.upgradeLevel or 1) > 1
+		if not hasUpgrade and catches < 10 then
+			raidOptInButton.Text = string.format("RAID OPT-IN: LOCKED (%d/10 catches or upgrade needed)", catches)
+			raidOptInButton.BackgroundColor3 = UI.surfaceHi
+			raidOptInButton.TextColor3 = UI.textFaint
+		else
+			raidOptInButton.Text = "RAID OPT-IN: OFF (safe)"
+			raidOptInButton.BackgroundColor3 = UI.surfaceHi
+			raidOptInButton.TextColor3 = UI.text
+		end
+	end
+
 	local character = player.Character
-	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
 			if state.stunRemaining and state.stunRemaining > 0 then
@@ -1372,22 +1421,20 @@ end
 actionButtons.fish.Activated:Connect(doFish)
 actionButtons.store.Activated:Connect(function()
 	Remotes.StoreFish:InvokeServer()
-end)
-actionButtons.aquarium.Activated:Connect(function()
-	showPanel(aquariumPanel)
-end)
-aquariumClose.Activated:Connect(hidePanels)
-shopClose.Activated:Connect(hidePanels)
-questClose.Activated:Connect(hidePanels)
 sellButton.Activated:Connect(function()
 	Remotes.SellAll:InvokeServer()
 end)
 lockButton.Activated:Connect(function()
 	Remotes.LockAquarium:InvokeServer()
 end)
+-- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
+raidOptInButton.Activated:Connect(function()
+	Remotes.RequestToggleRaidOptIn:InvokeServer()
+end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
 	Remotes.ClaimIncome:InvokeServer()
+end)
 end)
 
 local function toggleQuestPanel()

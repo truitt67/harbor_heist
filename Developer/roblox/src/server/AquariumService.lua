@@ -128,6 +128,12 @@ function AquariumService.init(deps)
 		return { ok = true, payout = payout }
 	end
 
+	-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
+	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
+	-- resource, cooldown, or limited free uses." Design: 3 free uses per
+	-- session (tracked in profile.Defense.LockFreeUsesRemaining), then cooldown
+	-- gates further uses. Free uses regenerate on daily reset (future) or can
+	-- be purchased (future). For V1: free uses + cooldown, no purchase.
 	remotes.LockAquarium.OnServerInvoke = function(player)
 		local session = dataManager.get(player)
 		if not session then
@@ -145,6 +151,17 @@ function AquariumService.init(deps)
 			)
 			return { ok = false, reason = "cooldown" }
 		end
+		-- TASK 8.4: check free-use budget. If exhausted, still allow lock but
+		-- with a longer cooldown (2x) to discourage spam. Free uses are the
+		-- "earned resource" — they regenerate via daily reset (future bead).
+		local defense = session.profile.Defense
+		if not defense then
+			defense = { LockFreeUsesRemaining = 3, LockFreeUsesMax = 3 }
+			session.profile.Defense = defense
+		end
+		local freeUses = defense.LockFreeUsesRemaining or 0
+		local hasFreeUse = freeUses > 0
+
 		-- Upgrade-scaled lock duration. The base config is the fallback; each
 		-- Lock tier in GameConfig.Upgrades.Lock overrides duration + cooldown.
 		-- N7: previously this block was a stub (`if UpgradeLevel > 1 then` with
@@ -157,8 +174,16 @@ function AquariumService.init(deps)
 			lockDuration = tier.lockDuration
 			lockCooldown = tier.lockCooldown
 		end
+		-- If no free uses left, double the cooldown (soft gate, not hard block).
+		if not hasFreeUse then
+			lockCooldown = lockCooldown * 2
+		end
 		session.lockedUntil = now + lockDuration
 		session.lockCooldownUntil = session.lockedUntil + lockCooldown
+		-- Consume a free use if available.
+		if hasFreeUse then
+			defense.LockFreeUsesRemaining = freeUses - 1
+		end
 		-- Generation token: a re-lock invalidates any pending "lock expired"
 		-- notification from a previous lock's delayed closure.
 		session.lockGeneration = (session.lockGeneration or 0) + 1
@@ -166,11 +191,19 @@ function AquariumService.init(deps)
 		-- Also persist as epoch timestamps (TASK 1.1: structured profile)
 		session.profile.Aquarium.LockUntilTimestamp = os.time() + lockDuration
 		session.profile.Aquarium.LockCooldownUntilTimestamp = os.time() + lockDuration + lockCooldown
-		remotes.notify(
-			player,
-			string.format("Aquarium locked for %ds. Thieves can't touch it!", lockDuration),
-			Color3.fromRGB(130, 255, 130)
-		)
+		if hasFreeUse then
+			remotes.notify(
+				player,
+				string.format("Aquarium locked for %ds! (%d free uses left)", lockDuration, defense.LockFreeUsesRemaining),
+				Color3.fromRGB(130, 255, 130)
+			)
+		else
+			remotes.notify(
+				player,
+				string.format("Aquarium locked for %ds. (No free uses — longer recharge)", lockDuration),
+				Color3.fromRGB(130, 255, 130)
+			)
+		end
 		refreshVisual(session)
 		stateSync.push(session)
 		-- EPIC 11 (TASK 11.2): aquarium_locked. Tracks defensive engagement.
@@ -178,6 +211,8 @@ function AquariumService.init(deps)
 			analytics.track(player, "aquarium_locked", {
 				lock_level = lockLevel,
 				duration = lockDuration,
+				used_free = hasFreeUse,
+				free_remaining = defense.LockFreeUsesRemaining,
 			})
 		end
 		task.delay(lockDuration, function()
@@ -187,10 +222,122 @@ function AquariumService.init(deps)
 				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80))
 			end
 		end)
-		return { ok = true }
+		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
+	end
+
+	-- TASK 8.2 (gdj.2): Raid opt-in toggle. PRD PVP-02: "A player can raid only
+	-- during a clearly labeled raid window or after explicitly opting into a
+	-- risk zone." The opt-in flag lives in profile.Aquarium.RaidOptIn (schema
+	-- already exists, TASK 1.1). This remote lets the client toggle it.
+	-- Server validates: new-player protection gate (8.3) must be passed before
+	-- opt-in is allowed — a new player who hasn't met the progression threshold
+	-- cannot opt in, preventing accidental exposure.
+	remotes.RequestToggleRaidOptIn.OnServerInvoke = function(player)
+		local session = dataManager.get(player)
+		if not session then
+			return { ok = false, reason = "no_session" }
+		end
+		-- TASK 8.3 (gdj.3): new-player protection gate. DEC-4 double gate:
+		-- (1) progression: first aquarium upgrade OR 10 catches, (2) opt-in.
+		-- Check progression before allowing opt-in toggle.
+		local totalCatches = 0
+		if session.profile.Stats and session.profile.Stats.TotalCatches then
+			totalCatches = session.profile.Stats.TotalCatches
+		elseif session.profile.PvP and session.profile.PvP.TotalCatches then
+			totalCatches = session.profile.PvP.TotalCatches
+		end
+		local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
+		local hasEnoughCatches = totalCatches >= 10
+		if not hasUpgrade and not hasEnoughCatches then
+			remotes.notify(
+				player,
+				string.format("You need an aquarium upgrade or 10 catches to enable raids. (%d/10 catches)", totalCatches),
+				Color3.fromRGB(255, 170, 80)
+			)
+			return { ok = false, reason = "new_player_protected", catches = totalCatches }
+		end
+		local newValue = not session.profile.Aquarium.RaidOptIn
+		session.profile.Aquarium.RaidOptIn = newValue
+		if newValue then
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", Color3.fromRGB(255, 170, 80))
+		else
+			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130))
+		end
+		stateSync.push(session)
+		if analytics then
+			analytics.track(player, "raid_opt_in_toggled", { enabled = newValue })
+		end
+		if onboarding then
+			onboarding.mark(session, "HasSeenRaidExplanation")
+		end
+		return { ok = true, raidOptIn = newValue }
 	end
 
 	AquariumService.refreshVisual = refreshVisual
+end
+
+-- TASK 8.3 (gdj.3): New-player protection gate — server-side eligibility check.
+-- DEC-4: Double gate — (1) progression: first aquarium upgrade OR 10 catches,
+-- (2) raid window opt-in. Both required to participate in raids (attack or be
+-- targeted). This function is the single source of truth for "is this player
+-- eligible for raid participation?" Used by 8.2 opt-in toggle and 8.5a target
+-- selection.
+function AquariumService.isNewPlayerProtected(session)
+	if not session or not session.profile then
+		return true -- fail-closed: unknown session = protected
+	end
+	local totalCatches = 0
+	if session.profile.Stats and session.profile.Stats.TotalCatches then
+		totalCatches = session.profile.Stats.TotalCatches
+	elseif session.profile.PvP and session.profile.PvP.TotalCatches then
+		totalCatches = session.profile.PvP.TotalCatches
+	end
+	local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
+	local hasEnoughCatches = totalCatches >= 10
+	-- Protected if NEITHER condition met
+	return not hasUpgrade and not hasEnoughCatches
+end
+
+-- TASK 8.3: Check if a session is eligible to be a raid target.
+-- A player is a valid target only if: not new-player-protected, opted in,
+-- not currently locked, not under raid protection immunity.
+function AquariumService.isEligibleRaidTarget(session)
+	if not session or not session.profile then
+		return false, "no_session"
+	end
+	if AquariumService.isNewPlayerProtected(session) then
+		return false, "new_player_protected"
+	end
+	if not session.profile.Aquarium.RaidOptIn then
+		return false, "not_opted_in"
+	end
+	if session.lockedUntil and session.lockedUntil > os.clock() then
+		return false, "locked"
+	end
+	-- Raid protection immunity (defender was recently raided)
+	local protectionUntil = session.profile.Aquarium.RaidProtectionUntilTimestamp or 0
+	if protectionUntil > os.time() then
+		return false, "raid_protection"
+	end
+	return true, "ok"
+end
+
+-- TASK 8.3: Check if a session is eligible to INITIATE a raid.
+-- Attacker must: not be new-player-protected, be opted in, not be stunned.
+function AquariumService.isEligibleRaidAttacker(session)
+	if not session or not session.profile then
+		return false, "no_session"
+	end
+	if AquariumService.isNewPlayerProtected(session) then
+		return false, "new_player_protected"
+	end
+	if not session.profile.Aquarium.RaidOptIn then
+		return false, "not_opted_in"
+	end
+	if session.stunUntil and session.stunUntil > os.clock() then
+		return false, "stunned"
+	end
+	return true, "ok"
 end
 
 -- TASK 8.0 (gdj.15): the legacy always-on steal handler was REMOVED. The old
