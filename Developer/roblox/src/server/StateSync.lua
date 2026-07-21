@@ -87,7 +87,7 @@ function StateSync.snapshot(session)
 		-- TASK 8.2/8.3 (gdj.2/gdj.3): raid dock-flag + eligibility for client HUD.
 		-- totalCatches drives the "10 catches" half of DEC-4; raidOptIn is the opt-in flag.
 		raidOptIn = aquarium.RaidOptIn == true,
-		totalCatches = (profile.Stats and profile.Stats.TotalCatches) or (profile.PvP and profile.PvP.TotalCatches) or 0,
+		totalCatches = math.max((profile.Stats and profile.Stats.TotalCatches) or 0, (profile.PvP and profile.PvP.TotalCatches) or 0),
 		-- TASK 8.4 (gdj.4): expose lock free-use counts for client UI.
 		lockFreeUsesRemaining = (profile.Defense and profile.Defense.LockFreeUsesRemaining) or 0,
 		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or 3,
