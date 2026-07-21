@@ -8,6 +8,7 @@ function ShopService.init(deps)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
 	local antiExploit = deps.antiExploit -- EPIC 10
+	local auditLog = deps.auditLog -- EPIC 10 / TASK 10.3
 	local analytics = deps.analytics -- EPIC 11
 
 	remotes.BuyItem.OnServerInvoke = function(player, kind, level)
@@ -101,6 +102,9 @@ function ShopService.init(deps)
 			session.profile.Aquarium.AlarmLevel = level
 		elseif kind == "dock" then
 			session.profile.Dock.UpgradeLevel = level
+		end
+		if auditLog then
+			auditLog.logPurchase(player, kind, level, item.cost, item.name)
 		end
 		remotes.notify(
 			player,

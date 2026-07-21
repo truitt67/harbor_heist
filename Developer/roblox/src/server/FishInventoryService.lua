@@ -18,6 +18,7 @@ local FishInventoryService = {}
 function FishInventoryService.init(deps)
 	local remotes = deps.remotes
 	local antiExploit = deps.antiExploit
+	local auditLog = deps.auditLog
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
 	local dockManager = deps.dockManager

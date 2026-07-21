@@ -21,6 +21,7 @@ function FishingService.init(deps)
 	local analytics = deps.analytics -- EPIC 11
 	local onboarding = deps.onboarding -- EPIC 9
 	local antiExploit = deps.antiExploit
+	local auditLog = deps.auditLog
 	local rodService = deps.rodService
 
 	local function failCast(player, reason)
@@ -361,6 +362,11 @@ function FishingService.init(deps)
 		-- Create FishInstance record
 		local fish = FishInstance.new(speciesDef.SpeciesId, zoneId)
 		table.insert(session.carried, fish)
+
+		-- TASK 10.3: audit log for high-value catches (Legendary/Epic)
+		if auditLog then
+			auditLog.logCatch(player, fish)
+		end
 
 		-- EPIC 11 (TASK 11.2): fish_caught fires every successful catch.
 		-- first_catch fires ONCE (gated by isFirst). CORRECTED (fresh-eyes):

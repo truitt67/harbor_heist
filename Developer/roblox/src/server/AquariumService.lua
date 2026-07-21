@@ -11,6 +11,7 @@ function AquariumService.init(deps)
 	local questService = deps.questService
 	local analytics = deps.analytics -- EPIC 11
 	local antiExploit = deps.antiExploit -- EPIC 10
+	local auditLog = deps.auditLog -- EPIC 10 / TASK 10.3
 	local onboarding = deps.onboarding -- EPIC 9
 
 	local function refreshVisual(session)
@@ -53,6 +54,13 @@ function AquariumService.init(deps)
 				Color3.fromRGB(120, 220, 255)
 			)
 		end
+		if auditLog and stored > 0 then
+			local totalVal = 0
+			for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
+				totalVal += fish.BaseSellValue or 0
+			end
+			auditLog.logStore(player, stored, totalVal)
+		end
 		refreshVisual(session)
 		stateSync.push(session)
 		if stored > 0 and questService then
@@ -84,6 +92,9 @@ function AquariumService.init(deps)
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + unclaimed)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + unclaimed
 		session.profile.Aquarium.UnclaimedIncome = 0
+		if auditLog then
+			auditLog.logClaim(player, unclaimed)
+		end
 		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130))
 		stateSync.push(session)
 		-- EPIC 11 (TASK 11.2): income_claimed. Amount is the key field —
@@ -132,6 +143,9 @@ function AquariumService.init(deps)
 		-- N5: same clampCoins discipline on the sell path.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
+		if auditLog then
+			auditLog.logSell(player, #storedFish + #session.carried, payout)
+		end
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
 		stateSync.push(session)
@@ -223,6 +237,9 @@ function AquariumService.init(deps)
 		end
 		refreshVisual(session)
 		stateSync.push(session)
+		if auditLog then
+			auditLog.logLock(player, lockDuration, defense.LockFreeUsesRemaining)
+		end
 		-- EPIC 11 (TASK 11.2): aquarium_locked. Tracks defensive engagement.
 		if analytics then
 			analytics.track(player, "aquarium_locked", {

@@ -26,6 +26,13 @@ local dataStoreV1 = nil    -- v1 (legacy, read-only migration source)
 local storeOk = pcall(function()
 	dataStore = DataStoreService:GetDataStore(STORE_NAME_V2)
 end)
+
+-- TASK 10.5: DataStore failure tracking
+local consecutiveFailures = 0
+local MAX_FAILURES_BEFORE_DISABLE = 3
+local isDataStoreHealthy = true
+local lastFailureTime = 0
+local FAILURE_COOLDOWN = 60 -- seconds before retrying after disable
 -- v1 store is only needed for migration reads; failure here is non-fatal
 -- (players without v1 data just skip migration).
 pcall(function()
@@ -540,6 +547,15 @@ function DataManager.save(player)
 
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
+		consecutiveFailures += 1
+		lastFailureTime = os.time()
+		if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
+			isDataStoreHealthy = false
+			warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures.")
+		end
+	else
+		consecutiveFailures = 0
+		isDataStoreHealthy = true
 	end
 end
 
@@ -594,6 +610,38 @@ function DataManager.bindToClose()
 			task.wait(0.1)
 		end
 	end)
+end
+
+function DataManager.isHealthy()
+	return isDataStoreHealthy
+end
+
+function DataManager.getFailureCount()
+	return consecutiveFailures
+end
+
+function DataManager.recordSuccess()
+	consecutiveFailures = 0
+	isDataStoreHealthy = true
+end
+
+function DataManager.recordFailure()
+	consecutiveFailures += 1
+	lastFailureTime = os.time()
+	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
+		isDataStoreHealthy = false
+		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
+	end
+end
+
+function DataManager.tryRecover()
+	if not isDataStoreHealthy and os.time() - lastFailureTime > FAILURE_COOLDOWN then
+		isDataStoreHealthy = true
+		consecutiveFailures = 0
+		print("[HarborHeist] DataStore attempting recovery after cooldown.")
+		return true
+	end
+	return isDataStoreHealthy
 end
 
 return DataManager

@@ -96,6 +96,8 @@ function StateSync.snapshot(session)
 		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or 3,
 		-- TASK 8.0 (gdj.15): stealCooldownUntil snapshot field REMOVED with the
 		-- always-on steal handler. Client never consumed it; no replacement.
+		-- TASK 10.5: DataStore health (overridden in GetState with live check)
+		dataStoreHealthy = true,
 		dockIndex = session.dockIndex,
 	}
 end

@@ -566,20 +566,6 @@ local lockButton = makeButton(aquariumContent, {
 	ZIndex = 26,
 })
 
--- TASK 8.2 (gdj.2): dock-flag raid opt-in toggle (PRD PVP-02). Server is
--- authoritative; this button just requests the toggle and renders whatever
--- state.raidOptIn the next StateChanged snapshot reports.
-local raidOptInButton = makeButton(aquariumContent, {
-	Size = UDim2.new(1, 0, 0, 30),
-	Position = UDim2.new(0, 0, 1, -buttonH - 40),
-	Text = "RAID FLAG: OFF",
-	BackgroundColor3 = UI.surfaceHi,
-	TextColor3 = UI.textDim,
-	TextSize = 12,
-	Font = FONT_BOLD,
-	ZIndex = 26,
-})
-
 -- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
 local raidOptInButton = makeButton(aquariumContent, {
 	Size = UDim2.new(1, 0, 0, 32),
@@ -590,7 +576,6 @@ local raidOptInButton = makeButton(aquariumContent, {
 })
 
 -- ============================================================
--- Shop panel
 -- Shop panel
 -- ============================================================
 local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", UI.warn, UDim2.new(0, 420, 0, 520))
@@ -1146,9 +1131,18 @@ local function toHex(color)
 	return string.format("#%02X%02X%02X", color.R * 255, color.G * 255, color.B * 255)
 end
 
+local dataStoreWarningShown = false
 local function render()
 	if not state then
 		return
+	end
+	-- TASK 10.5: DataStore failure handling — show warning when unhealthy
+	if state.dataStoreHealthy == false and not dataStoreWarningShown then
+		dataStoreWarningShown = true
+		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", Color3.fromRGB(255, 100, 100))
+	elseif state.dataStoreHealthy ~= false and dataStoreWarningShown then
+		dataStoreWarningShown = false
+		showNotification("Saving restored!", Color3.fromRGB(100, 255, 100))
 	end
 	animateCashTo(state.cash)
 	incomeLabel.Text = string.format("+$%.1f / sec", state.incomePerSec)
@@ -1243,7 +1237,12 @@ local function render()
 	end
 
 	-- Claim income button (TASK 5.1)
-	if state.unclaimedIncome > 0 then
+	-- TASK 10.5: disable when DataStore is unhealthy
+	local storeHealthy = state.dataStoreHealthy ~= false
+	if not storeHealthy then
+		claimButton.Text = "SAVING UNAVAILABLE"
+		claimButton.BackgroundColor3 = Color3.fromRGB(100, 60, 60)
+	elseif state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%d", state.unclaimedIncome)
 		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
 	else
@@ -1421,6 +1420,7 @@ end
 actionButtons.fish.Activated:Connect(doFish)
 actionButtons.store.Activated:Connect(function()
 	Remotes.StoreFish:InvokeServer()
+end)
 sellButton.Activated:Connect(function()
 	Remotes.SellAll:InvokeServer()
 end)
@@ -1434,7 +1434,6 @@ end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
 	Remotes.ClaimIncome:InvokeServer()
-end)
 end)
 
 local function toggleQuestPanel()
