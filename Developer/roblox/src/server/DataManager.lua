@@ -402,7 +402,10 @@ function DataManager.load(player)
 			-- print (not warn): this is a routine, expected one-time-per-player
 			-- migration, not an error. warn() would spam the console and
 			-- drown out real errors once the closed test onboards legacy players.
-			print(("[HarborHeist] Migrating %s from v1 DataStore to v2."):format(player.Name))
+			print(("[HarborHeist] MIGRATION v1->v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s}"):format(
+				player.Name, player.UserId,
+				tostring(saved.cash), tostring(saved.rodLevel), tostring(saved.baitLevel),
+				type(saved.liveWell) == "table" and (#saved.liveWell .. " fish") or tostring(saved.liveWell)))
 		end
 	end
 
