@@ -321,16 +321,36 @@ function FishingService.init(deps)
 			return { ok = false, reason = "missed" }
 		end
 
-		-- TASK 14.16 (SECURITY): the marker position is computed on the client, so
-		-- the server can never prove a claimed hit is real. Root-cause mitigation:
-		-- treat the client hit as a REQUEST and resolve it against a server-side
-		-- success probability equal to the equipped rod's minigame zone size.
-		-- Honest clients are unaffected (they only send hit=true when inside the
-		-- zone); always-hit exploiters are gated to the same long-run success
-		-- rate as honest play, and better rods keep their wider-zone advantage.
+		-- TASK 14.16 (SECURITY) + TASK 14.24 (DECISION C): the marker position is
+		-- computed on the client, so the server can never prove a claimed hit is
+		-- real. Root-cause mitigation: treat the client hit as a REQUEST resolved
+		-- against a server-side success probability (the re-roll). The re-roll
+		-- stays as the security floor — an always-hit exploiter can never reach a
+		-- 100% catch rate, and species/rarity/value remain server-rolled, so no
+		-- client can forge the catch outcome.
+		--
+		-- DECISION C (wqw.24): the bare re-roll made the bite minigame theater —
+		-- an honest player who perfectly timed the tap STILL missed
+		-- (1 - zoneSize) of the time, so the earlier "honest clients are
+		-- unaffected" claim was wrong. Fix (server-only, authority preserved):
+		-- the server-authoritative cast-accuracy luckBonus (set in the CastResult
+		-- handler from the SERVER's own zone bounds — the client cannot claim a
+		-- better tier than a perfect honest cast) inflates the effective bite
+		-- zone from the rod's base up to MiniGame.biteZoneCeiling. A perfect cast
+		-- raises catch odds toward the ceiling; an ok/no cast keeps the base floor.
+		-- Exploiters are capped at the perfect-honest rate, never above it.
 		local rodDef = GameConfig.RodDefinitions[biteData.rodLevel]
-		local zoneSize = (rodDef and rodDef.minigameZoneSize) or 0.30
-		if rng:NextNumber() > zoneSize then
+		local baseZone = (rodDef and rodDef.minigameZoneSize) or 0.30
+		local luckBonus = biteData.luckBonus or 0
+		local maxLuck = GameConfig.MiniGame.accuracyLuckBonus.perfect
+		local ceiling = GameConfig.MiniGame.biteZoneCeiling or 0.85
+		-- Interpolate base -> ceiling by the cast-accuracy fraction (0..1).
+		local effectiveZone = baseZone
+		if maxLuck and maxLuck > 0 and luckBonus > 0 then
+			effectiveZone = baseZone + (luckBonus / maxLuck) * (ceiling - baseZone)
+		end
+		effectiveZone = math.clamp(effectiveZone, baseZone, ceiling)
+		if rng:NextNumber() > effectiveZone then
 			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
 			if analytics then
 				analytics.track(player, "fish_catch_failed", { reason = "missed_reroll" })
@@ -378,6 +398,11 @@ function FishingService.init(deps)
 				species_id = fish.SpeciesId,
 				rarity = fish.Rarity,
 				zone_id = zoneId,
+				-- TASK 14.24: effective bite zone actually used by the re-roll
+				-- (base floor inflated by the cast-accuracy luckBonus) plus the
+				-- bonus itself. Powers post-launch tuning of biteZoneCeiling.
+				effective_zone = effectiveZone,
+				cast_luck_bonus = luckBonus,
 			})
 			if analytics.isFirst(player.UserId, "first_catch") then
 				analytics.track(player, "first_catch", { species_id = fish.SpeciesId })

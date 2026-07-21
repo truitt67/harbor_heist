@@ -51,6 +51,15 @@ GameConfig.MiniGame = {
 		good = 12,
 		ok = 0,
 	},
+	-- TASK 14.24 (DECISION C): ceiling for the bite catch zone after the
+	-- server-authoritative cast-accuracy luckBonus inflates it. A PERFECT cast
+	-- (luckBonus == accuracyLuckBonus.perfect) raises the effective bite zone
+	-- from the rod's base minigameZoneSize up to this value, so a well-timed
+	-- cast roughly triples catch odds vs the bare re-roll floor while an ok/no
+	-- cast keeps the base floor. Exploiters are capped at the perfect-honest
+	-- rate (never above it) and rarity stays server-rolled. Tunable: lower to
+	-- keep always-hit exploiters on a tighter leash.
+	biteZoneCeiling = 0.85,
 }
 
 GameConfig.Quests = {
