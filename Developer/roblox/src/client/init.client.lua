@@ -1226,6 +1226,7 @@ local function render()
 	end
 
 	local character = player.Character
+	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
 			if state.stunRemaining and state.stunRemaining > 0 then
