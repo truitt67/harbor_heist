@@ -79,7 +79,7 @@ end
 
 --[[
 	Creates a FishInstance from a legacy rarity index (for migration).
-	Picks the first species matching that rarity tier.
+	Picks a random species matching that rarity tier (TASK 14.12: randomized so v1->v2 migration preserves species variety instead of collapsing to the first species in each bucket).
 ]]
 function FishInstance.fromRarityIndex(rarityIndex)
 	local rarityNames = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
@@ -91,7 +91,7 @@ function FishInstance.fromRarityIndex(rarityIndex)
 	if not pool or #pool == 0 then
 		pool = FishDefinitions.ByRarity["Common"]
 	end
-	local def = pool[1]
+	local def = pool[math.random(1, #pool)]
 	return FishInstance.new(def.SpeciesId, "Migration")
 end
 
