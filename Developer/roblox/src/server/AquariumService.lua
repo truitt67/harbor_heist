@@ -10,6 +10,7 @@ function AquariumService.init(deps)
 	local stateSync = deps.stateSync
 	local questService = deps.questService
 	local analytics = deps.analytics -- EPIC 11
+	local antiExploit = deps.antiExploit -- EPIC 10
 	local onboarding = deps.onboarding -- EPIC 9
 
 	local function refreshVisual(session)
@@ -23,6 +24,10 @@ function AquariumService.init(deps)
 	end
 
 	remotes.StoreFish.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "store")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false }
@@ -61,6 +66,10 @@ function AquariumService.init(deps)
 	end
 
 	remotes.ClaimIncome.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "claim")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }
@@ -90,6 +99,10 @@ function AquariumService.init(deps)
 	end
 
 	remotes.SellAll.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "sell")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false }
@@ -128,7 +141,11 @@ function AquariumService.init(deps)
 		return { ok = true, payout = payout }
 	end
 
-	-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
+	if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "lock")
+			if not ok then return { ok = false, reason = reason } end
+		end
+		-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
 	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
 	-- resource, cooldown, or limited free uses." Design: 3 free uses per
 	-- session (tracked in profile.Defense.LockFreeUsesRemaining), then cooldown
@@ -233,6 +250,10 @@ function AquariumService.init(deps)
 	-- opt-in is allowed — a new player who hasn't met the progression threshold
 	-- cannot opt in, preventing accidental exposure.
 	remotes.RequestToggleRaidOptIn.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "raid_opt_in")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }

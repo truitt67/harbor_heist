@@ -207,6 +207,10 @@ function QuestService.init(deps)
 	end
 
 	remotes.OpenQuests.OnServerEvent:Connect(function(player)
+		if antiExploit then
+			local ok = antiExploit.checkRate(player, "quest")
+			if not ok then return end
+		end
 		local session = dataManager.get(player)
 		if session then
 			QuestService.initializeQuests(session)

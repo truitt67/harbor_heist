@@ -7,14 +7,22 @@ function ShopService.init(deps)
 	local remotes = deps.remotes
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
+	local antiExploit = deps.antiExploit -- EPIC 10
 	local analytics = deps.analytics -- EPIC 11
 
 	remotes.BuyItem.OnServerInvoke = function(player, kind, level)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "buy")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }
 		end
 		if type(kind) ~= "string" or type(level) ~= "number" then
+			if antiExploit then
+				antiExploit.logSuspicious(player, "buy", "Invalid args: kind=" .. tostring(kind) .. " level=" .. tostring(level))
+			end
 			return { ok = false, reason = "bad_args" }
 		end
 		level = math.floor(level)

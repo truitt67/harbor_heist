@@ -193,6 +193,10 @@ function CollectionService.init(deps)
 	-- RequestCollection (RemoteFunction): client asks for its book. Returns
 	-- the COLL-04-safe payload. Read-only — no state mutation here.
 	remotes.RequestCollection.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "collection")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }
@@ -208,6 +212,10 @@ function CollectionService.init(deps)
 	--   2. It hasn't been claimed already (MilestonesClaimed[id]).
 	--   3. The reward is credited through clampCoins (no MAX_COINS overflow).
 	remotes.ClaimCollectionReward.OnServerInvoke = function(player, milestoneId)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "collection")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }

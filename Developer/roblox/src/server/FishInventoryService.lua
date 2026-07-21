@@ -17,6 +17,7 @@ local FishInventoryService = {}
 
 function FishInventoryService.init(deps)
 	local remotes = deps.remotes
+	local antiExploit = deps.antiExploit
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
 	local dockManager = deps.dockManager
@@ -43,6 +44,10 @@ function FishInventoryService.init(deps)
 	-- Sell a single fish from carried inventory (PRD INV-03)
 	-- ════════════════════════════════════════════════════════════════════════
 	remotes.SellFish.OnServerInvoke = function(player, instanceId)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "sell")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }
@@ -116,6 +121,10 @@ function FishInventoryService.init(deps)
 	-- Store a single fish from carried to aquarium (PRD INV-04)
 	-- ════════════════════════════════════════════════════════════════════════
 	remotes.StoreSingleFish.OnServerInvoke = function(player, instanceId)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "store")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false, reason = "no_session" }

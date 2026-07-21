@@ -20,6 +20,7 @@ function FishingService.init(deps)
 	local questService = deps.questService
 	local analytics = deps.analytics -- EPIC 11
 	local onboarding = deps.onboarding -- EPIC 9
+	local antiExploit = deps.antiExploit
 	local rodService = deps.rodService
 
 	local function failCast(player, reason)
@@ -55,6 +56,15 @@ function FishingService.init(deps)
 	end
 
 	remotes.Cast.OnServerEvent:Connect(function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "cast")
+			if not ok then
+				if reason == "rate_limited" then
+					remotes.notify(player, "Slow down! You are casting too fast.", Color3.fromRGB(255, 170, 80))
+				end
+				return
+			end
+		end
 		local session = dataManager.get(player)
 		if not session or not player.Parent then
 			return
@@ -210,6 +220,10 @@ function FishingService.init(deps)
 	-- Cast handler) rather than trusting any tier the client might claim.
 	-- The luckBonus is then consumed by the species roll in SubmitCatchInput.
 	remotes.CastResult.OnServerEvent:Connect(function(player, accuracy)
+		if antiExploit then
+			local ok = antiExploit.checkRate(player, "cast_result")
+			if not ok then return end
+		end
 		local session = dataManager.get(player)
 		if not session or not player.Parent then
 			return
@@ -263,6 +277,12 @@ function FishingService.init(deps)
 
 	-- TASK 3.3: Client submits catch input after the minigame
 	remotes.SubmitCatchInput.OnServerInvoke = function(player, timingResult)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "submit_catch")
+			if not ok then
+				return { ok = false, reason = reason }
+			end
+		end
 		local session = dataManager.get(player)
 		if not session or not player.Parent then
 			return { ok = false, reason = "no_session" }

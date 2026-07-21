@@ -16,6 +16,7 @@ local AnalyticsService = require(script.AnalyticsService) -- EPIC 11 / TASK 11.1
 local CollectionService = require(script.CollectionService) -- EPIC 7 / TASK 7.2
 local OnboardingService = require(script.OnboardingService) -- EPIC 9 / TASK 9.1
 local RaidService = require(script.RaidService) -- EPIC 8 / TASK 8.1
+local AntiExploitService = require(script.AntiExploitService) -- EPIC 10 / TASK 10.1+10.2
 
 Players.CharacterAutoLoads = false
 
@@ -35,8 +36,10 @@ local deps = {
 	analytics = AnalyticsService, -- EPIC 11
 	onboarding = OnboardingService, -- EPIC 9
 	raidService = RaidService, -- EPIC 8 (gdj.13 eligibility will gate on isWindowOpen)
+	antiExploit = AntiExploitService, -- EPIC 10
 }
 
+AntiExploitService.init(deps) -- EPIC 10: must init first so rate limiting is available
 local fishingCleanup = FishingService.init(deps).onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)
@@ -51,6 +54,10 @@ DataManager.startAutosave()
 DataManager.bindToClose()
 
 Remotes.GetState.OnServerInvoke = function(player)
+	local ok, reason = AntiExploitService.checkRate(player, "get_state")
+	if not ok then
+		return nil
+	end
 	local session = DataManager.get(player)
 	if session then
 		return StateSync.snapshot(session)
