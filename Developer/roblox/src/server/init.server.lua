@@ -37,6 +37,7 @@ local deps = {
 	analytics = AnalyticsService, -- EPIC 11
 	onboarding = OnboardingService, -- EPIC 9
 	raidService = RaidService, -- EPIC 8 (gdj.13 eligibility will gate on isWindowOpen)
+	aquariumService = AquariumService, -- EPIC 8 (gdj.13 target selection reuses eligibility helpers)
 	antiExploit = AntiExploitService, -- EPIC 10
 	auditLog = AuditLogService, -- EPIC 10 / TASK 10.3
 }

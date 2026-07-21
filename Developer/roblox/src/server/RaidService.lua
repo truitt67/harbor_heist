@@ -40,6 +40,14 @@ local RaidService = {}
 local remotes: any = nil
 local dataManager: any = nil
 local stateSync: any = nil
+-- TASK 8.5a (gdj.13): extra deps for server-validated target selection.
+-- aquariumService owns the new-player gate + per-target eligibility helpers
+-- (isEligibleRaidTarget / isNewPlayerProtected / getStealableFish); we READ
+-- them without duplicating the logic. antiExploit rate-limits the remote.
+-- analytics records how often the raid UI is opened and how many targets exist.
+local aquariumService: any = nil
+local antiExploit: any = nil
+local analytics: any = nil
 
 local rng = Random.new()
 
@@ -121,6 +129,152 @@ function RaidService.isRaidEligible(player: Player): boolean
 		return false
 	end
 	return RaidService.isOptedIn(player) or RaidService.isInRaidWaters(player)
+end
+
+-- ════════════════════════════════════════════════════════════════════════════
+-- TASK 8.5a (gdj.13): RAID TARGET SELECTION + ELIGIBILITY VALIDATION
+-- PRD PVP-02 (window/opt-in), PVP-04 (lock state for the raid UI),
+-- PVP-06 (attacker cooldown + defender protection), PVP-07 (per-victim
+-- cooldown), PVP-10 (server is the sole validator). FIRST half of the split
+-- raid flow: enumerate which aquariums an attacker may target right now and
+-- validate the attacker's own eligibility. Does NOT resolve any raid outcome
+-- (fish transfer, cooldown WRITE, defender immunity WRITE) — that is gdj.14.
+--
+-- Cooldown storage: session-scoped os.clock() fields, consistent with the
+-- existing stun/lock runtime fields (session.stunUntil, session.lockedUntil).
+--   session.raidAttackLastAt                 os.clock() of the attacker's last raid (gdj.14 writes)
+--   session.raidTargetCooldowns[defenderId]  os.clock() expiry of the per-victim gate (gdj.14 writes)
+-- These reset on rejoin (a documented V1 limitation shared with lock-cooldown
+-- enforcement); profile.PvP timestamps exist for a future cross-session pass.
+-- ════════════════════════════════════════════════════════════════════════════
+
+--- Attacker raid cooldown (PRD PVP-06). Reads session.raidAttackLastAt
+--- (written by gdj.14 after a raid). Returns (onCooldown, remainingSeconds).
+function RaidService.isAttackerOnCooldown(session: any)
+	local last = (session and session.raidAttackLastAt) or 0
+	local cooldownEnd = last + GameConfig.Raid.raiderCooldownSeconds
+	local now = os.clock()
+	if cooldownEnd > now then
+		return true, math.ceil(cooldownEnd - now)
+	end
+	return false, 0
+end
+
+--- Per-victim cooldown (PRD PVP-07). Reads session.raidTargetCooldowns.
+--- Returns (onCooldown, remainingSeconds).
+function RaidService.isVictimOnCooldown(session: any, targetUserId: number)
+	local cooldowns = session and session.raidTargetCooldowns
+	if not cooldowns then
+		return false, 0
+	end
+	local expiry = cooldowns[targetUserId]
+	if not expiry then
+		return false, 0
+	end
+	local now = os.clock()
+	if expiry > now then
+		return true, math.ceil(expiry - now)
+	end
+	return false, 0
+end
+
+--- Full attacker eligibility gate for the raid flow (PRD PVP-02 / PVP-06).
+--- Window open + opted in (dock flag OR Raid Waters zone) + not new-player
+--- protected + not stunned + not on raider cooldown. AquariumService owns the
+--- new-player gate (single source of truth); this composes it with the
+--- raid-flow gates only RaidService can see (window, zone, cooldown).
+--- Returns (canRaid, reason, extra) where extra may carry cooldownRemaining.
+function RaidService.validateAttacker(player: Player, session: any)
+	if not windowOpen then
+		return false, "window_closed"
+	end
+	if not (RaidService.isOptedIn(player) or RaidService.isInRaidWaters(player)) then
+		return false, "not_opted_in"
+	end
+	if aquariumService and aquariumService.isNewPlayerProtected(session) then
+		return false, "new_player_protected"
+	end
+	if session.stunUntil and session.stunUntil > os.clock() then
+		return false, "stunned"
+	end
+	local onCd, remaining = RaidService.isAttackerOnCooldown(session)
+	if onCd then
+		return false, "attacker_cooldown", { cooldownRemaining = remaining }
+	end
+	return true, "ok"
+end
+
+--- Enumerate the aquariums `player` may raid right now. Pure server
+--- validation (PVP-10): re-checks window state and every eligibility rule at
+--- call time, so a stale target list can never authorize a raid. Returns a
+--- payload shaped for the client raid UI (8.12). No fish is transferred.
+function RaidService.getRaidTargets(player: Player)
+	local session = dataManager and dataManager.get(player)
+	if not session then
+		return { ok = false, reason = "no_session" }
+	end
+	local canRaid, reason, extra = RaidService.validateAttacker(player, session)
+	local response = {
+		ok = true,
+		canRaid = canRaid,
+		reason = reason,
+		windowOpen = windowOpen,
+		windowRemaining = RaidService.getWindowRemaining(),
+		nextWindowInSeconds = RaidService.getNextWindowIn(),
+		cooldownRemaining = 0,
+		targets = {},
+	}
+	if extra and extra.cooldownRemaining then
+		response.cooldownRemaining = extra.cooldownRemaining
+	end
+	-- Ineligible attacker / closed window: empty target list. The client UI
+	-- still gets window state + reason so it can show a countdown/message,
+	-- and no targets leak outside an open window (PVP-02).
+	if not canRaid then
+		return response
+	end
+	-- allSessions() returns the LIVE sessions table (DataManager.remove mutates
+	-- it synchronously on leave), so snapshot before iterating to avoid
+	-- "dictionary modified during iteration" if a player leaves mid-loop.
+	local snapshot = {}
+	if dataManager then
+		for k, s in pairs(dataManager.allSessions()) do
+			snapshot[k] = s
+		end
+	end
+	-- Build the target list in a local first (matches the getStealableFish
+	-- `local out = {}` pattern), then attach it to the response. Keeps strict
+	-- mode happy with a clean array element type and avoids mutating a field
+	-- of the response literal during construction.
+	local targets = {}
+	for _, targetSession in pairs(snapshot) do
+		local targetPlayer = targetSession and targetSession.player
+		if targetPlayer and targetPlayer.Parent and targetPlayer ~= player then
+			-- PVP-07: skip defenders this attacker is still on per-victim
+			-- cooldown for, before the (slightly heavier) eligibility check.
+			local onVictimCd = RaidService.isVictimOnCooldown(session, targetPlayer.UserId)
+			if not onVictimCd and aquariumService then
+				local eligible = aquariumService.isEligibleRaidTarget(targetSession)
+				if eligible then
+					local stealable = aquariumService.getStealableFish(targetSession)
+					table.insert(targets, {
+						userId = targetPlayer.UserId,
+						name = targetPlayer.Name,
+						displayName = targetPlayer.DisplayName,
+						dockIndex = targetSession.dockIndex or 0,
+						stealableCount = #stealable,
+					})
+				end
+			end
+		end
+	end
+	response.targets = targets
+	if analytics then
+		pcall(function()
+			analytics.track(player, "raid_targets_requested", { targetCount = #targets })
+		end)
+	end
+	return response
 end
 
 -- NOTE: the opt-in TOGGLE writer lives in AquariumService
@@ -255,11 +409,29 @@ function RaidService.init(deps)
 	remotes = deps.remotes
 	dataManager = deps.dataManager
 	stateSync = deps.stateSync
+	-- TASK 8.5a (gdj.13): target selection reuses AquariumService's eligibility
+	-- helpers and is rate-limited + analysed via the shared services.
+	aquariumService = deps.aquariumService
+	antiExploit = deps.antiExploit
+	analytics = deps.analytics
 
 	-- NOTE: RequestToggleRaidOptIn.OnServerInvoke is owned by
 	-- AquariumService.init (gdj.3, runs before this init in init.server).
 	-- Do NOT assign a handler here — an earlier draft of gdj.2 did, and it
 	-- silently overwrote AquariumService's new-player-gated version.
+
+	-- TASK 8.5a (gdj.13): GetRaidTargets — server-validated target list for
+	-- the client raid UI (PRD PVP-10). Enumerates eligible aquariums without
+	-- resolving any outcome (that is gdj.14 / RequestRaidAttempt).
+	remotes.GetRaidTargets.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "get_raid_targets")
+			if not ok then
+				return { ok = false, reason = reason }
+			end
+		end
+		return RaidService.getRaidTargets(player)
+	end
 
 	-- TASK 8.2 (gdj.2): physical Raid Waters pier zone.
 	local worldFolder = deps.worldFolder

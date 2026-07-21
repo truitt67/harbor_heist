@@ -119,21 +119,37 @@ function AquariumService.init(deps)
 			return { ok = false }
 		end
 		local storedFish = session.profile.Aquarium.StoredFish
+		-- TASK 14.6 (wqw.6): a locked aquarium blocks removal of stored fish
+		-- (PRD AQUA: locks block ALL theft and modification). Previously SellAll
+		-- liquidated stored fish during an active lock, enabling lock-then-sell
+		-- before a raid and making the lock mechanic theater. Carried fish are
+		-- not in the aquarium, so they remain sellable while locked.
+		local locked = (session.lockedUntil or 0) > os.clock()
 		local payout = 0
 		local storedCount = #storedFish
 		local carriedCount = #session.carried
-		for _, fish in ipairs(storedFish) do
-			payout += fish.BaseSellValue
+		if not locked then
+			for _, fish in ipairs(storedFish) do
+				payout += fish.BaseSellValue
+			end
 		end
 		for _, fish in ipairs(session.carried) do
 			payout += fish.BaseSellValue
 		end
 		if payout <= 0 then
+			if locked and storedCount > 0 then
+				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				return { ok = false, reason = "aquarium_locked" }
+			end
 			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
 			return { ok = false }
 		end
-		for i = #storedFish, 1, -1 do
-			storedFish[i] = nil
+		local soldCount = carriedCount
+		if not locked then
+			for i = #storedFish, 1, -1 do
+				storedFish[i] = nil
+			end
+			soldCount += storedCount
 		end
 		for i = #session.carried, 1, -1 do
 			session.carried[i] = nil
@@ -141,9 +157,13 @@ function AquariumService.init(deps)
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 		if auditLog then
-			auditLog.logSell(player, storedCount + carriedCount, payout)
+			auditLog.logSell(player, soldCount, payout)
 		end
-		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
+		if locked then
+			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), Color3.fromRGB(130, 255, 130))
+		else
+			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
+		end
 		refreshVisual(session)
 		stateSync.push(session)
 		if questService then
