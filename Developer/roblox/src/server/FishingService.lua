@@ -10,7 +10,7 @@ local rng = Random.new()
 -- Bite timing configuration (seconds)
 local BITE_MIN_DELAY = 2.0
 local BITE_MAX_DELAY = 6.0
-local BITE_WINDOW_SECONDS = 3.0 -- how long the player has to respond after bite
+local BITE_WINDOW_SECONDS = 3.5 -- how long the player has to respond after bite (TASK 14.4: widened from 3.0 to absorb typical network latency)
 
 function FishingService.init(deps)
 	local remotes = deps.remotes
@@ -178,7 +178,7 @@ function FishingService.init(deps)
 
 		-- Fire the bite event to the client when the bite occurs
 		task.delay(biteDelay, function()
-			if not player.Parent or not session.player.Parent then
+			if not player.Parent then
 				session.casting = false
 				activeBites[player] = nil
 				return
