@@ -11,6 +11,14 @@ function StateSync.getCapacity(session)
 end
 
 function StateSync.incomePerSec(session)
+	-- TASK 14.15 (wqw.15): cache incomePerSec on the session to avoid the
+	-- per-second O(fish) recompute in the income loop + on every snapshot
+	-- push. Invalidated by StateSync.invalidateIncomeCache on StoredFish
+	-- mutations + aquarium/dock upgrades. Nil-check (not truthiness) so a
+	-- legit 0 (empty aquarium) stays cached instead of recomputing each tick.
+	if session.cachedIncomePerSec ~= nil then
+		return session.cachedIncomePerSec
+	end
 	local total = 0
 	-- Local track: iterate rich FishInstance records with IncomePerMinute
 	for _, fish in ipairs(session.profile.Aquarium.StoredFish) do
@@ -36,7 +44,19 @@ function StateSync.incomePerSec(session)
 	if dockTier and dockTier.incomeMultiplier then
 		total *= dockTier.incomeMultiplier
 	end
+	session.cachedIncomePerSec = total
 	return total
+end
+
+-- TASK 14.15 (wqw.15): invalidate the cached incomePerSec. Call on every
+-- StoredFish mutation (store/sell) and on aquarium/dock upgrade purchases.
+-- The income loop only accrues UnclaimedIncome so it does NOT invalidate.
+-- The future raid steal handler (gdj.14) MUST also call this on the victim,
+-- or its cached income figure goes stale.
+function StateSync.invalidateIncomeCache(session)
+	if session ~= nil then
+		session.cachedIncomePerSec = nil
+	end
 end
 
 function StateSync.snapshot(session)

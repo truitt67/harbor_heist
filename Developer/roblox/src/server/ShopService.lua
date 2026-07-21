@@ -119,6 +119,12 @@ function ShopService.init(deps)
 			string.format("Purchased %s!", item.name),
 			Color3.fromRGB(130, 255, 130)
 		)
+		-- TASK 14.15 (wqw.15): aquarium/dock upgrades change the income
+		-- multipliers, so invalidate the cached incomePerSec for those kinds.
+		-- rod/bait/lock/alarm do not affect income and do not need invalidation.
+		if kind == "aquarium" or kind == "dock" then
+			stateSync.invalidateIncomeCache(session)
+		end
 		stateSync.push(session)
 		-- EPIC 11 (TASK 11.2): upgrade_purchased + first_upgrade (ONCE, gated).
 		-- CORRECTED (fresh-eyes): previously first_upgrade fired every

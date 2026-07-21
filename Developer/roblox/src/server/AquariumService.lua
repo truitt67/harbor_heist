@@ -62,6 +62,11 @@ function AquariumService.init(deps)
 			auditLog.logStore(player, stored, totalVal)
 		end
 		refreshVisual(session)
+		-- TASK 14.15 (wqw.15): fish were added to StoredFish, so invalidate
+		-- the cached incomePerSec before the push repopulates it.
+		if stored > 0 then
+			stateSync.invalidateIncomeCache(session)
+		end
 		stateSync.push(session)
 		if stored > 0 and questService then
 			questService.onFishStored(session, stored)
@@ -165,6 +170,12 @@ function AquariumService.init(deps)
 			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		end
 		refreshVisual(session)
+		-- TASK 14.15 (wqw.15): stored fish were removed only when not locked,
+		-- so invalidate the cached incomePerSec in that case. Carried-only sells
+		-- (locked) don't change income and don't need invalidation.
+		if not locked and storedCount > 0 then
+			stateSync.invalidateIncomeCache(session)
+		end
 		stateSync.push(session)
 		if questService then
 			questService.onFishSold(session, payout)
