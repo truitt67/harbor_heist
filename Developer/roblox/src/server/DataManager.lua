@@ -314,13 +314,13 @@ local function sanitize(data)
 		clean.PvP.TotalCatches = math.max(clean.PvP.TotalCatches, v)
 	end
 
-	-- Defense (TASK 8.4: lock free uses)
+	-- Defense (TASK 8.4: lock free uses) — clamp both lower and upper bounds.
 	if type(data.Defense) == "table" then
 		if type(data.Defense.LockFreeUsesRemaining) == "number" then
-			clean.Defense.LockFreeUsesRemaining = math.max(0, math.floor(data.Defense.LockFreeUsesRemaining))
+			clean.Defense.LockFreeUsesRemaining = math.clamp(math.floor(data.Defense.LockFreeUsesRemaining), 0, 10)
 		end
 		if type(data.Defense.LockFreeUsesMax) == "number" then
-			clean.Defense.LockFreeUsesMax = math.max(1, math.floor(data.Defense.LockFreeUsesMax))
+			clean.Defense.LockFreeUsesMax = math.clamp(math.floor(data.Defense.LockFreeUsesMax), 1, 10)
 		end
 	end
 

@@ -168,10 +168,10 @@ function AquariumService.init(deps)
 			return { ok = false }
 		end
 		local now = os.clock()
-		if session.lockedUntil > now then
+		if (session.lockedUntil or 0) > now then
 			return { ok = false, reason = "already_locked" }
 		end
-		if session.lockCooldownUntil > now then
+		if (session.lockCooldownUntil or 0) > now then
 			remotes.notify(
 				player,
 				string.format("Lock recharging... %ds left.", math.ceil(session.lockCooldownUntil - now)),

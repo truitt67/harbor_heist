@@ -228,7 +228,10 @@ local function pollRaidZone(zone: BasePart)
 		while true do
 			task.wait(1)
 			if not zone.Parent then break end
-			local overlapping = workspace:GetPartBoundsInBox(zone.CFrame, zone.Size)
+			local ok, overlapping = pcall(function()
+				return workspace:GetPartBoundsInBox(zone.CFrame, zone.Size)
+			end)
+			if not ok then break end
 			local seen: {[Player]: boolean} = {}
 			for _, part in ipairs(overlapping) do
 				local plr = playerFromHit(part)
@@ -307,6 +310,7 @@ function RaidService.init(deps)
 	local function hookRespawn(player)
 		player.CharacterAdded:Connect(function()
 			playersInRaidZone[player] = nil
+			touchCounts[player] = nil
 		end)
 	end
 	Players.PlayerAdded:Connect(hookRespawn)
