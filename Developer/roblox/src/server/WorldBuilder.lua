@@ -117,6 +117,7 @@ function WorldBuilder.build()
 	WorldBuilder.buildShop(worldFolder)
 	WorldBuilder.buildDecorations(worldFolder)
 	WorldBuilder.buildBoatDock(worldFolder)
+	WorldBuilder.buildRaidWaters(worldFolder)
 
 	return worldFolder
 end
@@ -185,6 +186,85 @@ function WorldBuilder.buildBoatDock(parent)
 
 	boatDock.PrimaryPart = platform
 	return prompt
+end
+
+-- TASK 8.2 (gdj.2): the "Raid Waters" pier (PRD PVP-02). A clearly marked
+-- risk zone: standing on it opts you into raids for as long as you stay
+-- (RaidService watches Zone.Touched/TouchEnded). Built opposite the boat
+-- dock so the harbor reads: safe plaza in the middle, risk on the fringes.
+function WorldBuilder.buildRaidWaters(parent)
+	local raidWaters = Instance.new("Model")
+	raidWaters.Name = "RaidWaters"
+	raidWaters.Parent = parent
+
+	local dockZ = -38
+	local platform = makePart({
+		Name = "Platform",
+		Size = Vector3.new(10, 1, 14),
+		CFrame = CFrame.new(0, 0.5, dockZ),
+		Color = Color3.fromRGB(90, 50, 55),
+		Material = Enum.Material.WoodPlanks,
+		Parent = raidWaters,
+	})
+	platform.Locked = true
+
+	for _, xOffset in ipairs({ -5, 5 }) do
+		makePart({
+			Name = "Railing",
+			Size = Vector3.new(0.5, 1.5, 14),
+			CFrame = CFrame.new(xOffset, 1.5, dockZ),
+			Color = Color3.fromRGB(70, 35, 40),
+			Material = Enum.Material.Wood,
+			Parent = raidWaters,
+		})
+	end
+
+	-- Red warning buoys flanking the pier mouth — non-threatening but
+	-- unmistakable "danger ahead" signaling per PRD raid-visual guidance.
+	for _, xOffset in ipairs({ -4, 4 }) do
+		makePart({
+			Name = "WarningBuoy",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(1.4, 1.4, 1.4),
+			CFrame = CFrame.new(xOffset, 1.2, dockZ - 8),
+			Color = Color3.fromRGB(255, 80, 80),
+			Material = Enum.Material.Neon,
+			Parent = raidWaters,
+		})
+	end
+
+	-- The opt-in volume itself. Invisible, non-colliding; Touched events do
+	-- the work. Slightly larger than the platform so stepping onto any part
+	-- of the pier registers.
+	local zone = Instance.new("Part")
+	zone.Name = "Zone"
+	zone.Size = Vector3.new(11, 6, 15)
+	zone.CFrame = CFrame.new(0, 2.5, dockZ)
+	zone.Transparency = 1
+	zone.CanCollide = false
+	zone.Anchored = true
+	zone.Parent = raidWaters
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "RaidSign"
+	billboard.Size = UDim2.new(0, 200, 0, 56)
+	billboard.StudsOffset = Vector3.new(0, 5.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 110
+	billboard.Parent = platform
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "RAID WATERS\nOpt in to PvP raids while here"
+	label.TextColor3 = Color3.fromRGB(255, 110, 110)
+	label.TextStrokeTransparency = 0.2
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	raidWaters.PrimaryPart = platform
+	return raidWaters
 end
 
 function WorldBuilder.buildShop(parent)

@@ -4,11 +4,14 @@
 -- occur every 20-30 minutes and last 5 minutes; raids may ONLY happen while
 -- a window is open (PVP-02) or in an explicitly opted-in risk zone (gdj.2).
 --
--- SCOPE (this bead): the scheduler itself + client broadcast + a query API
--- for downstream beads. This module does NOT validate raid eligibility
--- (gdj.13), does NOT manage opt-in (gdj.2), and does NOT gate new players
--- (gdj.3). It answers exactly one question for the rest of the server:
--- "is a raid window open right now, and for how much longer?"
+-- SCOPE: the scheduler itself + client broadcast + a query API for
+-- downstream beads, PLUS the Raid Waters pier opt-in signal (TASK 8.2 /
+-- gdj.2, PRD PVP-02): players opt in via the aquarium-panel dock flag
+-- (RequestToggleRaidOptIn, owned by AquariumService with the gdj.3
+-- new-player gate) or by standing in the physical Raid Waters pier zone
+-- (tracked here). Only opted-in aquariums can be targeted (gdj.13 consumes
+-- RaidService.isRaidEligible). This module does NOT gate new players
+-- (gdj.3) or resolve raid outcomes (gdj.14).
 --
 -- DESIGN (first principles):
 --   1. Server-authoritative clock. The server owns window state; clients
@@ -35,6 +38,8 @@ local RaidService = {}
 
 -- Module-level deps captured in init()
 local remotes: any = nil
+local dataManager: any = nil
+local stateSync: any = nil
 
 local rng = Random.new()
 
@@ -44,6 +49,13 @@ local rng = Random.new()
 local windowOpen = false
 local windowEndsAt = 0     -- os.clock() at which the open window closes
 local nextWindowAt = 0     -- os.clock() at which the next window opens (when closed)
+
+-- TASK 8.2 (gdj.2): players currently standing in the Raid Waters pier zone.
+-- [player] = true; populated by zone Touched/TouchEnded in init. Zone
+-- presence is a LIVE opt-in signal (leaving the zone revokes it), while the
+-- dock flag (profile.Aquarium.RaidOptIn) is a STICKY opt-in signal that
+-- persists until toggled off.
+local playersInRaidZone: {[Player]: boolean} = {}
 
 --- True while a raid window is open. gdj.13 (eligibility) gates on this.
 function RaidService.isWindowOpen()
@@ -76,6 +88,46 @@ function RaidService.getWindowState()
 	}
 end
 
+-- ════════════════════════════════════════════════════════════════════════════
+-- TASK 8.2 (gdj.2): RAID OPT-IN (PRD PVP-02)
+-- Two opt-in signals, both server-read, both honest about scope:
+--   1. Dock flag — profile.Aquarium.RaidOptIn (persisted, toggled via the
+--      aquarium panel RAID toggle or the RequestToggleRaidOptIn remote).
+--      Sticky: stays on until the player turns it off. This is the "enable
+--      a dock flag before the window closes" path from the PRD.
+--   2. Raid Waters pier — live zone presence (playersInRaidZone). Standing
+--      on the marked pier counts as opting in for as long as you stay.
+-- ════════════════════════════════════════════════════════════════════════════
+
+--- Is this player CURRENTLY standing in the Raid Waters pier zone?
+function RaidService.isInRaidWaters(player: Player): boolean
+	return playersInRaidZone[player] == true
+end
+
+--- Dock-flag opt-in (persisted profile field), default false (PVP-02).
+function RaidService.isOptedIn(player: Player): boolean
+	local session = dataManager and dataManager.get(player)
+	if not session then
+		return false
+	end
+	return session.profile.Aquarium.RaidOptIn == true
+end
+
+--- Full raid-eligibility check consumed by gdj.13 (target selection):
+--- window must be open AND the player must have opted in by either path.
+--- gdj.3 will layer new-player protection on top of this.
+function RaidService.isRaidEligible(player: Player): boolean
+	if not windowOpen then
+		return false
+	end
+	return RaidService.isOptedIn(player) or RaidService.isInRaidWaters(player)
+end
+
+-- NOTE: the opt-in TOGGLE writer lives in AquariumService
+-- (remotes.RequestToggleRaidOptIn handler, gdj.3) — it applies the DEC-4
+-- new-player gate before flipping profile.Aquarium.RaidOptIn. RaidService
+-- deliberately does NOT expose a second writer; this module only READS the
+-- flag and owns the Raid Waters zone signal.
 -- Push the current window state to one player (join/resync) or everyone
 -- (edge transitions). Always sends DURATIONS; client runs its own countdown.
 local function pushState(playerOrNil)
@@ -113,8 +165,108 @@ local function runScheduler()
 	end
 end
 
+-- TASK 8.2 (gdj.2): find the player whose character contains the hit part.
+local function playerFromHit(hit: BasePart): Player?
+	local character = hit:FindFirstAncestorOfClass("Model")
+	if not character then
+		return nil
+	end
+	return Players:GetPlayerFromCharacter(character)
+end
+
+-- TASK 8.2 (gdj.2): wire the physical Raid Waters pier zone built by
+-- WorldBuilder.buildRaidWaters. Entering = live opt-in; leaving = revoke.
+-- TOUCHED SPAM FIX: Touched fires per limb per physics step. We track a
+-- per-player touch count so multi-limb contact doesn't spam notify/push,
+-- and TouchEnded only revokes when ALL limbs have left. TouchEnded is also
+-- notoriously unreliable in Roblox, so we also poll overlapping parts as a
+-- fallback (see pollRaidZone below).
+local touchCounts: {[Player]: number} = {}
+local lastNotifyAt: {[Player]: number} = {}
+
+local function watchRaidZone(zone: BasePart)
+	zone.Touched:Connect(function(hit)
+		local plr = playerFromHit(hit)
+		if not plr then return end
+		local count = touchCounts[plr] or 0
+		touchCounts[plr] = count + 1
+		if playersInRaidZone[plr] then
+			return
+		end
+		playersInRaidZone[plr] = true
+		local session = dataManager and dataManager.get(plr)
+		if session and stateSync then
+			stateSync.push(session)
+		end
+		local now = os.clock()
+		if (now - (lastNotifyAt[plr] or 0)) > 5 then
+			lastNotifyAt[plr] = now
+			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", Color3.fromRGB(255, 120, 120))
+		end
+	end)
+	zone.TouchEnded:Connect(function(hit)
+		local plr = playerFromHit(hit)
+		if not plr then return end
+		local count = (touchCounts[plr] or 1) - 1
+		if count <= 0 then
+			touchCounts[plr] = nil
+			if playersInRaidZone[plr] then
+				playersInRaidZone[plr] = nil
+				local session = dataManager and dataManager.get(plr)
+				if session and stateSync then
+					stateSync.push(session)
+				end
+			end
+		else
+			touchCounts[plr] = count
+		end
+	end)
+end
+
+local function pollRaidZone(zone: BasePart)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if not zone.Parent then break end
+			local overlapping = workspace:GetPartBoundsInBox(zone.CFrame, zone.Size)
+			local seen: {[Player]: boolean} = {}
+			for _, part in ipairs(overlapping) do
+				local plr = playerFromHit(part)
+				if plr then seen[plr] = true end
+			end
+			for plr in pairs(playersInRaidZone) do
+				if not seen[plr] and (touchCounts[plr] or 0) <= 0 then
+					playersInRaidZone[plr] = nil
+					touchCounts[plr] = nil
+					local session = dataManager and dataManager.get(plr)
+					if session and stateSync then
+						stateSync.push(session)
+					end
+				end
+			end
+		end
+	end)
+end
+
 function RaidService.init(deps)
 	remotes = deps.remotes
+	dataManager = deps.dataManager
+	stateSync = deps.stateSync
+
+	-- NOTE: RequestToggleRaidOptIn.OnServerInvoke is owned by
+	-- AquariumService.init (gdj.3, runs before this init in init.server).
+	-- Do NOT assign a handler here — an earlier draft of gdj.2 did, and it
+	-- silently overwrote AquariumService's new-player-gated version.
+
+	-- TASK 8.2 (gdj.2): physical Raid Waters pier zone.
+	local worldFolder = deps.worldFolder
+	local raidZone = worldFolder and worldFolder:FindFirstChild("RaidWaters") and worldFolder.RaidWaters:FindFirstChild("Zone")
+	if raidZone then
+		watchRaidZone(raidZone)
+		pollRaidZone(raidZone)
+	else
+		warn("[HarborHeist] RaidWaters zone not found — Raid Waters opt-in path disabled.")
+	end
 
 	-- Late joiners get the current state once, so their HUD/countdown is
 	-- correct even if they joined mid-window or mid-gap. Fired AFTER their
@@ -137,6 +289,29 @@ function RaidService.init(deps)
 	-- play-solo, where PlayerAdded may have fired before this module loaded).
 	for _, player in ipairs(Players:GetPlayers()) do
 		pushState(player)
+	end
+
+	-- TASK 8.2 (gdj.2): drop zone-presence when a player leaves so the
+	-- playersInRaidZone table can't leak stale Player references.
+	Players.PlayerRemoving:Connect(function(player)
+		playersInRaidZone[player] = nil
+		touchCounts[player] = nil
+		lastNotifyAt[player] = nil
+	end)
+
+	-- TASK 8.2 (gdj.2): TouchEnded is documented as unreliable when a
+	-- character is destroyed mid-touch (reset, death, teleport), which could
+	-- strand a dead player's opt-in flag as true forever. Respawns always
+	-- happen OUTSIDE the zone, so clear presence on every CharacterAdded as
+	-- a belt-and-braces guarantee that only live, present characters count.
+	local function hookRespawn(player)
+		player.CharacterAdded:Connect(function()
+			playersInRaidZone[player] = nil
+		end)
+	end
+	Players.PlayerAdded:Connect(hookRespawn)
+	for _, player in ipairs(Players:GetPlayers()) do
+		hookRespawn(player)
 	end
 
 	task.spawn(runScheduler)
