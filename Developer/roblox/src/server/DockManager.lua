@@ -305,6 +305,12 @@ function DockManager.release(player)
 			if fishDisplay then
 				fishDisplay:ClearAllChildren()
 			end
+			-- TASK 6.4: clear cosmetic dock décor so a re-claimed dock resets
+			-- to the next owner's tier (rebuilt on their join/store refresh).
+			local dockDecor = dock.model and dock.model:FindFirstChild("DockDecor")
+			if dockDecor then
+				dockDecor:ClearAllChildren()
+			end
 			-- N7: no early return — keep scanning so any other dock this player
 			-- may own from a double-claim race is also released.
 		end
@@ -351,6 +357,68 @@ function DockManager.isInFishingZone(dock, character)
 		end
 	end
 	return false, nil
+end
+
+-- TASK 6.4 (EPIC 6 / 17): unlock cosmetic dock décor per Dock.UpgradeLevel.
+-- Tier 1 = base dock (no décor). Tier 2+ adds a warm lantern on a piling;
+-- tier 3+ adds a banner on the opposite piling; tier 4 gilds the lantern.
+-- Bounded: at most ~3 static anchored parts per dock, rebuilt from
+-- profile.Dock.UpgradeLevel so the visual matches the purchased tier and
+-- resets on dock release. Cosmetic-only — no gameplay effect.
+function DockManager.updateDockCosmetics(dock, session)
+	if not dock or not session then
+		return
+	end
+	local dockModel = dock.model
+	if not dockModel then
+		return
+	end
+	local decor = dockModel:FindFirstChild("DockDecor")
+	if not decor then
+		decor = Instance.new("Folder")
+		decor.Name = "DockDecor"
+		decor.Parent = dockModel
+	end
+	decor:ClearAllChildren()
+
+	local tier = (session.profile.Dock and session.profile.Dock.UpgradeLevel) or 1
+	if tier < 2 then
+		return -- base dock: no décor
+	end
+
+	local anchor = dock.walkway and dock.walkway.CFrame
+	if not anchor then
+		return
+	end
+
+	-- Lantern on the near-left piling (tier 2+); gilded at tier 4.
+	local lanternColor = (tier >= 4) and Color3.fromRGB(255, 215, 90) or Color3.fromRGB(255, 200, 120)
+	local lantern = makePart({
+		Name = "Lantern",
+		Size = Vector3.new(0.7, 1.1, 0.7),
+		CFrame = anchor * CFrame.new(-(DOCK_WIDTH / 2 - 0.5), 2.0, -DOCK_LENGTH / 2 + 4),
+		Color = lanternColor,
+		Material = Enum.Material.Neon,
+		Parent = decor,
+	})
+	local light = Instance.new("PointLight")
+	light.Color = lanternColor
+	light.Range = 16
+	light.Brightness = (tier >= 4) and 2.2 or 1.4
+	light.Parent = lantern
+
+	-- Banner on the near-right piling (tier 3+); golden at tier 4.
+	if tier >= 3 then
+		local bannerColor = (tier >= 4) and Color3.fromRGB(255, 180, 60) or Color3.fromRGB(120, 200, 255)
+		makePart({
+			Name = "Banner",
+			Size = Vector3.new(0.3, 2.2, 1.4),
+			CFrame = anchor * CFrame.new((DOCK_WIDTH / 2 - 0.5), 3.0, -DOCK_LENGTH / 2 + 4),
+			Color = bannerColor,
+			Material = Enum.Material.SmoothPlastic,
+			Parent = decor,
+		})
+	end
 end
 
 function DockManager.updateAquariumVisual(dock, session, capacity)
@@ -452,6 +520,10 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		statusLabel.Text = string.format("%d/%d fish  •  $%d", #stored, capacity, totalValue)
 		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
+
+	-- TASK 6.4: refresh dock cosmetic décor so the visual matches the
+	-- purchased Dock.UpgradeLevel (covers join + store/sell refresh paths).
+	DockManager.updateDockCosmetics(dock, session)
 end
 
 return DockManager

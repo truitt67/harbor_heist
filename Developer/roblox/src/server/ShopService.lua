@@ -10,6 +10,7 @@ function ShopService.init(deps)
 	local antiExploit = deps.antiExploit -- EPIC 10
 	local auditLog = deps.auditLog -- EPIC 10 / TASK 10.3
 	local analytics = deps.analytics -- EPIC 11
+	local dockManager = deps.dockManager -- TASK 6.4 (dock cosmetic refresh)
 
 	remotes.BuyItem.OnServerInvoke = function(player, kind, level)
 		if antiExploit then
@@ -102,6 +103,13 @@ function ShopService.init(deps)
 			session.profile.Aquarium.AlarmLevel = level
 		elseif kind == "dock" then
 			session.profile.Dock.UpgradeLevel = level
+			-- TASK 6.4: refresh dock cosmetic décor for the new tier.
+			if dockManager then
+				local dock = dockManager.getDock(player)
+				if dock then
+					dockManager.updateDockCosmetics(dock, session)
+				end
+			end
 		end
 		if auditLog then
 			auditLog.logPurchase(player, kind, level, item.cost, item.name)
