@@ -68,6 +68,15 @@ function AquariumService.init(deps)
 			stateSync.invalidateIncomeCache(session)
 		end
 		stateSync.push(session)
+		-- TASK 12.2 (thj.2): persist when fish are stored (not just autosave).
+		-- Spawned so the handler returns immediately; coalesced by
+		-- DataManager.save's isSaving guard. Only save when something was
+		-- actually stored (stored > 0) to avoid no-op writes.
+		if stored > 0 then
+			task.spawn(function()
+				dataManager.save(player)
+			end)
+		end
 		if stored > 0 and questService then
 			questService.onFishStored(session, stored)
 		end
@@ -177,6 +186,13 @@ function AquariumService.init(deps)
 			stateSync.invalidateIncomeCache(session)
 		end
 		stateSync.push(session)
+		-- TASK 12.2 (thj.2): persist on sell (not just autosave + leave).
+		-- Spawned so the handler returns immediately; coalesced by
+		-- DataManager.save's isSaving guard. payout > 0 is guaranteed by the
+		-- early return above, so this is always a real transaction.
+		task.spawn(function()
+			dataManager.save(player)
+		end)
 		if questService then
 			questService.onFishSold(session, payout)
 		end

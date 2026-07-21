@@ -85,6 +85,12 @@ function FishInventoryService.init(deps)
 
 		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))
 		stateSync.push(session)
+		-- TASK 12.2 (thj.2): persist on single-fish sell (not just autosave).
+		-- Spawned so the handler returns immediately; coalesced by
+		-- DataManager.save's isSaving guard.
+		task.spawn(function()
+			dataManager.save(player)
+		end)
 
 		-- QUEST GAP FIX (fresh-eyes fellow-agent review): bulk SellAll in
 		-- AquariumService fires onFishSold, but this single-fish path never did —
@@ -161,6 +167,12 @@ function FishInventoryService.init(deps)
 		stateSync.invalidateIncomeCache(session)
 		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), Color3.fromRGB(120, 220, 255))
 		stateSync.push(session)
+		-- TASK 12.2 (thj.2): persist on single-fish store (not just autosave).
+		-- Spawned so the handler returns immediately; coalesced by
+		-- DataManager.save's isSaving guard.
+		task.spawn(function()
+			dataManager.save(player)
+		end)
 
 		-- QUEST GAP FIX (fresh-eyes fellow-agent review): the bulk StoreFish path
 		-- in AquariumService fires onFishStored, but this single-fish path never

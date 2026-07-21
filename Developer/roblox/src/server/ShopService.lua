@@ -126,6 +126,14 @@ function ShopService.init(deps)
 			stateSync.invalidateIncomeCache(session)
 		end
 		stateSync.push(session)
+		-- TASK 12.2 (thj.2): persist on purchase (not just autosave + leave).
+		-- Spawned so the handler returns immediately instead of blocking on
+		-- UpdateAsync; coalesced by DataManager.save's isSaving guard (waits
+		-- then skips if a save is in-flight), so no double-write races and no
+		-- DataStore hammering.
+		task.spawn(function()
+			dataManager.save(player)
+		end)
 		-- EPIC 11 (TASK 11.2): upgrade_purchased + first_upgrade (ONCE, gated).
 		-- CORRECTED (fresh-eyes): previously first_upgrade fired every
 		-- purchase. kind + level + price feed the monetization funnel.
