@@ -125,7 +125,11 @@ local function buildAquarium(dockModel, cframe)
 
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.Name = "AquariumPrompt"
-	prompt.ActionText = "Open / Steal"
+	-- TASK 14.14: "Open / Steal" was stale once walk-up stealing was removed
+	-- (TASK 8.0/gdj.15) -- the prompt now only opens the OWNER's aquarium
+	-- (init.server.lua connectAquariumPrompt), so "Open" is the accurate,
+	-- neutral verb. Per-player text would need a client override (EPIC 12).
+	prompt.ActionText = "Open"
 	prompt.ObjectText = "Aquarium"
 	prompt.HoldDuration = 0.5
 	prompt.MaxActivationDistance = 10
