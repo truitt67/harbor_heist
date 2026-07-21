@@ -399,6 +399,7 @@ function DockManager.updateDockCosmetics(dock, session)
 		CFrame = anchor * CFrame.new(-(DOCK_WIDTH / 2 - 0.5), 2.0, -DOCK_LENGTH / 2 + 4),
 		Color = lanternColor,
 		Material = Enum.Material.Neon,
+		CanCollide = false, -- decorative: don't obstruct players near the dock edge
 		Parent = decor,
 	})
 	local light = Instance.new("PointLight")
@@ -416,6 +417,7 @@ function DockManager.updateDockCosmetics(dock, session)
 			CFrame = anchor * CFrame.new((DOCK_WIDTH / 2 - 0.5), 3.0, -DOCK_LENGTH / 2 + 4),
 			Color = bannerColor,
 			Material = Enum.Material.SmoothPlastic,
+			CanCollide = false, -- decorative: don't obstruct players near the dock edge
 			Parent = decor,
 		})
 	end
