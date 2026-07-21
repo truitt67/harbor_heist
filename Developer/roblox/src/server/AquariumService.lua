@@ -120,11 +120,11 @@ function AquariumService.init(deps)
 		end
 		local storedFish = session.profile.Aquarium.StoredFish
 		local payout = 0
-		-- Sell stored fish (FishInstance records)
+		local storedCount = #storedFish
+		local carriedCount = #session.carried
 		for _, fish in ipairs(storedFish) do
 			payout += fish.BaseSellValue
 		end
-		-- Sell carried fish (FishInstance records)
 		for _, fish in ipairs(session.carried) do
 			payout += fish.BaseSellValue
 		end
@@ -132,19 +132,16 @@ function AquariumService.init(deps)
 			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
 			return { ok = false }
 		end
-		-- Clear the table in-place so the profile reference stays valid
 		for i = #storedFish, 1, -1 do
 			storedFish[i] = nil
 		end
-		-- Clear carried in-place too (never reassign the table reference)
 		for i = #session.carried, 1, -1 do
 			session.carried[i] = nil
 		end
-		-- N5: same clampCoins discipline on the sell path.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 		if auditLog then
-			auditLog.logSell(player, #storedFish + #session.carried, payout)
+			auditLog.logSell(player, storedCount + carriedCount, payout)
 		end
 		remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
 		refreshVisual(session)
@@ -155,17 +152,17 @@ function AquariumService.init(deps)
 		return { ok = true, payout = payout }
 	end
 
-	if antiExploit then
-			local ok, reason = antiExploit.checkRate(player, "lock")
-			if not ok then return { ok = false, reason = reason } end
-		end
-		-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
+	-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
 	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
 	-- resource, cooldown, or limited free uses." Design: 3 free uses per
 	-- session (tracked in profile.Defense.LockFreeUsesRemaining), then cooldown
 	-- gates further uses. Free uses regenerate on daily reset (future) or can
 	-- be purchased (future). For V1: free uses + cooldown, no purchase.
 	remotes.LockAquarium.OnServerInvoke = function(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "lock")
+			if not ok then return { ok = false, reason = reason } end
+		end
 		local session = dataManager.get(player)
 		if not session then
 			return { ok = false }
@@ -277,13 +274,11 @@ function AquariumService.init(deps)
 		end
 		-- TASK 8.3 (gdj.3): new-player protection gate. DEC-4 double gate:
 		-- (1) progression: first aquarium upgrade OR 10 catches, (2) opt-in.
-		-- Check progression before allowing opt-in toggle.
-		local totalCatches = 0
-		if session.profile.Stats and session.profile.Stats.TotalCatches then
-			totalCatches = session.profile.Stats.TotalCatches
-		elseif session.profile.PvP and session.profile.PvP.TotalCatches then
-			totalCatches = session.profile.PvP.TotalCatches
-		end
+		-- Use max of Stats and PvP counters so a legacy save with only PvP
+		-- populated still counts (elseif would drop PvP when Stats=0).
+		local statsCatches = (session.profile.Stats and session.profile.Stats.TotalCatches) or 0
+		local pvpCatches = (session.profile.PvP and session.profile.PvP.TotalCatches) or 0
+		local totalCatches = math.max(statsCatches, pvpCatches)
 		local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
 		local hasEnoughCatches = totalCatches >= 10
 		if not hasUpgrade and not hasEnoughCatches then
@@ -322,17 +317,13 @@ end
 -- selection.
 function AquariumService.isNewPlayerProtected(session)
 	if not session or not session.profile then
-		return true -- fail-closed: unknown session = protected
+		return true
 	end
-	local totalCatches = 0
-	if session.profile.Stats and session.profile.Stats.TotalCatches then
-		totalCatches = session.profile.Stats.TotalCatches
-	elseif session.profile.PvP and session.profile.PvP.TotalCatches then
-		totalCatches = session.profile.PvP.TotalCatches
-	end
+	local statsCatches = (session.profile.Stats and session.profile.Stats.TotalCatches) or 0
+	local pvpCatches = (session.profile.PvP and session.profile.PvP.TotalCatches) or 0
+	local totalCatches = math.max(statsCatches, pvpCatches)
 	local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
 	local hasEnoughCatches = totalCatches >= 10
-	-- Protected if NEITHER condition met
 	return not hasUpgrade and not hasEnoughCatches
 end
 
