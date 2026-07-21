@@ -46,12 +46,6 @@ local sessions = {}
 -- TASK 1.5 expands this; the structure here validates every field from the
 -- new PlayerProfile schema. Invalid entries are filtered, not crashed.
 -- ════════════════════════════════════════════════════════════════════════════
-local function sanitizeNested(data, clean, key, validator)
-	if type(data[key]) == "table" then
-		clean[key] = validator(data[key])
-	end
-end
-
 local function sanitizeStoredFish(list)
 	local clean = {}
 	if type(list) ~= "table" then
