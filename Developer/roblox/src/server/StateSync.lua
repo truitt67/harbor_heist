@@ -82,8 +82,8 @@ function StateSync.snapshot(session)
 		incomePerSec = StateSync.incomePerSec(session),
 		-- Local track: income pool + lock/steal timers
 		unclaimedIncome = math.floor(aquarium.UnclaimedIncome),
-		lockedUntil = math.max(0, session.lockedUntil - now),
-		lockCooldownUntil = math.max(0, session.lockCooldownUntil - now),
+		lockedUntil = math.max(0, (session.lockedUntil or 0) - now),
+		lockCooldownUntil = math.max(0, (session.lockCooldownUntil or 0) - now),
 		-- TASK 8.2/8.3 (gdj.2/gdj.3): raid dock-flag + eligibility for client HUD.
 		-- totalCatches drives the "10 catches" half of DEC-4; raidOptIn is the opt-in flag.
 		raidOptIn = aquarium.RaidOptIn == true,

@@ -276,22 +276,27 @@ function RaidService.init(deps)
 	-- session exists (init.server orders RaidService.init before PlayerAdded
 	-- connections fire for future players; the catch-up loop at the bottom
 	-- of init.server handles anyone already present).
+	-- Also hooks CharacterAdded for respawn cleanup (TouchEnded is unreliable
+	-- when character is destroyed mid-touch).
 	Players.PlayerAdded:Connect(function(player)
-		-- Small delay so the client's OnClientEvent handler (connected during
-		-- its own init script) is guaranteed to be listening. The client
-		-- connects handlers synchronously during module load, but the remote
-		-- fire could still race the player's network join — one frame is
-		-- enough margin, matching RodService.equip's task.wait(0.1) pattern.
 		task.wait(0.5)
 		if player.Parent then
 			pushState(player)
 		end
+		player.CharacterAdded:Connect(function()
+			playersInRaidZone[player] = nil
+			touchCounts[player] = nil
+		end)
 	end)
 
 	-- Catch-up for players already in the server when init runs (Studio
 	-- play-solo, where PlayerAdded may have fired before this module loaded).
 	for _, player in ipairs(Players:GetPlayers()) do
 		pushState(player)
+		player.CharacterAdded:Connect(function()
+			playersInRaidZone[player] = nil
+			touchCounts[player] = nil
+		end)
 	end
 
 	-- TASK 8.2 (gdj.2): drop zone-presence when a player leaves so the
@@ -301,22 +306,6 @@ function RaidService.init(deps)
 		touchCounts[player] = nil
 		lastNotifyAt[player] = nil
 	end)
-
-	-- TASK 8.2 (gdj.2): TouchEnded is documented as unreliable when a
-	-- character is destroyed mid-touch (reset, death, teleport), which could
-	-- strand a dead player's opt-in flag as true forever. Respawns always
-	-- happen OUTSIDE the zone, so clear presence on every CharacterAdded as
-	-- a belt-and-braces guarantee that only live, present characters count.
-	local function hookRespawn(player)
-		player.CharacterAdded:Connect(function()
-			playersInRaidZone[player] = nil
-			touchCounts[player] = nil
-		end)
-	end
-	Players.PlayerAdded:Connect(hookRespawn)
-	for _, player in ipairs(Players:GetPlayers()) do
-		hookRespawn(player)
-	end
 
 	task.spawn(runScheduler)
 end
