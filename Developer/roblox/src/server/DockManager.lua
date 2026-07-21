@@ -2,6 +2,13 @@ local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 local FishVisuals = require(ReplicatedStorage.Shared.FishVisuals) -- TASK 2.8
+-- TASK 5.6 / DEC-6: rarity ordinal for curated highest-rarity display
+-- selection. GameConfig.Rarities is ordered Common -> Legendary, so the
+-- array index doubles as a rarity rank (higher == rarer).
+local RARITY_ORD = {}
+for _i, _r in ipairs(GameConfig.Rarities) do
+	RARITY_ORD[_r.name] = _i
+end
 
 local DockManager = {}
 
@@ -352,33 +359,54 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		return
 	end
 	
-	local rng = Random.new(dock.index * 1000 + #session.profile.Aquarium.StoredFish)
-	local display = dock.aquarium.FishDisplay
-	display:ClearAllChildren()
+	local stored = session.profile.Aquarium.StoredFish
 
-	local waterCFrame = dock.aquarium.Water.CFrame
-	local shown = math.min(#session.profile.Aquarium.StoredFish, GameConfig.Aquarium.maxVisibleFish)
-
-	-- SECURITY: Validate each fish before creating visual representation
-	for i = 1, shown do
-		local fishData = session.profile.Aquarium.StoredFish[i]
-		-- Validate fish record exists and has required fields. SpeciesId
-		-- must be a string (FishInstance contract) — a non-string would
-		-- fall through to FishVisuals' default-archetype path and warn,
-		-- but catching it here keeps the malformed-record logging in one
-		-- place and skips a wasted model build.
+	-- TASK 5.6 / DEC-6: curate the displayed subset by HIGHEST rarity
+	-- (not storage order) and tally total stored value for the AQUA-08 sign.
+	local validFish = {}
+	local totalValue = 0
+	for i = 1, #stored do
+		local fishData = stored[i]
 		if type(fishData) ~= "table"
 			or type(fishData.Rarity) ~= "string"
 			or type(fishData.SpeciesId) ~= "string" then
 			warn("[HarborHeist] Invalid fish record in visual update at index " .. i)
-			continue
+		else
+			if type(fishData.BaseSellValue) == "number" then
+				totalValue = totalValue + fishData.BaseSellValue
+			end
+			table.insert(validFish, fishData)
 		end
+	end
 
-		-- TASK 2.8: build via the shared FishVisuals archetype factory.
-		-- Archetype (shape) comes from SpeciesId; rarity contributes
-		-- size/glow/particles on top of the base color. Falls back to a
-		-- default archetype for unknown species so one bad record can't
-		-- blank the whole aquarium.
+	-- Highest rarity first, then sell value, then SpeciesId for a stable
+	-- deterministic layout (Luau's table.sort is not guaranteed stable).
+	table.sort(validFish, function(a, b)
+		local oa = RARITY_ORD[a.Rarity] or 0
+		local ob = RARITY_ORD[b.Rarity] or 0
+		if oa ~= ob then
+			return oa > ob
+		end
+		local va = a.BaseSellValue or 0
+		local vb = b.BaseSellValue or 0
+		if va ~= vb then
+			return va > vb
+		end
+		return a.SpeciesId < b.SpeciesId
+	end)
+
+	local rng = Random.new(dock.index * 1000 + #stored)
+	local display = dock.aquarium.FishDisplay
+	display:ClearAllChildren()
+
+	local waterCFrame = dock.aquarium.Water.CFrame
+	local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
+
+	-- SECURITY: validFish entries are pre-validated above; render via the
+	-- TASK 2.8 FishVisuals archetype factory (shape from SpeciesId, rarity
+	-- adds size/glow/particles; falls back to a default archetype).
+	for i = 1, shown do
+		local fishData = validFish[i]
 		local speciesId = fishData.SpeciesId
 		local fishModel = FishVisuals.build(speciesId, fishData.Rarity)
 		local body = fishModel.PrimaryPart
@@ -418,10 +446,10 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	local statusLabel = sign.StatusLabel
 	local locked = session.lockedUntil > os.clock()
 	if locked then
-		statusLabel.Text = string.format("%d/%d fish  |  LOCKED", #session.profile.Aquarium.StoredFish, capacity)
+		statusLabel.Text = string.format("%d/%d fish  •  $%d  |  LOCKED", #stored, capacity, totalValue)
 		statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
 	else
-		statusLabel.Text = string.format("%d/%d fish", #session.profile.Aquarium.StoredFish, capacity)
+		statusLabel.Text = string.format("%d/%d fish  •  $%d", #stored, capacity, totalValue)
 		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
 end
