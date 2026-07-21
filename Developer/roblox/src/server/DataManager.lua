@@ -357,16 +357,17 @@ local function keyFor(player)
 	return "player_" .. player.UserId
 end
 
-local function withRetries(fn)
+local function withRetries(fn, maxAttempts)
+	maxAttempts = maxAttempts or 4
 	local lastErr
 	-- RELIABILITY: Exponential backoff with jitter to avoid thundering herd
-	for attempt = 1, 4 do
+	for attempt = 1, maxAttempts do
 		local ok, result = pcall(fn)
 		if ok then
 			return true, result
 		end
 		lastErr = result
-		if attempt < 4 then
+		if attempt < maxAttempts then
 			local backoff = math.pow(2, attempt - 1) * 0.25 + math.random() * 0.25
 			task.wait(backoff)
 		end
@@ -484,7 +485,7 @@ function DataManager.get(player)
 	return sessions[player]
 end
 
-function DataManager.save(player)
+function DataManager.save(player, isShutdown)
 	local session = sessions[player]
 	if not session or not dataStore then
 		return
@@ -519,6 +520,8 @@ function DataManager.save(player)
 	-- TASK 8.0 (gdj.15): legacy stealCooldownUntil persist REMOVED with the
 	-- always-on steal handler. No session field exists to persist anymore.
 
+	-- TASK 14.20: on shutdown/leave, a fast-failing save (2 attempts) beats a
+	-- slow save that gets killed mid-retry when the handler budget expires.
 	local ok, err = withRetries(function()
 		return dataStore:UpdateAsync(keyFor(player), function(oldData)
 			local existing = sanitize(oldData)
@@ -544,7 +547,7 @@ function DataManager.save(player)
 
 			return existing
 		end)
-	end)
+	end, isShutdown and 2 or 4)
 
 	session.isSaving = false
 
@@ -605,7 +608,8 @@ function DataManager.bindToClose()
 			task.spawn(function()
 				-- RELIABILITY: pcall so an unexpected error can never leave the
 				-- `remaining` counter stuck and hang BindToClose for the full 30s.
-				pcall(DataManager.save, player)
+				-- TASK 14.20: isShutdown=true -> fewer retries inside the budget.
+				pcall(DataManager.save, player, true)
 				remaining -= 1
 			end)
 		end

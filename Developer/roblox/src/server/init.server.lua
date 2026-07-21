@@ -187,12 +187,13 @@ local function onPlayerRemoving(player)
 		session.characterConnection:Disconnect()
 	end
 	fishingCleanup(player) -- clear activeBites + casting BEFORE remove() (TASK 14.3)
-	DataManager.save(player)
 
 	-- EPIC 11 (TASK 11.2): churn signals. Fire BEFORE clearSession so the
 	-- funnel state is still readable. A player who leaves without catching
 	-- or upgrading is a retention red flag — these events power the
 	-- "where did they drop off?" funnel analysis.
+	-- TASK 14.20: fired synchronously here (before the spawned save/cleanup)
+	-- so they always run even if the PlayerRemoving handler budget expires.
 	local funnel = AnalyticsService.getFunnelState(player.UserId)
 	if not funnel.firstCatchAt then
 		AnalyticsService.track(player, "player_left_before_first_catch")
@@ -201,15 +202,26 @@ local function onPlayerRemoving(player)
 		AnalyticsService.track(player, "player_left_before_first_upgrade")
 	end
 
-	DockManager.release(player)
-	BoatService.onPlayerRemoving(player)
-	RodService.onPlayerRemoving(player)
-	-- EPIC 11 (TASK 11.1): clear analytics session to prevent unbounded
-	-- growth of the sessions table across long server uptimes. Called AFTER
-	-- other cleanup so any churn events fired by those services still have
-	-- a valid session to read, and BEFORE DataManager.remove so UserId resolves.
-	AnalyticsService.clearSession(player)
-	DataManager.remove(player)
+	-- TASK 14.20: spawn the save + dependent cleanup so the PlayerRemoving
+	-- handler returns immediately. A synchronous save (UpdateAsync w/ up to 4
+	-- retries + backoff) can be killed mid-write when the leave handler budget
+	-- expires, silently losing progress. DataManager.save reads session data
+	-- already captured in sessions[player], so the session-clearing remove()
+	-- must run AFTER save completes INSIDE this spawn (order matters).
+	-- BindToClose remains the authoritative shutdown save (isShutdown=true ->
+	-- 2 retries, since its 30s budget cannot be escaped by spawning).
+	task.spawn(function()
+		DataManager.save(player)
+		DockManager.release(player)
+		BoatService.onPlayerRemoving(player)
+		RodService.onPlayerRemoving(player)
+		-- EPIC 11 (TASK 11.1): clear analytics session to prevent unbounded
+		-- growth of the sessions table across long server uptimes. Called AFTER
+		-- other cleanup so any churn events fired by those services still have
+		-- a valid session to read, and BEFORE DataManager.remove so UserId resolves.
+		AnalyticsService.clearSession(player)
+		DataManager.remove(player)
+	end)
 end
 
 Players.PlayerAdded:Connect(onPlayerAdded)
