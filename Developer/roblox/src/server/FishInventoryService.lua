@@ -94,6 +94,16 @@ function FishInventoryService.init(deps)
 			end
 		end
 
+		-- TASK 14.15 (wqw.15) + sc0 (fresh-eyes): invalidate the cached incomePerSec
+		-- IMMEDIATELY after removing a stored fish — BEFORE the validate check below.
+		-- If validate rejects the fish (corrupt record), the early return previously
+		-- skipped invalidateIncomeCache, leaving a stale cache. Moving it here ensures
+		-- the cache is invalidated regardless of the validate outcome. (Unreachable in
+		-- practice — sanitize guarantees stored fish are valid — but defensive.)
+		if soldFromStored then
+			stateSync.invalidateIncomeCache(session)
+		end
+
 		if not fish then
 			return { ok = false, reason = "fish_not_found" }
 		end
@@ -117,11 +127,6 @@ function FishInventoryService.init(deps)
 			auditLog.logSell(player, 1, payout)
 		end
 
-		if soldFromStored then
-			-- TASK 14.15 (wqw.15): a fish was removed from StoredFish -> invalidate
-			-- the cached incomePerSec so the next push/income-tick recomputes it.
-			stateSync.invalidateIncomeCache(session)
-		end
 		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish sell (not just autosave).
