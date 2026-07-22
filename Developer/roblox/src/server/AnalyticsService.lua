@@ -9,8 +9,10 @@
 --   1. ONE fire point. Gameplay code never calls AnalyticsService directly —
 --      it calls Analytics.track(player, eventName, fields). This is the only
 --      seam, so event-name validation + field shape live in one place.
---   2. Authoritative catalog. The 19 PRD events (PRD.md L491-509) plus 5
---      derived events round out the 24 the closed-test exit criteria demand.
+--   2. Authoritative catalog. The 19 PRD events (PRD.md L491-509) plus 7
+--      derived events round out the 26 the closed-test exit criteria demand.
+--      (24 original + suspicious_action + raid_targets_requested, added in
+--      harborheist-os9 — they were fired by gameplay code but unregistered.)
 --      The catalog is a set: track() rejects unknown names (prevents typos
 --      silently spawning ghost events in the dashboard).
 --   3. Funnel timing. first_session_start is captured once per player and
@@ -19,7 +21,7 @@
 --   4. No throwing. Analytics must NEVER break gameplay. Every call is
 --      pcall-wrapped; failures log to stdout and continue.
 --
--- EVENTS (24):
+-- EVENTS (26):
 --   Onboarding funnel: tutorial_started, starter_rod_received, first_cast,
 --     first_catch, first_store, first_sale, first_upgrade
 --   Core loop: fish_caught, fish_catch_failed, fish_stored, fish_sold,
@@ -30,6 +32,7 @@
 --     raid_attempted, raid_succeeded, raid_defended
 --   Churn signals: player_left_before_first_catch,
 --     player_left_before_first_upgrade
+--   Security/ops: suspicious_action, raid_targets_requested
 
 local Players = game:GetService("Players")
 -- Memoized engine AnalyticsService reference. Resolved ONCE on first track()
@@ -86,6 +89,12 @@ local EVENTS = {
 	-- Churn signals
 	player_left_before_first_catch = true,
 	player_left_before_first_upgrade = true,
+	-- harborheist-os9: these two were already FIRED by gameplay code but
+	-- missing from the catalog, so track() rejected every call (warn spam +
+	-- lost data). suspicious_action is the EPIC 10 anti-exploit telemetry
+	-- event; raid_targets_requested is the gdj.13 raid-UI open metric.
+	suspicious_action = true,
+	raid_targets_requested = true,
 }
 
 -- Per-player session state: first-session start time + funnel progress flags.

@@ -36,6 +36,9 @@ local dataManager
 -- never assigned, so the guards were dead code -> the collection=20/10s limit
 -- never applied (notably on the mutating ClaimCollectionReward remote).
 local antiExploit
+-- Round-3 deep review (harborheist-os9): analytics dep for the
+-- collection_book_opened funnel event (catalog had it, nobody fired it).
+local analytics
 
 -- Rarity ordinal for milestone reward scaling. Uses the SINGLE source of
 -- truth exported by FishDefinitions (not a hardcoded duplicate that could
@@ -195,6 +198,7 @@ function CollectionService.init(deps)
 	remotes = deps.remotes
 	dataManager = deps.dataManager
 	antiExploit = deps.antiExploit
+	analytics = deps.analytics
 
 	-- RequestCollection (RemoteFunction): client asks for its book. Returns
 	-- the COLL-04-safe payload. Read-only — no state mutation here.
@@ -209,6 +213,15 @@ function CollectionService.init(deps)
 		end
 		local book = CollectionService.buildBook(session)
 		book.ok = true
+		-- harborheist-os9: fire the catalog'd collection_book_opened funnel
+		-- event — it was registered in AnalyticsService but nobody fired it,
+		-- so the "collection engagement" dashboard metric was permanently empty.
+		if analytics then
+			analytics.track(player, "collection_book_opened", {
+				discovered_count = book.discoveredCount,
+				total_species = book.totalSpecies,
+			})
+		end
 		return book
 	end
 

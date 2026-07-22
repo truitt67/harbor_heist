@@ -75,6 +75,10 @@ end
 local shopPrompt = worldFolder.Shop.Counter.ShopPrompt
 shopPrompt.Triggered:Connect(function(player)
 	Remotes.OpenShop:FireClient(player)
+	-- harborheist-os9: fire the catalog'd upgrade_shop_opened funnel event —
+	-- it was registered in AnalyticsService but nobody fired it, so the
+	-- shop-engagement dashboard metric was permanently empty.
+	AnalyticsService.track(player, "upgrade_shop_opened", {})
 end)
 
 local boatPrompt = worldFolder.BoatDock.PrimaryPart.BoatPrompt

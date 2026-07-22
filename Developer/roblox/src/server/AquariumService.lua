@@ -344,11 +344,24 @@ function AquariumService.init(deps)
 			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130))
 		end
 		stateSync.push(session)
-		if analytics then
-			analytics.track(player, "raid_opt_in_toggled", { enabled = newValue })
+		-- harborheist-os9: the PRD catalog event is raid_opt_in_enabled; the
+		-- previously-fired "raid_opt_in_toggled" is NOT in the EVENTS catalog,
+		-- so track() rejected every call (warn spam + zero data in the funnel).
+		-- Fire the catalog event only on the ENABLE edge (its semantic) — the
+		-- funnel measures opt-in adoption, not toggle churn.
+		if analytics and newValue then
+			analytics.track(player, "raid_opt_in_enabled", {})
 		end
+		-- raid_info_viewed: the first successful pass through this gate IS the
+		-- player's raid-explanation exposure (the notify above is the in-game
+		-- raid explainer). onboarding.mark returns true only on the edge flip,
+		-- so this fires exactly once per player.
+		local sawRaidInfo = false
 		if onboarding then
-			onboarding.mark(session, "HasSeenRaidExplanation")
+			sawRaidInfo = onboarding.mark(session, "HasSeenRaidExplanation")
+		end
+		if sawRaidInfo and analytics then
+			analytics.track(player, "raid_info_viewed", {})
 		end
 		return { ok = true, raidOptIn = newValue }
 	end
@@ -498,9 +511,17 @@ function AquariumService.startIncomeLoop(deps)
 					if questService then
 						questService.onIncomeEarned(session, income)
 					end
-				end
-				if session.player and session.player.Parent then
-					stateSync.push(session)
+					-- harborheist-os9: only push when income actually accrued.
+					-- Previously this pushed a full snapshot (O(fish) snapshot
+					-- build) to EVERY player EVERY second even when income==0 —
+					-- i.e. nothing changed. That per-second broadcast defeated
+					-- wqw.15's incomePerSec caching goal and spammed remote
+					-- traffic for idle/empty aquariums. Action-driven pushes
+					-- (store/sell/claim/lock) already cover all other state
+					-- changes, so a zero-income tick has nothing to report.
+					if session.player and session.player.Parent then
+						stateSync.push(session)
+					end
 				end
 			end
 		end
