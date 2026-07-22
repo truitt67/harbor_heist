@@ -479,14 +479,31 @@ function DataManager.load(player)
 		weeklyQuestKey = profile.weeklyQuestKey,
 		weeklyQuests = profile.weeklyQuests,
 	}
-	-- Restore lock timers from persisted epoch timestamps if still active
-	local nowEpoch = os.time()
-	if profile.Aquarium.LockUntilTimestamp > nowEpoch then
-		session.lockedUntil = os.clock() + (profile.Aquarium.LockUntilTimestamp - nowEpoch)
+	-- R1.3 (egf.3): Bounded timer rehydration. Epoch timestamps from
+	-- DataStore can be corrupted or clock-skewed (bad save, local clock
+	-- edit, future write bug). Without bounds, a far-future timestamp
+	-- bricks the player's lock for months/years — they can't SellAll,
+	-- can't sell stored fish, can't be raided, and can't unlock. The
+	-- ceiling is derived from the max lock duration + max cooldown across
+	-- all upgrade tiers so balance changes can't silently invalidate it.
+	-- A generous 600s (10min) floor covers current tiers (150s + 120s =
+	-- 270s max) + headroom for future upgrades. Clamping logs a warn so
+	-- the corruption is visible.
+	local MAX_REHYDRATE_SECONDS = 600
+	local function rehydrateTimer(ts, fieldName)
+		local remaining = ts - os.time()
+		if remaining <= 0 then
+			return 0
+		end
+		if remaining > MAX_REHYDRATE_SECONDS then
+			warn(string.format("[HarborHeist] Timer rehydration clamped: %s had %ds remaining (max %ds) — possible data corruption or clock skew",
+				fieldName, math.floor(remaining), MAX_REHYDRATE_SECONDS))
+			remaining = MAX_REHYDRATE_SECONDS
+		end
+		return os.clock() + remaining
 	end
-	if profile.Aquarium.LockCooldownUntilTimestamp > nowEpoch then
-		session.lockCooldownUntil = os.clock() + (profile.Aquarium.LockCooldownUntilTimestamp - nowEpoch)
-	end
+	session.lockedUntil = rehydrateTimer(profile.Aquarium.LockUntilTimestamp, "LockUntilTimestamp")
+	session.lockCooldownUntil = rehydrateTimer(profile.Aquarium.LockCooldownUntilTimestamp, "LockCooldownUntilTimestamp")
 	-- TASK 8.0 (gdj.15): legacy StealCooldownUntilTimestamp rehydrate REMOVED
 	-- with the always-on steal handler. No replacement; RaidService manages
 	-- its own cooldown when it lands.
@@ -542,13 +559,19 @@ function DataManager.save(player, isShutdown)
 
 	-- Persist runtime lock timers as epoch timestamps (they may have been set
 	-- since load and need to survive server restart)
+	-- R1.3 (egf.3): write-side assertion — clamp to the same ceiling as
+	-- rehydrate so a buggy producer can never WRITE a timestamp further
+	-- into the future than the rehydration layer will accept. Catches the
+	-- bug at the source instead of silently storing corruption.
 	local nowEpoch = os.time()
 	local nowClock = os.clock()
 	if session.lockedUntil > nowClock then
-		profile.Aquarium.LockUntilTimestamp = nowEpoch + math.floor(session.lockedUntil - nowClock)
+		local remaining = math.min(math.floor(session.lockedUntil - nowClock), 600)
+		profile.Aquarium.LockUntilTimestamp = nowEpoch + remaining
 	end
 	if session.lockCooldownUntil > nowClock then
-		profile.Aquarium.LockCooldownUntilTimestamp = nowEpoch + math.floor(session.lockCooldownUntil - nowClock)
+		local remaining = math.min(math.floor(session.lockCooldownUntil - nowClock), 600)
+		profile.Aquarium.LockCooldownUntilTimestamp = nowEpoch + remaining
 	end
 	-- TASK 8.0 (gdj.15): legacy stealCooldownUntil persist REMOVED with the
 	-- always-on steal handler. No session field exists to persist anymore.
