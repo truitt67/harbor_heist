@@ -863,9 +863,12 @@ GameConfig.Raid = {
 		epicStealWeightMultiplier = 0.3,
 	},
 	-- Raid outcome tuning
+	-- TASK 13.3 (mxl.3): balance tuned to reduce loss churn. A raider should
+	-- not get two attempts in one 5-minute window, and a sloppy attempt should
+	-- rarely succeed. Defenders get a longer breather after a loss.
 	maxFishPerRaid = 1,
-	raiderCooldownSeconds = 5 * 60,
-	defenderProtectionSeconds = 15 * 60,
+	raiderCooldownSeconds = 6 * 60,
+	defenderProtectionSeconds = 20 * 60,
 	perVictimCooldownSeconds = 30 * 60,
 	-- TASK 8.5b (gdj.14): raid timing minigame (DEC-2 hybrid). The server picks
 	-- the zone bounds + marker speed per attempt; the client plays a
@@ -880,7 +883,9 @@ GameConfig.Raid = {
 		markerSpeed = 0.8,
 		perfectZoneSize = 0.12,
 		goodZoneSize = 0.30,
-		successChance = { perfect = 0.85, good = 0.55, ok = 0.20 },
+		-- ok chance dropped to 0.10 (mxl.3): sloppy attempts should not win
+		-- often, keeping the minigame meaningful and losses less frequent.
+		successChance = { perfect = 0.85, good = 0.55, ok = 0.10 },
 	},
 	-- TASK 8.9 (gdj.9): per-window loss cap (PVP-12). A defender can lose at
 	-- most this many fish per raid window, across ALL attackers, so one window
