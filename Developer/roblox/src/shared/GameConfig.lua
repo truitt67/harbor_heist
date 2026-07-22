@@ -104,6 +104,27 @@ GameConfig.Raid = {
 	raiderCooldownSeconds = 5 * 60,
 	defenderProtectionSeconds = 15 * 60,
 	perVictimCooldownSeconds = 30 * 60,
+	-- TASK 8.5b (gdj.14): raid timing minigame (DEC-2 hybrid). The server picks
+	-- the zone bounds + marker speed per attempt; the client plays a
+	-- moving-marker timing bar and reports only the raw marker position. The
+	-- server re-derives the tier from its own bounds and rolls success against
+	-- the tier's chance — a forged "always perfect" client is capped at the
+	-- perfect rate, never 100% (same authority model as the N16/DECISION-C
+	-- fishing floor). Marker speed is in [0,1] units/sec; 0.8 is a
+	-- mobile-friendly sweep (full bar in 1.25s), not reflex-only.
+	minigame = {
+		durationSeconds = 8,
+		markerSpeed = 0.8,
+		perfectZoneSize = 0.12,
+		goodZoneSize = 0.30,
+		successChance = { perfect = 0.85, good = 0.55, ok = 0.20 },
+	},
+	-- TASK 8.9 (gdj.9): per-window loss cap (PVP-12). A defender can lose at
+	-- most this many fish per raid window, across ALL attackers, so one window
+	-- can never empty an aquarium (PVP-05). Tracked on the defender session
+	-- (session.raidWindowLosses in RaidService) with the stolen value recorded
+	-- alongside for the future value-fraction cap.
+	maxLossesPerWindow = 2,
 }
 
 GameConfig.MaxCarried = 5

@@ -11,7 +11,8 @@
 -- new-player gate) or by standing in the physical Raid Waters pier zone
 -- (tracked here). Only opted-in aquariums can be targeted (gdj.13 consumes
 -- RaidService.isRaidEligible). This module does NOT gate new players
--- (gdj.3) or resolve raid outcomes (gdj.14).
+-- (gdj.3). Outcome resolution (gdj.14) also lives here — see the
+-- RequestRaidAttempt / SubmitRaidResult section below.
 --
 -- DESIGN (first principles):
 --   1. Server-authoritative clock. The server owns window state; clients
@@ -48,6 +49,13 @@ local stateSync: any = nil
 local aquariumService: any = nil
 local antiExploit: any = nil
 local analytics: any = nil
+-- TASK 8.5b (gdj.14): extra deps for outcome resolution. questService gets
+-- the onStealAttempt hook (kept alive by gdj.15 for this), auditLog records
+-- the fish transfer (logRaidTransfer was staged by xqd.3 for this), and
+-- dockManager refreshes the attacker's aquarium visual after a steal.
+local questService: any = nil
+local auditLog: any = nil
+local dockManager: any = nil
 
 local rng = Random.new()
 
@@ -57,6 +65,10 @@ local rng = Random.new()
 local windowOpen = false
 local windowEndsAt = 0     -- os.clock() at which the open window closes
 local nextWindowAt = 0     -- os.clock() at which the next window opens (when closed)
+-- TASK 8.9 (gdj.9): monotonically increasing window serial, bumped on every
+-- window open. Defender loss-cap bookkeeping keys on it so counts reset
+-- automatically when a new window opens.
+local windowSerial = 0
 
 -- TASK 8.2 (gdj.2): players currently standing in the Raid Waters pier zone.
 -- [player] = true; populated by zone Touched/TouchEnded in init. Zone
@@ -255,6 +267,12 @@ function RaidService.getRaidTargets(player: Player)
 			local onVictimCd = RaidService.isVictimOnCooldown(session, targetPlayer.UserId)
 			if not onVictimCd and aquariumService then
 				local eligible = aquariumService.isEligibleRaidTarget(targetSession)
+				-- PVP-12 (gdj.9): skip defenders who already hit the
+				-- per-window loss cap, so the UI never offers a target the
+				-- resolution would reject.
+				if eligible and RaidService.isLossCapped(targetSession) then
+					eligible = false
+				end
 				if eligible then
 					local stealable = aquariumService.getStealableFish(targetSession)
 					table.insert(targets, {
@@ -277,11 +295,358 @@ function RaidService.getRaidTargets(player: Player)
 	return response
 end
 
--- NOTE: the opt-in TOGGLE writer lives in AquariumService
--- (remotes.RequestToggleRaidOptIn handler, gdj.3) — it applies the DEC-4
--- new-player gate before flipping profile.Aquarium.RaidOptIn. RaidService
--- deliberately does NOT expose a second writer; this module only READS the
--- flag and owns the Raid Waters zone signal.
+-- ════════════════════════════════════════════════════════════════════════════
+-- TASK 8.5b (gdj.14): RAID TIMING MINIGAME + OUTCOME RESOLUTION
+-- PRD PVP-05 (one fish per raid, never an aquarium), PVP-10 (server is the
+-- sole validator). Second half of the split raid flow, per DEC-2 (hybrid
+-- timing) and DEC-3 (individual FishInstance transfer).
+--
+-- PROTOCOL (two RemoteFunctions, mirroring the fishing Cast/Submit flow):
+--   1. RequestRaidAttempt(targetUserId) → validates attacker (8.5a gate) +
+--      target (eligibility re-check, per-victim cooldown, loss cap), commits
+--      the attack + per-victim cooldowns, then returns a server-generated
+--      challenge: zone bounds + marker speed + duration.
+--   2. SubmitRaidResult(markerPosition) → the client reports ONLY the raw
+--      marker position [0,1]; the server re-derives the tier from its OWN
+--      stored bounds and rolls success against the tier's configured chance.
+--      A forged always-perfect client is capped at the perfect rate, never
+--      100%, and the fish selection is fully server-side (PVP-10).
+--
+-- COOLDOWN STORAGE (write side; read side is 8.5a): session.raidAttackLastAt
+-- + session.raidTargetCooldowns[defenderId] (os.clock, session-scoped) and
+-- the persisted mirrors profile.PvP.LastRaidTimestamp / RaidAttemptsToday /
+-- RecentTargetUserIds (gdj.6).
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- In-flight raid attempts. [player] = { targetUserId, perfectStart/End,
+-- goodStart/End, markerSpeed, deadline }. Cleared on submit, expiry, leave.
+local activeRaids: {[Player]: any} = {}
+
+--- Defender loss-cap bookkeeping (gdj.9). Returns (lossesThisWindow, table)
+--- keyed by windowSerial so a new window resets the count automatically.
+local function getWindowLosses(session: any)
+	local losses = session.raidWindowLosses
+	if not losses or losses.serial ~= windowSerial then
+		losses = { serial = windowSerial, count = 0, value = 0 }
+		session.raidWindowLosses = losses
+	end
+	return losses.count, losses
+end
+
+--- True when the defender has already lost the per-window maximum (PVP-12).
+function RaidService.isLossCapped(session: any)
+	local count = getWindowLosses(session)
+	return count >= (GameConfig.Raid.maxLossesPerWindow or 2)
+end
+
+--- Commit the attacker-side cooldowns for a raid attempt (gdj.6 write side).
+--- Consumed at attempt commit, so a failed minigame still burns the cooldown
+--- (matches the legacy steal semantics; PVP-06 is per raid ATTEMPT).
+local function commitAttackerCooldowns(session: any, targetUserId: number)
+	session.raidAttackLastAt = os.clock()
+	session.raidTargetCooldowns = session.raidTargetCooldowns or {}
+	session.raidTargetCooldowns[targetUserId] = os.clock() + GameConfig.Raid.perVictimCooldownSeconds
+	-- Persisted mirrors (gdj.6 / PVP-06, PVP-07). RecentTargetUserIds stays a
+	-- bounded array (sanitize expects ipairs-shaped data).
+	local pvp = session.profile.PvP
+	pvp.LastRaidTimestamp = os.time()
+	pvp.RaidAttemptsToday = (pvp.RaidAttemptsToday or 0) + 1
+	pvp.RecentTargetUserIds = pvp.RecentTargetUserIds or {}
+	for _, uid in ipairs(pvp.RecentTargetUserIds) do
+		if uid == targetUserId then
+			return
+		end
+	end
+	table.insert(pvp.RecentTargetUserIds, targetUserId)
+	if #pvp.RecentTargetUserIds > 10 then
+		table.remove(pvp.RecentTargetUserIds, 1)
+	end
+end
+
+--- RequestRaidAttempt handler: validate + commit + issue the challenge.
+function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
+	local session = dataManager and dataManager.get(player)
+	if not session or not player.Parent then
+		return { ok = false, reason = "no_session" }
+	end
+	if type(targetUserId) ~= "number" then
+		return { ok = false, reason = "bad_input" }
+	end
+	-- One raid in flight per attacker. Expired entries are cleared lazily.
+	local inFlight = activeRaids[player]
+	if inFlight then
+		if os.clock() <= inFlight.deadline then
+			return { ok = false, reason = "raid_in_progress" }
+		end
+		activeRaids[player] = nil
+	end
+	local canRaid, reason, extra = RaidService.validateAttacker(player, session)
+	if not canRaid then
+		local response: any = { ok = false, reason = reason }
+		if extra and extra.cooldownRemaining then
+			response.cooldownRemaining = extra.cooldownRemaining
+		end
+		return response
+	end
+	-- Resolve + re-validate the target at call time (PVP-10: a stale target
+	-- list can never authorize a raid).
+	local targetPlayer = nil
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.UserId == targetUserId and p ~= player then
+			targetPlayer = p
+			break
+		end
+	end
+	local targetSession = targetPlayer and dataManager.get(targetPlayer)
+	if not targetSession then
+		return { ok = false, reason = "target_unavailable" }
+	end
+	local eligible, eligReason = aquariumService.isEligibleRaidTarget(targetSession)
+	if not eligible then
+		return { ok = false, reason = eligReason }
+	end
+	local onVictimCd, victimRemaining = RaidService.isVictimOnCooldown(session, targetUserId)
+	if onVictimCd then
+		return { ok = false, reason = "victim_cooldown", cooldownRemaining = victimRemaining }
+	end
+	if RaidService.isLossCapped(targetSession) then
+		return { ok = false, reason = "loss_capped" }
+	end
+	-- Commit: cooldowns burn now, then build the server-authoritative challenge.
+	commitAttackerCooldowns(session, targetUserId)
+	local cfg = GameConfig.Raid.minigame
+	local goodHalf = cfg.goodZoneSize / 2
+	local center = rng:NextNumber(goodHalf, 1 - goodHalf)
+	local perfectHalf = cfg.perfectZoneSize / 2
+	activeRaids[player] = {
+		targetUserId = targetUserId,
+		goodStart = center - goodHalf,
+		goodEnd = center + goodHalf,
+		perfectStart = center - perfectHalf,
+		perfectEnd = center + perfectHalf,
+		markerSpeed = cfg.markerSpeed,
+		deadline = os.clock() + cfg.durationSeconds,
+	}
+	if analytics then
+		pcall(function()
+			analytics.track(player, "raid_attempted", { victim_id = targetUserId })
+		end)
+	end
+	local raid = activeRaids[player]
+	return {
+		ok = true,
+		targetUserId = targetUserId,
+		durationSeconds = cfg.durationSeconds,
+		markerSpeed = raid.markerSpeed,
+		perfectStart = raid.perfectStart,
+		perfectEnd = raid.perfectEnd,
+		goodStart = raid.goodStart,
+		goodEnd = raid.goodEnd,
+	}
+end
+
+--- Resolve a successful raid: atomically transfer ONE eligible FishInstance
+--- (DEC-3). Mirrors the N15 TOCTOU discipline from the legacy steal: capture
+--- the fish reference at selection time, re-find it in the live list, and
+--- re-validate it is still non-raid-protected before removing. Legendary fish
+--- are excluded by the IsRaidProtected filter (8.8 / PVP-08).
+local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim: Player, victimSession: any, tier: string): any
+	local victimFish = victimSession.profile.Aquarium.StoredFish
+	-- Weighted pick: Epic fish get the configured reduced steal weight; every
+	-- other non-protected fish weighs 1 (8.8 / GameConfig.Raid.legendaryProtection).
+	local epicMult = (GameConfig.Raid.legendaryProtection and GameConfig.Raid.legendaryProtection.epicStealWeightMultiplier) or 1
+	local totalWeight = 0
+	for _, fish in ipairs(victimFish) do
+		if not fish.IsRaidProtected then
+			totalWeight += (fish.Rarity == "Epic") and epicMult or 1
+		end
+	end
+	if totalWeight <= 0 then
+		return { ok = false, reason = "no_stealable_fish" }
+	end
+	local roll = rng:NextNumber() * totalWeight
+	local targetFish = nil
+	for _, fish in ipairs(victimFish) do
+		if not fish.IsRaidProtected then
+			roll -= (fish.Rarity == "Epic") and epicMult or 1
+			if roll <= 0 then
+				targetFish = fish
+				break
+			end
+		end
+	end
+	-- N15 TOCTOU: re-find the reference in the live list before removing.
+	local liveIndex = nil
+	if targetFish and not targetFish.IsRaidProtected then
+		for i, fish in ipairs(victimFish) do
+			if fish == targetFish and not fish.IsRaidProtected then
+				liveIndex = i
+				break
+			end
+		end
+	end
+	if not liveIndex then
+		return { ok = false, reason = "fish_gone" }
+	end
+	local stolenFish = table.remove(victimFish, liveIndex)
+	-- Land the fish in the attacker's aquarium when there is room (capacity is
+	-- the authoritative StateSync value); otherwise fence it for its sell
+	-- value so the transfer is always atomic (never duplicated, never lost).
+	local capacity = stateSync.getCapacity(attackerSession)
+	local attackerFish = attackerSession.profile.Aquarium.StoredFish
+	local fenced = false
+	if #attackerFish < capacity then
+		table.insert(attackerFish, stolenFish)
+		stateSync.invalidateIncomeCache(attackerSession)
+	else
+		fenced = true
+		attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
+		attackerSession.profile.TotalCoinsEarned += stolenFish.BaseSellValue
+	end
+	stateSync.invalidateIncomeCache(victimSession)
+	-- gdj.7 trigger: defender immunity after a successful loss (PVP-06).
+	victimSession.profile.Aquarium.RaidProtectionUntilTimestamp = os.time() + GameConfig.Raid.defenderProtectionSeconds
+	-- gdj.9 bookkeeping: count the loss against the current window (PVP-12).
+	local _, losses = getWindowLosses(victimSession)
+	losses.count += 1
+	losses.value += stolenFish.BaseSellValue
+	-- gdj.10 trigger: clear defender notification with what was taken (PVP-09).
+	remotes.notify(
+		victim,
+		string.format(
+			"RAID! %s stole your %s %s (value $%d). You are immune for %ds — lock your aquarium to stay safe.",
+			attacker.DisplayName, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue,
+			GameConfig.Raid.defenderProtectionSeconds
+		),
+		Color3.fromRGB(255, 100, 100)
+	)
+	if fenced then
+		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), Color3.fromRGB(130, 255, 130))
+	else
+		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), Color3.fromRGB(130, 255, 130))
+	end
+	if auditLog then
+		auditLog.logRaidTransfer(attacker, victim, stolenFish, true)
+	end
+	if analytics then
+		pcall(function()
+			analytics.track(attacker, "raid_succeeded", { victim_id = victim.UserId, species_id = stolenFish.SpeciesId, rarity = stolenFish.Rarity, tier = tier, fenced = fenced })
+			analytics.track(victim, "raid_defended", { defended = false, attacker_id = attacker.UserId })
+		end)
+	end
+	if questService then
+		questService.onStealAttempt(attackerSession, true)
+	end
+	-- Refresh both aquariums, push both states, checkpoint both profiles.
+	if aquariumService then
+		aquariumService.refreshVisual(victimSession)
+	end
+	local attackerDock = dockManager and dockManager.getDock(attacker)
+	if attackerDock then
+		dockManager.updateAquariumVisual(attackerDock, attackerSession, capacity)
+	end
+	stateSync.push(attackerSession)
+	stateSync.push(victimSession)
+	task.spawn(function()
+		dataManager.save(attacker)
+		dataManager.save(victim)
+	end)
+	return {
+		ok = true,
+		success = true,
+		speciesId = stolenFish.SpeciesId,
+		rarity = stolenFish.Rarity,
+		value = stolenFish.BaseSellValue,
+		fenced = fenced,
+	}
+end
+
+--- SubmitRaidResult handler: validate the timing input against the server's
+--- own stored bounds, roll the outcome, resolve.
+function RaidService.submitRaidResult(player: Player, markerPosition: any): any
+	local session = dataManager and dataManager.get(player)
+	if not session or not player.Parent then
+		return { ok = false, reason = "no_session" }
+	end
+	local raid = activeRaids[player]
+	if not raid then
+		return { ok = false, reason = "no_active_raid" }
+	end
+	activeRaids[player] = nil -- single-resolution: no double-submit
+	if os.clock() > raid.deadline then
+		-- No outcome event here: raid_attempted already fired at commit, and
+		-- the catalog has no attacker-side "expired" event (adding one is
+		-- analytics-scope, not this bead).
+		remotes.notify(player, "Too slow! The raid window of opportunity passed...", Color3.fromRGB(255, 120, 120))
+		return { ok = false, reason = "too_slow" }
+	end
+	if type(markerPosition) ~= "number" then
+		return { ok = false, reason = "bad_input" }
+	end
+	-- Clamp, then re-derive the tier from the SERVER's stored bounds — the
+	-- client can only report a raw position, never claim a tier (PVP-10).
+	local position = math.clamp(markerPosition, 0, 1)
+	local tier
+	if position >= raid.perfectStart and position <= raid.perfectEnd then
+		tier = "perfect"
+	elseif position >= raid.goodStart and position <= raid.goodEnd then
+		tier = "good"
+	else
+		tier = "ok"
+	end
+	-- Re-resolve the victim; they may have left mid-minigame.
+	local victim = nil
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.UserId == raid.targetUserId then
+			victim = p
+			break
+		end
+	end
+	local victimSession = victim and dataManager.get(victim)
+	local function failOutcome(reason)
+		if victim then
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100))
+			if analytics then
+				pcall(function()
+					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
+				end)
+			end
+		end
+		if auditLog then
+			auditLog.logRaidTransfer(player, victim, nil, false)
+		end
+		if questService then
+			questService.onStealAttempt(session, false)
+		end
+		return { ok = true, success = false, tier = tier, reason = reason }
+	end
+	if not victimSession then
+		return failOutcome("target_unavailable")
+	end
+	-- TOCTOU re-validation of the victim-side conditions (opt-in, lock,
+	-- immunity, stealable fish, loss cap). The WINDOW state is deliberately
+	-- not re-checked: the attempt was validated inside an open window, so a
+	-- committed raid resolves even if the window closes mid-minigame.
+	local eligible = aquariumService.isEligibleRaidTarget(victimSession)
+	if not eligible then
+		return failOutcome("target_no_longer_eligible")
+	end
+	if RaidService.isLossCapped(victimSession) then
+		return failOutcome("loss_capped")
+	end
+	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
+	if rng:NextNumber() > chance then
+		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
+		return failOutcome("missed")
+	end
+	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
+	if not outcome.ok then
+		return failOutcome(outcome.reason)
+	end
+	outcome.tier = tier
+	return outcome
+end
+
 -- Push the current window state to one player (join/resync) or everyone
 -- (edge transitions). Always sends DURATIONS; client runs its own countdown.
 local function pushState(playerOrNil)
@@ -306,6 +671,7 @@ local function runScheduler()
 
 		-- Open phase.
 		windowOpen = true
+		windowSerial += 1
 		windowEndsAt = os.clock() + cfg.windowDuration
 		nextWindowAt = 0
 		pushState(nil)
@@ -414,6 +780,10 @@ function RaidService.init(deps)
 	aquariumService = deps.aquariumService
 	antiExploit = deps.antiExploit
 	analytics = deps.analytics
+	-- TASK 8.5b (gdj.14): outcome-resolution deps.
+	questService = deps.questService
+	auditLog = deps.auditLog
+	dockManager = deps.dockManager
 
 	-- NOTE: RequestToggleRaidOptIn.OnServerInvoke is owned by
 	-- AquariumService.init (gdj.3, runs before this init in init.server).
@@ -431,6 +801,28 @@ function RaidService.init(deps)
 			end
 		end
 		return RaidService.getRaidTargets(player)
+	end
+
+	-- TASK 8.5b (gdj.14): the raid attempt flow. Both handlers are
+	-- rate-limited by the pre-registered "raid_attempt" bucket (5 calls/60s;
+	-- a full raid = 2 calls, and raiderCooldownSeconds throttles further).
+	remotes.RequestRaidAttempt.OnServerInvoke = function(player, targetUserId)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "raid_attempt")
+			if not ok then
+				return { ok = false, reason = reason }
+			end
+		end
+		return RaidService.requestRaidAttempt(player, targetUserId)
+	end
+	remotes.SubmitRaidResult.OnServerInvoke = function(player, markerPosition)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "raid_attempt")
+			if not ok then
+				return { ok = false, reason = reason }
+			end
+		end
+		return RaidService.submitRaidResult(player, markerPosition)
 	end
 
 	-- TASK 8.2 (gdj.2): physical Raid Waters pier zone.
@@ -473,10 +865,12 @@ function RaidService.init(deps)
 
 	-- TASK 8.2 (gdj.2): drop zone-presence when a player leaves so the
 	-- playersInRaidZone table can't leak stale Player references.
+	-- TASK 8.5b (gdj.14): also drop any in-flight raid attempt.
 	Players.PlayerRemoving:Connect(function(player)
 		playersInRaidZone[player] = nil
 		touchCounts[player] = nil
 		lastNotifyAt[player] = nil
+		activeRaids[player] = nil
 	end)
 
 	task.spawn(runScheduler)
