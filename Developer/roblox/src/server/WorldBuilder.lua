@@ -448,9 +448,13 @@ function WorldBuilder.buildDecorations(parent)
 	end
 
 	-- TASK 13.4 (mxl.4): Cozy harbor aesthetic — nautical props per PRD
-	-- visual direction: "lanterns, simple nautical props." Adds variety
-	-- without blocking player paths (all props sit between lamp posts
-	-- at radius ~22-28, clear of the plaza center and dock walkways).
+	-- visual direction: "lanterns, simple nautical props." Plaza props sit
+	-- between lamp posts at radius 22-28, clear of dock walkways (docks
+	-- start at PLAZA_RADIUS=40 and extend outward). Harbor rocks sit at
+	-- the waterline (radius 42-48) for a natural coastline.
+	-- All Y values are relative to the plaza top surface (Y=2.5: the
+	-- plaza cylinder is Size 4 centered at Y=0.5 + 90deg Z rotation, so
+	-- its top face is at Y=2.5). Props sit ON the surface, not embedded.
 
 	-- Barrels — weathered fishing-line barrels near the plaza edge
 	for i = 1, 4 do
@@ -460,7 +464,7 @@ function WorldBuilder.buildDecorations(parent)
 			Name = "Barrel",
 			Shape = Enum.PartType.Cylinder,
 			Size = Vector3.new(3, 2.2, 2.2),
-			CFrame = CFrame.new(math.cos(angle) * r, 1.6, math.sin(angle) * r)
+			CFrame = CFrame.new(math.cos(angle) * r, 4.0, math.sin(angle) * r)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(110, 80, 50),
 			Material = Enum.Material.Wood,
@@ -477,7 +481,7 @@ function WorldBuilder.buildDecorations(parent)
 			Name = "RopeCoil",
 			Shape = Enum.PartType.Cylinder,
 			Size = Vector3.new(0.8, 2, 2),
-			CFrame = CFrame.new(math.cos(angle) * r, 0.9, math.sin(angle) * r)
+			CFrame = CFrame.new(math.cos(angle) * r, 2.9, math.sin(angle) * r)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(180, 155, 110),
 			Material = Enum.Material.Fabric,
@@ -487,6 +491,7 @@ function WorldBuilder.buildDecorations(parent)
 	end
 
 	-- Potted plants — greenery for a cozy harbor feel ("plants, rocks")
+	-- Pot sits on the plaza surface; bush sits on top of the pot.
 	for i = 1, 5 do
 		local angle = math.rad(i * 72 + 10)
 		local r = 28
@@ -494,18 +499,20 @@ function WorldBuilder.buildDecorations(parent)
 			Name = "PlantPot",
 			Shape = Enum.PartType.Cylinder,
 			Size = Vector3.new(2, 1.5, 1.5),
-			CFrame = CFrame.new(math.cos(angle) * r, 1.25, math.sin(angle) * r)
+			CFrame = CFrame.new(math.cos(angle) * r, 3.5, math.sin(angle) * r)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(120, 90, 60),
 			Material = Enum.Material.Wood,
 			CanCollide = false,
 			Parent = parent,
 		})
+		-- Ball parts in Roblox are always perfect spheres (diameter = smallest
+		-- Size axis). Use uniform size so the intended diameter renders.
 		makePart({
 			Name = "PlantBush",
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(2, 2.4, 2),
-			CFrame = CFrame.new(math.cos(angle) * r, 3, math.sin(angle) * r),
+			Size = Vector3.new(2.2, 2.2, 2.2),
+			CFrame = CFrame.new(math.cos(angle) * r, 5.6, math.sin(angle) * r),
 			Color = Color3.fromRGB(60, 130, 65),
 			Material = Enum.Material.Grass,
 			CanCollide = false,
@@ -514,7 +521,9 @@ function WorldBuilder.buildDecorations(parent)
 	end
 
 	-- Harbor rocks — partially submerged boulders at the harbor edge
-	-- for visual interest and a natural coastline feel
+	-- for visual interest and a natural coastline feel. Placed outside
+	-- the plaza disc (radius > 40) in the water terrain; CanCollide = false
+	-- so they don't block boats or swimming players.
 	for i = 1, 8 do
 		local angle = math.rad(i * 45 + 22.5)
 		local r = rng:NextNumber(42, 48)
@@ -522,7 +531,7 @@ function WorldBuilder.buildDecorations(parent)
 		makePart({
 			Name = "HarborRock",
 			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(size, size * 0.8, size),
+			Size = Vector3.new(size, size, size),
 			CFrame = CFrame.new(math.cos(angle) * r, rng:NextNumber(-1, 1.5), math.sin(angle) * r),
 			Color = Color3.fromRGB(90, 88, 85),
 			Material = Enum.Material.Slate,
