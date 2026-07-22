@@ -207,7 +207,7 @@ local function sanitize(data)
 			clean.Aquarium.StoredFish = sanitizeStoredFish(aq.StoredFish)
 		end
 		if type(aq.UnclaimedIncome) == "number" then
-			clean.Aquarium.UnclaimedIncome = math.max(0, math.min(PlayerProfile.MAX_UNCLAIMED_INCOME, aq.UnclaimedIncome))
+			clean.Aquarium.UnclaimedIncome = math.max(0, math.min(GameConfig.Economy.MaxUnclaimedIncome, aq.UnclaimedIncome))
 		end
 		if type(aq.LastIncomeTimestamp) == "number" then
 			clean.Aquarium.LastIncomeTimestamp = aq.LastIncomeTimestamp
@@ -514,13 +514,14 @@ function DataManager.load(player)
 		-- RedBear additions: stun + boat runtime state (session-scoped)
 		stunUntil = 0,
 		castDeadline = 0,
-		castHitZoneStart = 0,
-		castHitZoneEnd = 0,
 		boatModel = nil,
-		boatDespawnTask = nil,
-		seatConnection = nil,
-		heistCount = 0, -- today's steal counter for quest hook
-		incomeSinceTick = 0,
+		-- harborheist-gqh3: removed dead session fields:
+		--   castHitZoneStart/castHitZoneEnd (cast overlay bounds moved to
+		--     activeBites[player] in N16 CastResult wiring)
+		--   heistCount (legacy steal handler removed in gdj.15)
+		--   incomeSinceTick (income loop accrues to profile.Aquarium.UnclaimedIncome)
+		--   boatDespawnTask/seatConnection (BoatService tracks these in its own
+		--     module-level despawnTasks/seatConnections tables, not on session)
 		-- Quest runtime fields (persisted via sanitize; runtime-mutable here).
 		-- N2 (CRITICAL): read from the sanitized `profile`, NOT the raw `data`
 		-- parameter — `data` is nil for brand-new players or when the datastore
