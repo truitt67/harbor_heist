@@ -1,0 +1,41 @@
+{
+  "name": "HarborHeist Tests",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "TestEZ": {
+        "$path": "Packages/TestEZ"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "HarborHeist": {
+        "$path": "src/server"
+      },
+      "Tests": {
+        "$path": "test/specs"
+      },
+      "RunTests": {
+        "$path": "test/bootstrap.server.lua"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage"
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Brightness": 2,
+        "ClockTime": 14.5,
+        "GeographicLatitude": 0
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace"
+    }
+  }
+}
