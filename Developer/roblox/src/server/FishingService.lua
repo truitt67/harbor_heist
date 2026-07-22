@@ -56,7 +56,7 @@ function FishingService.init(deps)
 		activeBites[player] = nil
 	end
 
-	remotes.Cast.OnServerEvent:Connect(function(player)
+	remotes.RequestCast.OnServerEvent:Connect(function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "cast")
 			if not ok then

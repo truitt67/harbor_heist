@@ -1014,7 +1014,7 @@ local invStoreAllBtn = makeButton(inventoryContent, {
 	ZIndex = 26,
 })
 invStoreAllBtn.Activated:Connect(function()
-	Remotes.StoreFish:InvokeServer()
+	Remotes.RequestStoreFish:InvokeServer()
 end)
 
 local function toggleInventoryPanel()
@@ -1177,7 +1177,7 @@ local function buildShopRow(entry)
 		if not buyButton.Active then
 			return
 		end
-		local result = Remotes.BuyItem:InvokeServer(entry.kind, entry.level)
+		local result = Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
 		if result and result.ok then
 			refreshShop()
 		end
@@ -1868,7 +1868,7 @@ else
 	local bar = Instance.new("Frame")
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.Position = UDim2.new(0.5, 0, 1, -18)
-	bar.Size = UDim2.new(0, 620, 0, 58)
+	bar.Size = UDim2.new(0, 720, 0, 58)
 	bar.BackgroundColor3 = UI.bg
 	bar.BackgroundTransparency = 0.2
 	bar.Parent = screenGui
@@ -2414,7 +2414,7 @@ end)
 -- ============================================================
 local function doFish()
 	if not casting then
-		Remotes.Cast:FireServer()
+		Remotes.RequestCast:FireServer()
 	end
 end
 
@@ -2438,10 +2438,10 @@ raidOptInPanelButton.Activated:Connect(function()
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
 sellButton.Activated:Connect(function()
-	Remotes.SellAll:InvokeServer()
+	Remotes.RequestSellFish:InvokeServer()
 end)
 lockButton.Activated:Connect(function()
-	Remotes.LockAquarium:InvokeServer()
+	Remotes.RequestActivateLock:InvokeServer()
 end)
 -- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
 -- TASK 9.2 (0jc.2): dismiss the raid explanation onboarding prompt when the
@@ -2452,7 +2452,7 @@ raidOptInButton.Activated:Connect(function()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
-	Remotes.ClaimIncome:InvokeServer()
+	Remotes.RequestClaimIncome:InvokeServer()
 end)
 
 local function toggleQuestPanel()

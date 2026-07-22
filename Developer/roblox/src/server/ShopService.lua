@@ -12,7 +12,7 @@ function ShopService.init(deps)
 	local analytics = deps.analytics -- EPIC 11
 	local dockManager = deps.dockManager -- TASK 6.4 (dock cosmetic refresh)
 
-	remotes.BuyItem.OnServerInvoke = function(player, kind, level)
+	remotes.RequestPurchaseUpgrade.OnServerInvoke = function(player, kind, level)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "buy")
 			if not ok then return { ok = false, reason = reason } end

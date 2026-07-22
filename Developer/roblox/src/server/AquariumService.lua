@@ -24,7 +24,7 @@ function AquariumService.init(deps)
 		refreshVisual(session)
 	end
 
-	remotes.StoreFish.OnServerInvoke = function(player)
+	remotes.RequestStoreFish.OnServerInvoke = function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "store")
 			if not ok then return { ok = false, reason = reason } end
@@ -87,7 +87,7 @@ function AquariumService.init(deps)
 		return { ok = stored > 0, stored = stored }
 	end
 
-	remotes.ClaimIncome.OnServerInvoke = function(player)
+	remotes.RequestClaimIncome.OnServerInvoke = function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "claim")
 			if not ok then return { ok = false, reason = reason } end
@@ -123,7 +123,7 @@ function AquariumService.init(deps)
 		return { ok = true, amount = unclaimed }
 	end
 
-	remotes.SellAll.OnServerInvoke = function(player)
+	remotes.RequestSellFish.OnServerInvoke = function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "sell")
 			if not ok then return { ok = false, reason = reason } end
@@ -205,7 +205,7 @@ function AquariumService.init(deps)
 	-- session (tracked in profile.Defense.LockFreeUsesRemaining), then cooldown
 	-- gates further uses. Free uses regenerate on daily reset (future) or can
 	-- be purchased (future). For V1: free uses + cooldown, no purchase.
-	remotes.LockAquarium.OnServerInvoke = function(player)
+	remotes.RequestActivateLock.OnServerInvoke = function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "lock")
 			if not ok then return { ok = false, reason = reason } end
