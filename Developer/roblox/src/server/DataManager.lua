@@ -503,7 +503,7 @@ function DataManager.load(player)
 	-- R1.3 (egf.3): Bounded timer rehydration. Epoch timestamps from
 	-- DataStore can be corrupted or clock-skewed (bad save, local clock
 	-- edit, future write bug). Without bounds, a far-future timestamp
-	-- bricks the player's lock for months/years — they can't SellAll,
+	-- bricks the player's lock for months/years — they can't RequestSellFish,
 	-- can't sell stored fish, can't be raided, and can't unlock. The
 	-- ceiling is derived from the max lock duration + max cooldown across
 	-- all upgrade tiers so balance changes can't silently invalidate it.

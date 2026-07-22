@@ -281,11 +281,12 @@ function WorldBuilder.buildSafeHarbor(parent)
 	local marker = makePart({
 		Name = "Marker",
 		Shape = Enum.PartType.Cylinder,
-		Size = Vector3.new(0.2, 72, 72),
+		Size = Vector3.new(0.2, 56, 56),
 		CFrame = CFrame.new(0, 0.15, 0) * CFrame.Angles(0, 0, math.rad(90)),
 		Color = Color3.fromRGB(60, 180, 100),
 		Material = Enum.Material.Neon,
 		Transparency = 0.9,
+		CanCollide = false,
 		Parent = safeHarbor,
 	})
 	marker.Locked = true
@@ -296,16 +297,21 @@ function WorldBuilder.buildSafeHarbor(parent)
 			Name = "SafeBuoy",
 			Shape = Enum.PartType.Ball,
 			Size = Vector3.new(1.4, 1.4, 1.4),
-			CFrame = CFrame.new(math.cos(angle) * 36, 1.2, math.sin(angle) * 36),
+			CFrame = CFrame.new(math.cos(angle) * 28, 1.2, math.sin(angle) * 28),
 			Color = Color3.fromRGB(60, 200, 120),
 			Material = Enum.Material.Neon,
 			Parent = safeHarbor,
 		})
 	end
 
+	-- Zone extends to ±29 on X/Z. Sized at 58 (not 80, the full plaza
+	-- diameter) to avoid overlapping the Raid Waters zone at z=-30.5
+	-- (RaidWaters.Zone center z=-38, half-depth 7.5 → leading edge z=-30.5).
+	-- A player at the Raid Waters pier should be opted in to PvP, NOT
+	-- simultaneously protected by the safe harbor.
 	local zone = Instance.new("Part")
 	zone.Name = "Zone"
-	zone.Size = Vector3.new(42, 8, 42)
+	zone.Size = Vector3.new(58, 8, 58)
 	zone.CFrame = CFrame.new(0, 2, 0)
 	zone.Transparency = 1
 	zone.CanCollide = false

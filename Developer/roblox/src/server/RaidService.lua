@@ -323,7 +323,7 @@ end
 -- sole validator). Second half of the split raid flow, per DEC-2 (hybrid
 -- timing) and DEC-3 (individual FishInstance transfer).
 --
--- PROTOCOL (two RemoteFunctions, mirroring the fishing Cast/Submit flow):
+-- PROTOCOL (two RemoteFunctions, mirroring the fishing RequestCast/Submit flow):
 --   1. RequestRaidAttempt(targetUserId) → validates attacker (8.5a gate) +
 --      target (eligibility re-check, per-victim cooldown, loss cap), commits
 --      the attack + per-victim cooldowns, then returns a server-generated

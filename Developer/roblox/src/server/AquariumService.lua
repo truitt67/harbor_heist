@@ -134,7 +134,7 @@ function AquariumService.init(deps)
 		end
 		local storedFish = session.profile.Aquarium.StoredFish
 		-- TASK 14.6 (wqw.6): a locked aquarium blocks removal of stored fish
-		-- (PRD AQUA: locks block ALL theft and modification). Previously SellAll
+		-- (PRD AQUA: locks block ALL theft and modification). Previously RequestSellFish
 		-- liquidated stored fish during an active lock, enabling lock-then-sell
 		-- before a raid and making the lock mechanic theater. Carried fish are
 		-- not in the aquarium, so they remain sellable while locked.

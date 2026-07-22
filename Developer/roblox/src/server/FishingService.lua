@@ -218,7 +218,7 @@ function FishingService.init(deps)
 	-- N16 (CastResult wiring): the cast-overlay timing bar sends the marker's
 	-- position when the player clicked. The server re-derives the accuracy
 	-- tier from its OWN authoritative bounds (stored on activeBites by the
-	-- Cast handler) rather than trusting any tier the client might claim.
+	-- RequestCast handler) rather than trusting any tier the client might claim.
 	-- The luckBonus is then consumed by the species roll in SubmitCatchInput.
 	remotes.CastResult.OnServerEvent:Connect(function(player, accuracy)
 		if antiExploit then

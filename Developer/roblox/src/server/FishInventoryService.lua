@@ -70,7 +70,7 @@ function FishInventoryService.init(deps)
 			-- TASK 5.5 (9mu.5 / PRD AQUA-09): direct-sell one STORED fish.
 			-- Restricted during an active lock or raid protection so a player
 			-- cannot hide fish from an imminent raid by liquidating them (same
-			-- gate pattern as wqw.6 SellAll + isEligibleRaidTarget).
+			-- gate pattern as wqw.6 RequestSellFish + isEligibleRaidTarget).
 			local locked = (session.lockedUntil or 0) > os.clock()
 			if locked then
 				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
@@ -120,7 +120,7 @@ function FishInventoryService.init(deps)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 
 		-- TASK 10.3 (fresh-eyes, 9mu.5): audit the single-fish money path too —
-		-- SellAll logs every sale, but SellFish (carried AND aquarium sources)
+		-- RequestSellFish logs every sale, but SellFish (carried AND aquarium sources)
 		-- previously wrote coins with no audit entry, and a stored-fish sale can
 		-- liquidate a high-value Epic/Legendary fish.
 		if auditLog then
@@ -136,9 +136,9 @@ function FishInventoryService.init(deps)
 			dataManager.save(player)
 		end)
 
-		-- QUEST GAP FIX (fresh-eyes fellow-agent review): bulk SellAll in
+		-- QUEST GAP FIX (fresh-eyes fellow-agent review): bulk RequestSellFish in
 		-- AquariumService fires onFishSold, but this single-fish path never did —
-		-- so sell_value quests only progressed on SellAll. Fire the same hook
+		-- so sell_value quests only progressed on RequestSellFish. Fire the same hook
 		-- here (value=payout) so both paths progress quests consistently.
 		if questService then
 			questService.onFishSold(session, payout)
@@ -221,7 +221,7 @@ function FishInventoryService.init(deps)
 			dataManager.save(player)
 		end)
 
-		-- QUEST GAP FIX (fresh-eyes fellow-agent review): the bulk StoreFish path
+		-- QUEST GAP FIX (fresh-eyes fellow-agent review): the bulk RequestStoreFish path
 		-- in AquariumService fires onFishStored, but this single-fish path never
 		-- did — so store_count quests only progressed on bulk stores. Fire the
 		-- same hook here (count=1) so both paths progress quests consistently.
