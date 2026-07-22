@@ -77,6 +77,12 @@ local windowSerial = 0
 -- persists until toggled off.
 local playersInRaidZone: {[Player]: boolean} = {}
 
+-- TASK 8.11 (gdj.11): players currently standing in the Safe Harbor zone
+-- (central plaza). [player] = true; populated by zone Touched/TouchEnded in
+-- init. Players in the safe harbor cannot initiate or be targeted by raids
+-- (PRD PVP-11), even if they opted in via dock flag or Raid Waters presence.
+local playersInSafeHarbor: {[Player]: boolean} = {}
+
 --- True while a raid window is open. gdj.13 (eligibility) gates on this.
 function RaidService.isWindowOpen()
 	return windowOpen
@@ -122,6 +128,12 @@ end
 --- Is this player CURRENTLY standing in the Raid Waters pier zone?
 function RaidService.isInRaidWaters(player: Player): boolean
 	return playersInRaidZone[player] == true
+end
+
+--- TASK 8.11 (gdj.11): Is this player CURRENTLY standing in the Safe Harbor
+--- zone (central plaza)? If so, they cannot raid or be raided (PRD PVP-11).
+function RaidService.isInSafeHarbor(player: Player): boolean
+	return playersInSafeHarbor[player] == true
 end
 
 --- Dock-flag opt-in (persisted profile field), default false (PVP-02).
@@ -203,6 +215,9 @@ function RaidService.validateAttacker(player: Player, session: any)
 	if not (RaidService.isOptedIn(player) or RaidService.isInRaidWaters(player)) then
 		return false, "not_opted_in"
 	end
+	if RaidService.isInSafeHarbor(player) then
+		return false, "safe_harbor_protected"
+	end
 	if aquariumService and aquariumService.isNewPlayerProtected(session) then
 		return false, "new_player_protected"
 	end
@@ -271,6 +286,13 @@ function RaidService.getRaidTargets(player: Player)
 				-- per-window loss cap, so the UI never offers a target the
 				-- resolution would reject.
 				if eligible and RaidService.isLossCapped(targetSession) then
+					eligible = false
+				end
+				-- TASK 8.11 (gdj.11): skip defenders standing in the Safe Harbor
+				-- zone (PRD PVP-11). The safe harbor overrides opt-in — even if
+				-- the defender toggled RaidOptIn, they are not targetable while
+				-- physically in the plaza safe zone.
+				if eligible and RaidService.isInSafeHarbor(targetPlayer) then
 					eligible = false
 				end
 				if eligible then
@@ -809,6 +831,72 @@ local function pollRaidZone(zone: BasePart)
 		end
 	end)
 end
+-- TASK 8.11 (gdj.11): Safe Harbor zone tracking — mirrors the Raid Waters
+-- pattern (Touched/TouchEnded with per-limb touch counts + polling fallback)
+-- but simpler: no notifications (the visual sign is the "clear marking").
+local safeHarborTouchCounts: {[Player]: number} = {}
+
+local function watchSafeHarborZone(zone: BasePart)
+	zone.Touched:Connect(function(hit)
+		local plr = playerFromHit(hit)
+		if not plr then return end
+		local count = safeHarborTouchCounts[plr] or 0
+		safeHarborTouchCounts[plr] = count + 1
+		if playersInSafeHarbor[plr] then
+			return
+		end
+		playersInSafeHarbor[plr] = true
+		local session = dataManager and dataManager.get(plr)
+		if session and stateSync then
+			stateSync.push(session)
+		end
+	end)
+	zone.TouchEnded:Connect(function(hit)
+		local plr = playerFromHit(hit)
+		if not plr then return end
+		local count = (safeHarborTouchCounts[plr] or 1) - 1
+		if count <= 0 then
+			safeHarborTouchCounts[plr] = nil
+			if playersInSafeHarbor[plr] then
+				playersInSafeHarbor[plr] = nil
+				local session = dataManager and dataManager.get(plr)
+				if session and stateSync then
+					stateSync.push(session)
+				end
+			end
+		else
+			safeHarborTouchCounts[plr] = count
+		end
+	end)
+end
+
+local function pollSafeHarborZone(zone: BasePart)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if not zone.Parent then break end
+			local ok, overlapping = pcall(function()
+				return workspace:GetPartBoundsInBox(zone.CFrame, zone.Size)
+			end)
+			if not ok then break end
+			local seen: {[Player]: boolean} = {}
+			for _, part in ipairs(overlapping) do
+				local plr = playerFromHit(part)
+				if plr then seen[plr] = true end
+			end
+			for plr in pairs(playersInSafeHarbor) do
+				if not seen[plr] and (safeHarborTouchCounts[plr] or 0) <= 0 then
+					playersInSafeHarbor[plr] = nil
+					safeHarborTouchCounts[plr] = nil
+					local session = dataManager and dataManager.get(plr)
+					if session and stateSync then
+						stateSync.push(session)
+					end
+				end
+			end
+		end
+	end)
+end
 
 function RaidService.init(deps)
 	remotes = deps.remotes
@@ -874,6 +962,15 @@ function RaidService.init(deps)
 		warn("[HarborHeist] RaidWaters zone not found — Raid Waters opt-in path disabled.")
 	end
 
+	-- TASK 8.11 (gdj.11): physical Safe Harbor zone (central plaza).
+	local safeZone = worldFolder and worldFolder:FindFirstChild("SafeHarbor") and worldFolder.SafeHarbor:FindFirstChild("Zone")
+	if safeZone then
+		watchSafeHarborZone(safeZone)
+		pollSafeHarborZone(safeZone)
+	else
+		warn("[HarborHeist] SafeHarbor zone not found — Safe harbor protection disabled.")
+	end
+
 	-- Late joiners get the current state once, so their HUD/countdown is
 	-- correct even if they joined mid-window or mid-gap. Fired AFTER their
 	-- session exists (init.server orders RaidService.init before PlayerAdded
@@ -889,6 +986,8 @@ function RaidService.init(deps)
 		player.CharacterAdded:Connect(function()
 			playersInRaidZone[player] = nil
 			touchCounts[player] = nil
+			playersInSafeHarbor[player] = nil
+			safeHarborTouchCounts[player] = nil
 		end)
 	end)
 
@@ -899,6 +998,8 @@ function RaidService.init(deps)
 		player.CharacterAdded:Connect(function()
 			playersInRaidZone[player] = nil
 			touchCounts[player] = nil
+			playersInSafeHarbor[player] = nil
+			safeHarborTouchCounts[player] = nil
 		end)
 	end
 
@@ -910,6 +1011,8 @@ function RaidService.init(deps)
 		touchCounts[player] = nil
 		lastNotifyAt[player] = nil
 		activeRaids[player] = nil
+		playersInSafeHarbor[player] = nil
+		safeHarborTouchCounts[player] = nil
 	end)
 
 	task.spawn(runScheduler)

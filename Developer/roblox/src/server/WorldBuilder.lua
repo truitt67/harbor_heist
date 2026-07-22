@@ -118,6 +118,7 @@ function WorldBuilder.build()
 	WorldBuilder.buildDecorations(worldFolder)
 	WorldBuilder.buildBoatDock(worldFolder)
 	WorldBuilder.buildRaidWaters(worldFolder)
+	WorldBuilder.buildSafeHarbor(worldFolder)
 
 	return worldFolder
 end
@@ -265,6 +266,72 @@ function WorldBuilder.buildRaidWaters(parent)
 
 	raidWaters.PrimaryPart = platform
 	return raidWaters
+end
+
+-- TASK 8.11 (gdj.11): Safe harbor zone — central plaza area where PvP raids
+-- are disabled (PRD PVP-11). A clearly marked, invisible, non-colliding zone
+-- that RaidService watches with Touched/TouchEnded + polling. Players standing
+-- inside cannot initiate or be targeted by raids. Visually marked with green
+-- buoys and a billboard sign so players understand the protection.
+function WorldBuilder.buildSafeHarbor(parent)
+	local safeHarbor = Instance.new("Model")
+	safeHarbor.Name = "SafeHarbor"
+	safeHarbor.Parent = parent
+
+	local marker = makePart({
+		Name = "Marker",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.2, 72, 72),
+		CFrame = CFrame.new(0, 0.15, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(60, 180, 100),
+		Material = Enum.Material.Neon,
+		Transparency = 0.9,
+		Parent = safeHarbor,
+	})
+	marker.Locked = true
+
+	for _, angleDeg in ipairs({ 0, 90, 180, 270 }) do
+		local angle = math.rad(angleDeg)
+		makePart({
+			Name = "SafeBuoy",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(1.4, 1.4, 1.4),
+			CFrame = CFrame.new(math.cos(angle) * 36, 1.2, math.sin(angle) * 36),
+			Color = Color3.fromRGB(60, 200, 120),
+			Material = Enum.Material.Neon,
+			Parent = safeHarbor,
+		})
+	end
+
+	local zone = Instance.new("Part")
+	zone.Name = "Zone"
+	zone.Size = Vector3.new(42, 8, 42)
+	zone.CFrame = CFrame.new(0, 2, 0)
+	zone.Transparency = 1
+	zone.CanCollide = false
+	zone.Anchored = true
+	zone.Parent = safeHarbor
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "SafeHarborSign"
+	billboard.Size = UDim2.new(0, 200, 0, 50)
+	billboard.StudsOffset = Vector3.new(0, 6.5, 0)
+	billboard.AlwaysOnTop = true
+	billboard.MaxDistance = 110
+	billboard.Parent = marker
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "SAFE HARBOR\nPvP raids disabled here"
+	label.TextColor3 = Color3.fromRGB(100, 230, 130)
+	label.TextStrokeTransparency = 0.2
+	label.TextScaled = true
+	label.Font = Enum.Font.FredokaOne
+	label.Parent = billboard
+
+	safeHarbor.PrimaryPart = zone
+	return safeHarbor
 end
 
 function WorldBuilder.buildShop(parent)
