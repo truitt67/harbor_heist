@@ -4,3 +4,6 @@
 # bv (beads viewer) local config and caches
 .bv/
 .sagebrook_env
+
+# python caches from scripts/
+__pycache__/
