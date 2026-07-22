@@ -5,6 +5,8 @@ local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+-- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
+local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 
 local Remotes = {}
@@ -351,6 +353,104 @@ local function showNotification(message, color)
 end
 
 -- ============================================================
+-- Onboarding contextual prompts (TASK 9.2 / 0jc.2)
+-- Dismissible inline banners driven by OnboardingService flags.
+-- Shows one prompt at a time based on the player's progression stage.
+-- Non-blocking, non-modal — sits just above the action bar.
+-- ============================================================
+local onboardingPrompt = Instance.new("Frame")
+onboardingPrompt.Name = "OnboardingPrompt"
+onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
+-- Mobile: position above the right-edge action bar stack (5 buttons × 70
+-- = 350px tall, bottom at -90 → top at -440; +12px gap → -452).
+-- Desktop: just above the bottom action bar (58px at -18 → top at -76;
+-- +8px gap → -84).
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -452 or -84)
+onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
+onboardingPrompt.BackgroundColor3 = UI.surface
+onboardingPrompt.BackgroundTransparency = 0.1
+onboardingPrompt.Visible = false
+onboardingPrompt.ZIndex = 15
+onboardingPrompt.Parent = screenGui
+corner(onboardingPrompt, 12)
+stroke(onboardingPrompt, 0.7, UI.accent, 1.5)
+
+local onboardingAccentBar = Instance.new("Frame")
+onboardingAccentBar.Size = UDim2.new(0, 4, 1, -14)
+onboardingAccentBar.Position = UDim2.new(0, 8, 0, 7)
+onboardingAccentBar.BackgroundColor3 = UI.accent
+onboardingAccentBar.ZIndex = 16
+onboardingAccentBar.Parent = onboardingPrompt
+corner(onboardingAccentBar, 2)
+
+local onboardingLabel = makeLabel(onboardingPrompt, {
+	Size = UDim2.new(1, -52, 1, 0),
+	Position = UDim2.new(0, 20, 0, 0),
+	Text = "",
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 14 or 13,
+	TextColor3 = UI.text,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 16,
+})
+
+local onboardingDismiss = makeButton(onboardingPrompt, {
+	Size = UDim2.new(0, 24, 0, 24),
+	Position = UDim2.new(1, -30, 0.5, -12),
+	Text = "✕",
+	TextSize = 12,
+	BackgroundColor3 = UI.surfaceHi,
+	TextColor3 = UI.textDim,
+	CornerRadius = 999,
+	ZIndex = 16,
+})
+
+-- Track dismissed prompts so they don't reappear in the same session.
+-- Keyed by onboarding stage so each stage shows once, then hides until
+-- the next stage's flag check triggers a new prompt.
+local dismissedPrompts = {}
+-- The stage currently shown in the prompt widget, or nil when hidden.
+-- Set by showOnboardingPrompt, cleared by dismiss/hide. The dismiss
+-- button uses this to mark the right stage as dismissed.
+local currentPromptStage = nil
+
+onboardingDismiss.Activated:Connect(function()
+	if currentPromptStage then
+		dismissedPrompts[currentPromptStage] = true
+	end
+	currentPromptStage = nil
+	onboardingPrompt.Visible = false
+end)
+
+-- Show a contextual prompt for the given stage, unless already dismissed.
+-- @param stage string — unique key for this prompt stage
+-- @param text string — prompt text
+-- @param color Color3 — accent bar color
+local function showOnboardingPrompt(stage, text, color)
+	if dismissedPrompts[stage] then
+		return
+	end
+	currentPromptStage = stage
+	onboardingLabel.Text = text
+	onboardingAccentBar.BackgroundColor3 = color or UI.accent
+	if not onboardingPrompt.Visible then
+		onboardingPrompt.Visible = true
+		local scale = onboardingPrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		scale.Parent = onboardingPrompt
+		scale.Scale = 0.92
+		TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
+	end
+end
+
+-- Hide the onboarding prompt and mark the stage as dismissed.
+local function dismissOnboardingPrompt(stage)
+	dismissedPrompts[stage] = true
+	currentPromptStage = nil
+	onboardingPrompt.Visible = false
+end
+
+-- ============================================================
 -- Modal framework: dim backdrop + animated panel (desktop card /
 -- mobile bottom sheet)
 -- ============================================================
@@ -574,6 +674,220 @@ local raidOptInButton = makeButton(aquariumContent, {
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
 })
+
+-- ============================================================
+-- Inventory panel (TASK 4.4 / wqw.18): per-fish SELL + STORE management.
+-- Lists every carried fish from the snapshot's carriedFish array; each row
+-- shows species/rarity/value with per-fish SELL (SellFish) and STORE
+-- (StoreSingleFish) buttons, plus a bulk STORE ALL shortcut.
+-- NOTE: no SELL ALL here — the server's SellAll liquidates the AQUARIUM
+-- (stored fish) as well as carried fish, which would be dangerously
+-- misleading in a panel scoped to the carried bag. Bulk sell lives in
+-- the aquarium panel, where that behavior matches player expectations.
+-- ============================================================
+local inventoryPanel, inventoryContent, inventoryClose = makePanel("FISH BAG", UI.accent, UDim2.new(0, 420, 0, 500))
+
+local inventoryStats = makeLabel(inventoryContent, {
+	Size = UDim2.new(1, 0, 0, 18),
+	Position = UDim2.new(0, 0, 0, 0),
+	Text = "",
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 14 or 13,
+	TextColor3 = UI.textDim,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local inventoryList = Instance.new("ScrollingFrame")
+inventoryList.Size = UDim2.new(1, 0, 1, -(IS_MOBILE and 82 or 76))
+inventoryList.Position = UDim2.new(0, 0, 0, 24)
+inventoryList.BackgroundTransparency = 1
+inventoryList.ScrollBarThickness = 4
+inventoryList.ScrollBarImageColor3 = UI.textFaint
+inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
+inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+inventoryList.ZIndex = 26
+inventoryList.Parent = inventoryContent
+
+local inventoryLayout = Instance.new("UIListLayout")
+inventoryLayout.Padding = UDim.new(0, 8)
+inventoryLayout.SortOrder = Enum.SortOrder.LayoutOrder
+inventoryLayout.Parent = inventoryList
+
+local RARITY_COLORS = {}
+for _, rarity in ipairs(GameConfig.Rarities) do
+	RARITY_COLORS[rarity.name] = rarity.color
+end
+
+-- Failure reasons the server already notifies about (avoid duplicate toasts).
+-- The server stays silent on rate_limited, no_session, bad_id,
+-- fish_not_found, invalid_fish — those need a client-side toast.
+local SERVER_NOTIFIED_REASONS = {
+	aquarium_full = true,
+	aquarium_locked = true,
+	raid_protected = true,
+}
+
+local function fishDisplayName(fish)
+	local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
+	return (ok and def and def.DisplayName) or fish.SpeciesId or "Fish"
+end
+
+local function clearInventoryList()
+	for _, child in ipairs(inventoryList:GetChildren()) do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+end
+
+-- Rebuild guard: state pushes arrive every second while income accrues.
+-- Rebuilding the row instances on every push would destroy buttons mid-tap
+-- (eaten clicks on mobile), so only rebuild when the carried contents or
+-- carry limit actually change.
+local lastInventorySignature = nil
+
+local function renderInventory()
+	if not state then
+		return
+	end
+	local carried = state.carriedFish or {}
+	local signatureParts = { tostring(state.maxCarried or 0) }
+	for _, fish in ipairs(carried) do
+		table.insert(signatureParts, tostring(fish.InstanceId))
+	end
+	local signature = table.concat(signatureParts, "|")
+	if signature == lastInventorySignature then
+		return
+	end
+	lastInventorySignature = signature
+	clearInventoryList()
+	local totalValue = 0
+	for _, fish in ipairs(carried) do
+		totalValue += fish.BaseSellValue or 0
+	end
+	inventoryStats.Text = string.format("%d / %d fish  •  total value $%s", #carried, state.maxCarried or 0, formatCash(totalValue))
+
+	if #carried == 0 then
+		makeLabel(inventoryList, {
+			Size = UDim2.new(1, 0, 0, 44),
+			Text = "No fish on the line — go catch some!",
+			Font = FONT_BODY,
+			TextSize = 14,
+			TextColor3 = UI.textFaint,
+			LayoutOrder = 1,
+			ZIndex = 26,
+		})
+		return
+	end
+
+	local actionH = IS_MOBILE and 44 or 38
+	local rowH = IS_MOBILE and 66 or 58
+	for i, fish in ipairs(carried) do
+		local rarityColor = RARITY_COLORS[fish.Rarity] or UI.textDim
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -6, 0, rowH)
+		row.BackgroundColor3 = UI.surface
+		row.BackgroundTransparency = 0.15
+		row.LayoutOrder = i
+		row.ZIndex = 26
+		row.Parent = inventoryList
+		corner(row, 12)
+		stroke(row, 0.9)
+
+		local tag = Instance.new("Frame")
+		tag.Size = UDim2.new(0, 74, 0, 18)
+		tag.Position = UDim2.new(0, 10, 0, 7)
+		tag.BackgroundColor3 = rarityColor
+		tag.BackgroundTransparency = 0.78
+		tag.ZIndex = 27
+		tag.Parent = row
+		corner(tag, 5)
+		makeLabel(tag, {
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = string.upper(fish.Rarity or "?"),
+			Font = FONT_BOLD,
+			TextSize = 10,
+			TextColor3 = rarityColor,
+			ZIndex = 28,
+		})
+
+		makeLabel(row, {
+			-- Width ends just before the SELL button (starts at 0.54) so long
+			-- species names truncate cleanly instead of sliding under it.
+			Size = UDim2.new(0.54, -100, 0, 20),
+			Position = UDim2.new(0, 90, 0, 6),
+			Text = fishDisplayName(fish),
+			Font = FONT_BOLD,
+			TextSize = 15,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 27,
+		})
+
+		makeLabel(row, {
+			Size = UDim2.new(0.52, -20, 0, 18),
+			Position = UDim2.new(0, 10, 0, rowH - 24),
+			Text = string.format("$%d sell  •  $%.1f/min stored", fish.BaseSellValue or 0, fish.IncomePerMinute or 0),
+			Font = FONT_BODY,
+			TextSize = 12,
+			TextColor3 = UI.textDim,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 27,
+		})
+
+		local sellBtn = makeButton(row, {
+			Size = UDim2.new(0.22, -4, 0, actionH),
+			Position = UDim2.new(0.54, 0, 0.5, -actionH / 2),
+			Text = "SELL",
+			TextSize = IS_MOBILE and 14 or 13,
+			BackgroundColor3 = UI.good,
+			ZIndex = 27,
+		})
+		local storeBtn = makeButton(row, {
+			Size = UDim2.new(0.24, 0, 0, actionH),
+			Position = UDim2.new(0.76, 0, 0.5, -actionH / 2),
+			Text = "STORE",
+			TextSize = IS_MOBILE and 14 or 13,
+			BackgroundColor3 = UI.accent,
+			ZIndex = 27,
+		})
+
+		sellBtn.Activated:Connect(function()
+			local result = Remotes.SellFish:InvokeServer(fish.InstanceId)
+			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification("Could not sell: " .. tostring(result.reason), UI.bad)
+			end
+		end)
+		storeBtn.Activated:Connect(function()
+			local result = Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
+			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification("Could not store: " .. tostring(result.reason), UI.bad)
+			end
+		end)
+	end
+end
+
+local invBulkH = IS_MOBILE and 46 or 40
+local invStoreAllBtn = makeButton(inventoryContent, {
+	Size = UDim2.new(1, 0, 0, invBulkH),
+	Position = UDim2.new(0, 0, 1, -invBulkH),
+	Text = "STORE ALL",
+	BackgroundColor3 = UI.accent,
+	ZIndex = 26,
+})
+invStoreAllBtn.Activated:Connect(function()
+	Remotes.StoreFish:InvokeServer()
+end)
+
+local function toggleInventoryPanel()
+	if activePanel == inventoryPanel then
+		hidePanels()
+		return
+	end
+	showPanel(inventoryPanel)
+	renderInventory()
+end
 
 -- ============================================================
 -- Shop panel
@@ -907,7 +1221,7 @@ end
 -- ============================================================
 local ACTIONS = {
 	{ id = "fish", label = "FISH", short = "FISH", key = "F", color = UI.good },
-	{ id = "store", label = "STORE", short = "STORE", key = "G", color = UI.accent },
+	{ id = "store", label = "BAG", short = "BAG", key = "G", color = UI.accent },
 	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = UI.purple },
 	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = UI.quest },
 	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
@@ -1132,6 +1446,12 @@ local function toHex(color)
 end
 
 local dataStoreWarningShown = false
+
+-- TASK 9.2 (0jc.2): raid window state — forward-declared here so render()
+-- can check HasSeenRaidExplanation against raidWindow.open for the onboarding
+-- prompt. The actual OnClientEvent handler is wired at line ~1851 below.
+local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
+
 local function render()
 	if not state then
 		return
@@ -1147,6 +1467,11 @@ local function render()
 	animateCashTo(state.cash)
 	incomeLabel.Text = string.format("+$%.1f / sec", state.incomePerSec)
 	carryLabel.Text = string.format("On line: %d / %d fish", state.carried, state.maxCarried)
+	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
+	-- state push (catch, per-fish sell/store, bulk actions) while it is open.
+	if activePanel == inventoryPanel then
+		renderInventory()
+	end
 
 	local fishBtn = actionButtons.fish
 	local fishLbl = actionButtons.fish_label or fishBtn
@@ -1254,6 +1579,57 @@ local function render()
 	else
 		claimButton.Text = "CLAIM $0"
 		claimButton.BackgroundColor3 = Color3.fromRGB(60, 70, 80)
+	end
+
+	-- TASK 9.2 (0jc.2): contextual onboarding prompts driven by flags.
+	-- Only ONE prompt shows at a time, prioritized by the player's
+	-- progression stage. Each is dismissible — once dismissed it stays
+	-- hidden for the session. Prompts auto-clear when the flag flips
+	-- (the server pushes a new state, and the now-true flag moves us
+	-- to the next stage).
+	local ob = state.onboarding or {}
+	if not ob.HasCaughtFirstFish then
+		-- Stage 1: player hasn't caught anything yet.
+		if dismissedPrompts.firstCast then
+			-- Already dismissed — hide prompt
+		elseif casting then
+			dismissOnboardingPrompt("firstCast")
+		else
+			showOnboardingPrompt("firstCast",
+				IS_MOBILE and "Tap FISH while standing in the glowing zone!" or "Press F to cast into the glowing zone at your dock!",
+				UI.good)
+		end
+	elseif not ob.HasStoredFirstFish then
+		-- Stage 2: caught a fish but hasn't stored it yet.
+		if state.carried > 0 then
+			-- Button renamed STORE → BAG by TASK 4.4 (0cw.4): G now opens the
+			-- per-fish bag panel, where STORE / STORE ALL live.
+			showOnboardingPrompt("firstStore",
+				IS_MOBILE and "Tap BAG to store your fish for passive income!" or "Press G to open your bag and store your fish — they'll earn cash over time!",
+				UI.accent)
+		else
+			-- Player has 0 carried (sold the fish instead of storing it).
+			-- Temporarily hide the prompt — DON'T permanently dismiss it,
+			-- so it reappears when they catch another fish and still get
+			-- the store guidance.
+			currentPromptStage = nil
+			onboardingPrompt.Visible = false
+		end
+	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) > 0 then
+		-- Stage 3: has stored fish earning income but hasn't claimed yet.
+		showOnboardingPrompt("firstClaim",
+			IS_MOBILE and "Tap CLAIM to collect your earned income!" or "Open your tank and hit CLAIM to collect your income!",
+			Color3.fromRGB(50, 160, 80))
+	elseif not ob.HasSeenRaidExplanation and raidWindow.open then
+		-- Stage 4: first raid window appeared and player hasn't seen the
+		-- explanation. Dismissible — the player can ignore it and stay safe.
+		showOnboardingPrompt("raidExplain",
+			"Raids are optional! Open your tank panel to opt in and steal fish from other docks.",
+			Color3.fromRGB(255, 120, 120))
+	else
+		-- All onboarding stages complete or dismissed — hide the prompt.
+		currentPromptStage = nil
+		onboardingPrompt.Visible = false
 	end
 end
 
@@ -1424,9 +1800,15 @@ local function doFish()
 end
 
 actionButtons.fish.Activated:Connect(doFish)
-actionButtons.store.Activated:Connect(function()
-	Remotes.StoreFish:InvokeServer()
-end)
+-- Panel close (✕) buttons were created by makePanel but never wired — dead
+-- UI on every panel (backdrop click and Escape worked; the ✕ did nothing).
+aquariumClose.Activated:Connect(hidePanels)
+inventoryClose.Activated:Connect(hidePanels)
+shopClose.Activated:Connect(hidePanels)
+questClose.Activated:Connect(hidePanels)
+-- TASK 4.4 (0cw.4 / wqw.18): BAG button opens the per-fish inventory panel
+-- (bulk store-all remains available via the panel's STORE ALL button).
+actionButtons.store.Activated:Connect(toggleInventoryPanel)
 sellButton.Activated:Connect(function()
 	Remotes.SellAll:InvokeServer()
 end)
@@ -1434,7 +1816,10 @@ lockButton.Activated:Connect(function()
 	Remotes.LockAquarium:InvokeServer()
 end)
 -- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
+-- TASK 9.2 (0jc.2): dismiss the raid explanation onboarding prompt when the
+-- player interacts with the opt-in button — they've now "seen" the explanation.
 raidOptInButton.Activated:Connect(function()
+	dismissOnboardingPrompt("raidExplain")
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
@@ -1487,7 +1872,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if input.KeyCode == Enum.KeyCode.F then
 		doFish()
 	elseif input.KeyCode == Enum.KeyCode.G then
-		Remotes.StoreFish:InvokeServer()
+		toggleInventoryPanel()
 	elseif input.KeyCode == Enum.KeyCode.T then
 		showPanel(aquariumPanel)
 	elseif input.KeyCode == Enum.KeyCode.Q then
@@ -1518,7 +1903,9 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 -- "RAID WATERS OPEN" HUD banner is a later Epic 8 client bead — this keeps
 -- the window visible to players in the meantime and gives that bead a
 -- ready-made state source.
-local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
+-- raidWindow is forward-declared above (before render()) so the onboarding
+-- prompt logic can reference raidWindow.open for the HasSeenRaidExplanation
+-- stage. The OnClientEvent handler here is the sole writer.
 Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSeconds, nextWindowInSeconds)
 	local wasOpen = raidWindow.open
 	raidWindow.open = isOpen == true
@@ -1651,14 +2038,13 @@ task.spawn(function()
 	end
 end)
 
--- Gentle onboarding: walk brand-new players through the core loop.
-task.delay(4, function()
-	if IS_MOBILE then
-		showNotification("Stand in the glowing zone at the end of your dock, then tap FISH.", UI.good)
-	else
-		showNotification("Stand in the glowing zone at the end of your dock, then press F to fish.", UI.good)
+-- TASK 9.2 (0jc.2): the old hardcoded onboarding toasts (task.delay(4/9))
+-- have been replaced by the contextual prompt system above. The prompts
+-- are driven by OnboardingService flags in render() — they show the right
+-- hint at the right time and auto-advance as the player progresses.
+-- A single delayed welcome toast remains for the very first session.
+task.delay(5, function()
+	if not state or not (state.onboarding or {}).HasCaughtFirstFish then
+		showNotification(IS_MOBILE and "Welcome! Tap FISH in the glowing zone to catch your first fish." or "Welcome! Press F in the glowing zone to catch your first fish.", UI.good)
 	end
-end)
-task.delay(9, function()
-	showNotification("Caught fish? " .. (IS_MOBILE and "Tap STORE" or "Press G") .. " near your aquarium to bank them for passive income.", UI.accentSoft)
 end)

@@ -95,6 +95,12 @@ function StateSync.snapshot(session)
 		hasBoat = (session.boatModel ~= nil),
 		-- Shared fields (both tracks)
 		carried = #session.carried,
+		-- TASK 4.4 (0cw.4 / wqw.18): per-fish carried records so the client
+		-- inventory panel can render a row per fish (species/rarity/value)
+		-- with SELL + STORE buttons. FishInstance fields are plain data
+		-- (strings/numbers), safe to replicate. Max GameConfig.MaxCarried
+		-- entries, ~100 bytes each — negligible payload growth.
+		carriedFish = session.carried,
 		maxCarried = GameConfig.MaxCarried,
 		liveWellCount = #aquarium.StoredFish,
 		liveWellCounts = liveWellCounts,
