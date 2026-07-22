@@ -49,6 +49,13 @@ GameConfig.Upgrades = {
 	},
 }
 
+-- egf.4: Defense defaults (single source of truth). PlayerProfile.default,
+-- AquariumService's repair path, and StateSync's fallback all read from
+-- here instead of duplicating the magic number 3.
+GameConfig.Defense = {
+	LockFreeUsesMax = 3,
+}
+
 GameConfig.MiniGame = {
 	hitZoneWidth = 0.3,
 	goodZoneWidth = 0.5,

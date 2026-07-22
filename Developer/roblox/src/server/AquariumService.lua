@@ -231,7 +231,12 @@ function AquariumService.init(deps)
 		-- "earned resource" — they regenerate via daily reset (future bead).
 		local defense = session.profile.Defense
 		if not defense then
-			defense = { LockFreeUsesRemaining = 3, LockFreeUsesMax = 3 }
+			-- egf.4: single-source the Defense shape from GameConfig instead
+			-- of hardcoding 3/3. This path is unreachable on any sanitized
+			-- session (sanitize guarantees Defense exists), but we keep a
+			-- rebuild for production empathy rather than crashing.
+			warn("[HarborHeist] Defense missing: sanitize contract broken — rebuilding from GameConfig.Defense defaults")
+			defense = { LockFreeUsesRemaining = GameConfig.Defense.LockFreeUsesMax, LockFreeUsesMax = GameConfig.Defense.LockFreeUsesMax }
 			session.profile.Defense = defense
 		end
 		local freeUses = defense.LockFreeUsesRemaining or 0

@@ -97,8 +97,8 @@ function PlayerProfile.default()
 		},
 
 		Defense = {
-			LockFreeUsesRemaining = 3,
-			LockFreeUsesMax = 3,
+			LockFreeUsesRemaining = GameConfig.Defense.LockFreeUsesMax,
+			LockFreeUsesMax = GameConfig.Defense.LockFreeUsesMax,
 		},
 	}
 end

@@ -116,7 +116,7 @@ function StateSync.snapshot(session)
 		totalCatches = math.max((profile.Stats and profile.Stats.TotalCatches) or 0, (profile.PvP and profile.PvP.TotalCatches) or 0),
 		-- TASK 8.4 (gdj.4): expose lock free-use counts for client UI.
 		lockFreeUsesRemaining = (profile.Defense and profile.Defense.LockFreeUsesRemaining) or 0,
-		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or 3,
+		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or GameConfig.Defense.LockFreeUsesMax,
 		-- TASK 8.0 (gdj.15): stealCooldownUntil snapshot field REMOVED with the
 		-- always-on steal handler. Client never consumed it; no replacement.
 		-- TASK 10.5: DataStore health (overridden in GetState with live check)
