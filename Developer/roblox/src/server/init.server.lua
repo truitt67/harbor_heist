@@ -202,24 +202,39 @@ local function onPlayerRemoving(player)
 		AnalyticsService.track(player, "player_left_before_first_upgrade")
 	end
 
-	-- TASK 14.20: spawn the save + dependent cleanup so the PlayerRemoving
-	-- handler returns immediately. A synchronous save (UpdateAsync w/ up to 4
-	-- retries + backoff) can be killed mid-write when the leave handler budget
-	-- expires, silently losing progress. DataManager.save reads session data
-	-- already captured in sessions[player], so the session-clearing remove()
-	-- must run AFTER save completes INSIDE this spawn (order matters).
-	-- BindToClose remains the authoritative shutdown save (isShutdown=true ->
-	-- 2 retries, since its 30s budget cannot be escaped by spawning).
+	-- TASK 14.20: the ONLY blocking step is the save (UpdateAsync w/ up to 4
+	-- retries + backoff), which can be killed mid-write when the leave handler
+	-- budget expires. So defer JUST the save (and the remove() that must follow
+	-- it, since save reads sessions[player]); run the lightweight cleanup
+	-- SYNCHRONOUSLY here instead of inside the spawn, for two reasons:
+	--  1. None of release/despawn/unequip/clearSession yield, so they don't
+	--     block the handler -- only the save did.
+	--  2. RACE FIX (fresh-eyes): AnalyticsService.clearSession is keyed by
+	--     UserId (stable across rejoins), while DataManager/dock/boat cleanup
+	--     are keyed by the Player OBJECT. A deferred clearSession(player) could
+	--     wipe a REJOINED player's analytics session (same UserId, new Player
+	--     object) if the reconnect landed within the save's yield window.
+	--     Running it synchronously here -- before any rejoin can register --
+	--     closes that window. The deferred save+remove are object-keyed, so a
+	--     rejoin touches a different sessions[] key and is unaffected.
+	-- Order preserved: funnel events (above) -> release/boat/rod (their churn
+	-- events still have an analytics session) -> clearSession -> [spawn] save
+	-- -> remove. BindToClose is the authoritative shutdown save (isShutdown).
+	DockManager.release(player)
+	BoatService.onPlayerRemoving(player)
+	RodService.onPlayerRemoving(player)
+	-- EPIC 11 (TASK 11.1): clear analytics session to prevent unbounded growth
+	-- of the sessions table across long server uptimes. AFTER boat/rod cleanup
+	-- (so their churn events can still read it), BEFORE DataManager.remove.
+	AnalyticsService.clearSession(player)
+	-- Spawn the (blocking) save + the remove that must follow it. pcall so
+	-- remove ALWAYS runs even if save throws (matches BindToClose's pcall
+	-- pattern); remove is object-keyed (sessions[player]=nil) and safe after
+	-- the Player object is destroyed. If shutdown kills this spawn before the
+	-- save completes, BindToClose still saves sessions[player] (remove hasn't
+	-- cleared it yet) -- no data loss.
 	task.spawn(function()
-		DataManager.save(player)
-		DockManager.release(player)
-		BoatService.onPlayerRemoving(player)
-		RodService.onPlayerRemoving(player)
-		-- EPIC 11 (TASK 11.1): clear analytics session to prevent unbounded
-		-- growth of the sessions table across long server uptimes. Called AFTER
-		-- other cleanup so any churn events fired by those services still have
-		-- a valid session to read, and BEFORE DataManager.remove so UserId resolves.
-		AnalyticsService.clearSession(player)
+		pcall(DataManager.save, player)
 		DataManager.remove(player)
 	end)
 end
