@@ -790,5 +790,8 @@ function DataManager.tryRecover()
 	end
 	return isDataStoreHealthy
 end
+-- Test export: makes the local sanitize function accessible to unit tests
+-- without changing any production behavior. See test/specs/DataManagerSanitize.spec.lua
+DataManager._sanitize = sanitize
 
 return DataManager
