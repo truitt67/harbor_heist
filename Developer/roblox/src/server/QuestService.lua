@@ -136,7 +136,14 @@ end
 -- Map rarity name -> ordinal for `catch_rarity` quest comparisons.
 -- FishInstance.Rarity is a string ("Common".."Legendary"); quests store a
 -- numeric threshold (3 = Rare+, 4 = Epic+, 5 = Legendary).
-local RARITY_ORDINAL = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+-- harborheist-lunp: derive from GameConfig.Rarities (ordered Common ->
+-- Legendary, so the array index doubles as rarity rank) instead of hardcoding —
+-- same dt9.5 pattern as FishDefinitions.RARITY_ORDER and DockManager, so a
+-- rarity reorder/rename cannot silently desync quest thresholds.
+local RARITY_ORDINAL = {}
+for i, rarity in ipairs(GameConfig.Rarities) do
+	RARITY_ORDINAL[rarity.name] = i
+end
 
 function QuestService.onFishCaught(session, rarity)
 	-- Accept either a string rarity name (from FishInstance) or a numeric
