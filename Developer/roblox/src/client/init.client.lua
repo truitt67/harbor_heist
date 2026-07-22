@@ -361,11 +361,11 @@ end
 local onboardingPrompt = Instance.new("Frame")
 onboardingPrompt.Name = "OnboardingPrompt"
 onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
--- Mobile: position above the right-edge action bar stack (5 buttons × 70
--- = 350px tall, bottom at -90 → top at -440; +12px gap → -452).
+-- Mobile: position above the right-edge action bar stack (6 buttons × 70
+-- = 420px tall, bottom at -90 → top at -510; +12px gap → -522).
 -- Desktop: just above the bottom action bar (58px at -18 → top at -76;
 -- +8px gap → -84).
-onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -452 or -84)
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -522 or -84)
 onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
 onboardingPrompt.BackgroundColor3 = UI.surface
 onboardingPrompt.BackgroundTransparency = 0.1
@@ -1352,6 +1352,452 @@ local function renderQuestPanel(data)
 end
 
 -- ============================================================
+-- Raid panel (TASK 8.12 / gdj.12)
+-- Global window countdown, opt-in toggle, target selection, raid attempt.
+-- ============================================================
+local raidPanel, raidContent, raidClose = makePanel("RAID WATERS", UI.bad, UDim2.new(0, 440, 0, 520))
+
+local raidStatusLabel = makeLabel(raidContent, {
+	Size = UDim2.new(1, 0, 0, 48),
+	Position = UDim2.new(0, 0, 0, 0),
+	Text = "Raid waters are calm",
+	Font = FONT_HEAD,
+	TextSize = IS_MOBILE and 18 or 20,
+	TextColor3 = UI.text,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextWrapped = true,
+	ZIndex = 26,
+})
+
+local raidCountdownLabel = makeLabel(raidContent, {
+	Size = UDim2.new(1, 0, 0, 20),
+	Position = UDim2.new(0, 0, 0, 50),
+	Text = "Next window: --",
+	Font = FONT_MED,
+	TextSize = 14,
+	TextColor3 = UI.textDim,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local raidOptInPanelButton = makeButton(raidContent, {
+	Size = UDim2.new(1, 0, 0, 36),
+	Position = UDim2.new(0, 0, 0, 78),
+	Text = "RAID OPT-IN: OFF",
+	BackgroundColor3 = UI.surfaceHi,
+	ZIndex = 26,
+})
+
+makeLabel(raidContent, {
+	Size = UDim2.new(1, 0, 0, 16),
+	Position = UDim2.new(0, 0, 0, 122),
+	Text = "TARGETS",
+	Font = FONT_BOLD,
+	TextSize = 10,
+	TextColor3 = UI.textFaint,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local raidTargetList = Instance.new("ScrollingFrame")
+raidTargetList.Size = UDim2.new(1, 0, 1, -146)
+raidTargetList.Position = UDim2.new(0, 0, 0, 142)
+raidTargetList.BackgroundTransparency = 1
+raidTargetList.ScrollBarThickness = 4
+raidTargetList.ScrollBarImageColor3 = UI.textFaint
+raidTargetList.CanvasSize = UDim2.new(0, 0, 0, 0)
+raidTargetList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+raidTargetList.ZIndex = 26
+raidTargetList.Parent = raidContent
+
+local raidTargetLayout = Instance.new("UIListLayout")
+raidTargetLayout.Padding = UDim.new(0, 8)
+raidTargetLayout.SortOrder = Enum.SortOrder.LayoutOrder
+raidTargetLayout.Parent = raidTargetList
+
+local raidRefreshButton = makeButton(raidContent, {
+	Size = UDim2.new(0, 90, 0, 28),
+	Position = UDim2.new(1, -94, 0, 116),
+	Text = "REFRESH",
+	BackgroundColor3 = UI.surfaceHi,
+	TextSize = 11,
+	ZIndex = 26,
+})
+
+local raidTargets = {}
+local raidInProgress = false
+
+
+local function renderRaidTargets(data)
+	for _, child in ipairs(raidTargetList:GetChildren()) do
+		if not child:IsA("UIListLayout") then
+			child:Destroy()
+		end
+	end
+	if not data or not data.ok then
+		makeLabel(raidTargetList, {
+			Size = UDim2.new(1, 0, 0, 48),
+			Text = data and data.reason or "Could not load targets.",
+			Font = FONT_MED,
+			TextSize = 14,
+			TextColor3 = UI.textDim,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 27,
+		})
+		return
+	end
+	if not data.canRaid then
+		local reasonText = {
+			window_closed = "No raid window is open right now.",
+			not_opted_in = "You must opt in to raids to see targets.",
+			new_player_protected = "New players are protected from raids until 10 catches or an upgrade.",
+			stunned = "You are stunned and cannot raid.",
+			attacker_cooldown = "Raid cooldown active — try again soon.",
+		}[data.reason] or ("Cannot raid: " .. tostring(data.reason))
+		makeLabel(raidTargetList, {
+			Size = UDim2.new(1, 0, 0, 48),
+			Text = reasonText,
+			Font = FONT_MED,
+			TextSize = 14,
+			TextColor3 = UI.textDim,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 27,
+		})
+		return
+	end
+	if not data.targets or #data.targets == 0 then
+		makeLabel(raidTargetList, {
+			Size = UDim2.new(1, 0, 0, 48),
+			Text = "No opted-in targets available.",
+			Font = FONT_MED,
+			TextSize = 14,
+			TextColor3 = UI.textDim,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 27,
+		})
+		return
+	end
+	for i, target in ipairs(data.targets) do
+		local row = Instance.new("Frame")
+		row.Size = UDim2.new(1, -6, 0, IS_MOBILE and 68 or 60)
+		row.BackgroundColor3 = UI.surface
+		row.BackgroundTransparency = 0.15
+		row.LayoutOrder = i
+		row.ZIndex = 26
+		row.Parent = raidTargetList
+		corner(row, 12)
+		stroke(row, 0.9)
+
+		makeLabel(row, {
+			Size = UDim2.new(1, -110, 0, 20),
+			Position = UDim2.new(0, 12, 0, 8),
+			Text = target.displayName or target.name or "Unknown",
+			Font = FONT_BOLD,
+			TextSize = 14,
+			TextColor3 = UI.text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ZIndex = 27,
+		})
+		makeLabel(row, {
+			Size = UDim2.new(1, -110, 0, 16),
+			Position = UDim2.new(0, 12, 0, 28),
+			Text = string.format("Dock %d  •  %d stealable fish", target.dockIndex or 0, target.stealableCount or 0),
+			Font = FONT_BODY,
+			TextSize = 12,
+			TextColor3 = UI.textDim,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 27,
+		})
+		local attempt = makeButton(row, {
+			Size = UDim2.new(0, 92, 0, 32),
+			Position = UDim2.new(1, -102, 0.5, -16),
+			Text = "RAID",
+			BackgroundColor3 = UI.bad,
+			TextSize = 12,
+			ZIndex = 27,
+		})
+		attempt.Activated:Connect(function()
+			if raidInProgress then
+				return
+			end
+			raidInProgress = true
+			local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+			if not result or not result.ok then
+				raidInProgress = false
+				local failReason = {
+					window_closed = "The raid window closed.",
+					not_opted_in = "You are not opted in.",
+					new_player_protected = "New players cannot raid.",
+					stunned = "You are stunned.",
+					attacker_cooldown = "Raid cooldown active.",
+					victim_cooldown = "You recently raided this dock.",
+					loss_capped = "This dock has lost too much this window.",
+					target_unavailable = "Target left the harbor.",
+					target_no_longer_eligible = "Target is no longer eligible.",
+					no_stealable_fish = "No fish left to steal.",
+					raid_in_progress = "You already have a raid in progress.",
+				}[result and result.reason] or "Could not start raid."
+				showNotification(failReason, UI.bad)
+				return
+			end
+			startRaidMinigame(result)
+		end)
+	end
+end
+
+local function refreshRaidPanel()
+	if not state then
+		return
+	end
+	-- Update status header from local cached window state.
+	if raidWindow.open then
+		raidStatusLabel.Text = "RAID WATERS OPEN"
+		raidStatusLabel.TextColor3 = UI.bad
+	else
+		raidStatusLabel.Text = "Raid waters are calm"
+		raidStatusLabel.TextColor3 = UI.text
+	end
+	-- Update opt-in toggle mirror.
+	if state.raidOptIn then
+		raidOptInPanelButton.Text = "RAID OPT-IN: ON (can be targeted)"
+		raidOptInPanelButton.BackgroundColor3 = UI.bad
+		raidOptInPanelButton.TextColor3 = UI.ink
+	else
+		local catches = state.totalCatches or 0
+		local hasUpgrade = (state.upgradeLevel or 1) > 1
+		if not hasUpgrade and catches < 10 then
+			raidOptInPanelButton.Text = string.format("RAID OPT-IN: LOCKED (%d/10 catches or upgrade)", catches)
+			raidOptInPanelButton.BackgroundColor3 = UI.surfaceHi
+			raidOptInPanelButton.TextColor3 = UI.textFaint
+		else
+			raidOptInPanelButton.Text = "RAID OPT-IN: OFF (safe)"
+			raidOptInPanelButton.BackgroundColor3 = UI.surfaceHi
+			raidOptInPanelButton.TextColor3 = UI.text
+		end
+	end
+	-- Fetch targets from server asynchronously.
+	task.spawn(function()
+		local ok, data = pcall(function()
+			return Remotes.GetRaidTargets:InvokeServer()
+		end)
+		if ok then
+			raidTargets = data or {}
+			if activePanel == raidPanel then
+				renderRaidTargets(raidTargets)
+			end
+		end
+	end)
+end
+
+local function toggleRaidPanel()
+	if activePanel == raidPanel then
+		hidePanels()
+		return
+	end
+	showPanel(raidPanel)
+	refreshRaidPanel()
+end
+
+-- ============================================================
+-- Raid timing minigame overlay (TASK 8.5b / gdj.14)
+-- ============================================================
+local raidMinigameFrame = Instance.new("Frame")
+raidMinigameFrame.Name = "RaidMinigame"
+raidMinigameFrame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
+raidMinigameFrame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
+raidMinigameFrame.BackgroundColor3 = UI.bg
+raidMinigameFrame.BackgroundTransparency = 0.08
+raidMinigameFrame.Visible = false
+raidMinigameFrame.ZIndex = 40
+raidMinigameFrame.Parent = screenGui
+corner(raidMinigameFrame, 16)
+stroke(raidMinigameFrame, 0.8)
+vGradient(raidMinigameFrame, Color3.fromRGB(26, 38, 57), UI.bg)
+
+makeLabel(raidMinigameFrame, {
+	Size = UDim2.new(1, -20, 0, 24),
+	Position = UDim2.new(0, 10, 0, 10),
+	Text = IS_MOBILE and "TAP IN THE GREEN ZONE!" or "CLICK IN THE GREEN ZONE!",
+	Font = FONT_HEAD,
+	TextSize = IS_MOBILE and 15 or 16,
+	TextColor3 = UI.warn,
+	ZIndex = 41,
+})
+
+local raidBarTrack = Instance.new("Frame")
+raidBarTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
+raidBarTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
+raidBarTrack.BackgroundColor3 = UI.surface
+raidBarTrack.ZIndex = 41
+raidBarTrack.Parent = raidMinigameFrame
+corner(raidBarTrack, 10)
+stroke(raidBarTrack, 0.85)
+
+local raidGoodZone = Instance.new("Frame")
+raidGoodZone.Size = UDim2.new(0.3, 0, 1, 0)
+raidGoodZone.Position = UDim2.new(0.35, 0, 0, 0)
+raidGoodZone.BackgroundColor3 = UI.good
+raidGoodZone.BackgroundTransparency = 0.45
+raidGoodZone.ZIndex = 42
+raidGoodZone.Parent = raidBarTrack
+corner(raidGoodZone, 8)
+stroke(raidGoodZone, 0.5, UI.good, 1.5)
+
+local raidPerfectZone = Instance.new("Frame")
+raidPerfectZone.Size = UDim2.new(0.4, 0, 1, -8)
+raidPerfectZone.Position = UDim2.new(0.5, 0, 0, 4)
+raidPerfectZone.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
+raidPerfectZone.BackgroundTransparency = 0.12
+raidPerfectZone.ZIndex = 43
+raidPerfectZone.Parent = raidGoodZone
+corner(raidPerfectZone, 7)
+
+makeLabel(raidMinigameFrame, {
+	Size = UDim2.new(1, -24, 0, 16),
+	Position = UDim2.new(0, 12, 1, -20),
+	Text = "PERFECT = HIGH CHANCE  •  GOOD = FAIR  •  MISS = LOW",
+	Font = FONT_BOLD,
+	TextSize = 9,
+	TextColor3 = UI.textFaint,
+	ZIndex = 41,
+})
+
+local raidMarker = Instance.new("Frame")
+raidMarker.Size = UDim2.new(0, 5, 1, 6)
+raidMarker.Position = UDim2.new(0, 0, 0, -3)
+raidMarker.BackgroundColor3 = Color3.new(1, 1, 1)
+raidMarker.ZIndex = 43
+raidMarker.Parent = raidBarTrack
+corner(raidMarker, 3)
+
+local raidMarkerGlow = Instance.new("Frame")
+raidMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
+raidMarkerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+raidMarkerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+raidMarkerGlow.BackgroundColor3 = UI.accentSoft
+raidMarkerGlow.BackgroundTransparency = 0.75
+raidMarkerGlow.ZIndex = 42
+raidMarkerGlow.Parent = raidMarker
+corner(raidMarkerGlow, 8)
+
+local raidMinigameTween = nil
+local raidMinigameInputConn = nil
+local raidMinigameDuration = 0
+
+local function stopRaidMinigame()
+	raidMinigameFrame.Visible = false
+	if raidMinigameTween then
+		raidMinigameTween:Cancel()
+		raidMinigameTween = nil
+	end
+	if raidMinigameInputConn then
+		raidMinigameInputConn:Disconnect()
+		raidMinigameInputConn = nil
+	end
+end
+
+local function startRaidMinigame(challenge)
+	raidInProgress = true
+	local goodStart = challenge.goodStart or 0.35
+	local goodEnd = challenge.goodEnd or 0.65
+	local goodWidth = goodEnd - goodStart
+	raidGoodZone.Size = UDim2.new(goodWidth, 0, 1, 0)
+	raidGoodZone.Position = UDim2.new(goodStart, 0, 0, 0)
+	local perfectStart = challenge.perfectStart or 0.44
+	local perfectEnd = challenge.perfectEnd or 0.56
+	local pWidth = perfectEnd - perfectStart
+	local pCenter = (perfectStart + perfectEnd) / 2
+	local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
+	local relCenter = goodWidth > 0 and ((pCenter - goodStart) / goodWidth) or 0.5
+	raidPerfectZone.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
+	raidPerfectZone.Position = UDim2.new(math.clamp(relCenter, 0, 1), 0, 0, 4)
+
+	raidMinigameFrame.Visible = true
+	raidMarker.Position = UDim2.new(0, 0, 0, -3)
+	raidMinigameDuration = challenge.durationSeconds or 8
+	raidMinigameTween = TweenService:Create(
+		raidMarker,
+		TweenInfo.new(raidMinigameDuration, Enum.EasingStyle.Linear),
+		{ Position = UDim2.new(1, -5, 0, -3) }
+	)
+	raidMinigameTween:Play()
+
+	-- Expire the overlay if the player never clicks (matching the server deadline).
+	task.delay(raidMinigameDuration, function()
+		if raidMinigameFrame.Visible then
+			stopRaidMinigame()
+			raidInProgress = false
+			showNotification("Too slow! The raid window of opportunity passed...", UI.warn)
+		end
+	end)
+
+	raidMinigameInputConn = UserInputService.InputBegan:Connect(function(input, gp)
+		if gp then
+			return
+		end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			if not raidMinigameFrame.Visible then
+				return
+			end
+			local markerPos = raidMarker.Position.X.Scale
+			stopRaidMinigame()
+			task.spawn(function()
+				local ok, result = pcall(function()
+					return Remotes.SubmitRaidResult:InvokeServer(markerPos)
+				end)
+				raidInProgress = false
+				if ok and result then
+					if result.success then
+						showNotification(string.format("Heist %s! Stole a %s %s worth $%d.", result.tier or "", result.rarity or "", result.speciesId or "", result.value or 0), UI.good)
+					elseif result.ok and not result.success then
+						showNotification("Heist failed — the fish slipped away.", UI.warn)
+					end
+				end
+				refreshRaidPanel()
+			end)
+		end
+	end)
+end
+
+-- ============================================================
+-- Global raid window countdown HUD banner
+-- ============================================================
+local raidBanner = Instance.new("Frame")
+raidBanner.Name = "RaidBanner"
+raidBanner.AnchorPoint = Vector2.new(0.5, 0)
+raidBanner.Size = UDim2.new(0, IS_MOBILE and 280 or 340, 0, 36)
+raidBanner.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+raidBanner.BackgroundColor3 = UI.bg
+raidBanner.BackgroundTransparency = 0.12
+raidBanner.Visible = false
+raidBanner.ZIndex = 18
+raidBanner.Parent = screenGui
+corner(raidBanner, 999)
+stroke(raidBanner, 0.7, UI.bad, 1.5)
+
+local raidBannerIcon = Instance.new("Frame")
+raidBannerIcon.Size = UDim2.new(0, 8, 0, 8)
+raidBannerIcon.Position = UDim2.new(0, 14, 0.5, -4)
+raidBannerIcon.BackgroundColor3 = UI.bad
+raidBannerIcon.ZIndex = 19
+raidBannerIcon.Parent = raidBanner
+corner(raidBannerIcon, 999)
+
+local raidBannerLabel = makeLabel(raidBanner, {
+	Size = UDim2.new(1, -34, 1, 0),
+	Position = UDim2.new(0, 28, 0, 0),
+	Text = "RAID WATERS OPEN 0:00",
+	Font = FONT_BOLD,
+	TextSize = 13,
+	TextColor3 = UI.bad,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 19,
+})
+-- ============================================================
 -- Action bar
 --   Desktop: bottom-center pill bar with keyboard hint chips.
 --   Mobile: right-edge thumb-zone stack of large round buttons.
@@ -1361,6 +1807,7 @@ local ACTIONS = {
 	{ id = "store", label = "BAG", short = "BAG", key = "G", color = UI.accent },
 	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = UI.purple },
 	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = UI.quest },
+	{ id = "raid", label = "RAID", short = "RAID", key = "R", color = UI.bad },
 	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
 }
 
@@ -1965,9 +2412,18 @@ aquariumClose.Activated:Connect(hidePanels)
 inventoryClose.Activated:Connect(hidePanels)
 shopClose.Activated:Connect(hidePanels)
 questClose.Activated:Connect(hidePanels)
+raidClose.Activated:Connect(hidePanels)
 -- TASK 4.4 (0cw.4 / wqw.18): BAG button opens the per-fish inventory panel
 -- (bulk store-all remains available via the panel's STORE ALL button).
 actionButtons.store.Activated:Connect(toggleInventoryPanel)
+-- TASK 8.12 (gdj.12): RAID button opens the raid panel.
+actionButtons.raid.Activated:Connect(toggleRaidPanel)
+-- TASK 8.12 (gdj.12): refresh + opt-in inside the raid panel.
+raidRefreshButton.Activated:Connect(refreshRaidPanel)
+raidOptInPanelButton.Activated:Connect(function()
+	dismissOnboardingPrompt("raidExplain")
+	Remotes.RequestToggleRaidOptIn:InvokeServer()
+end)
 sellButton.Activated:Connect(function()
 	Remotes.SellAll:InvokeServer()
 end)
@@ -2036,6 +2492,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		showPanel(aquariumPanel)
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		toggleQuestPanel()
+	elseif input.KeyCode == Enum.KeyCode.R then
+		toggleRaidPanel()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		trySpawnBoat()
 	elseif input.KeyCode == Enum.KeyCode.Escape and activePanel then
@@ -2050,6 +2508,9 @@ Remotes.StateChanged.OnClientEvent:Connect(function(snapshot)
 	state = snapshot
 	render()
 	refreshShop()
+	if activePanel == raidPanel then
+		refreshRaidPanel()
+	end
 end)
 
 Remotes.Notify.OnClientEvent:Connect(showNotification)
@@ -2065,11 +2526,33 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 -- raidWindow is forward-declared above (before render()) so the onboarding
 -- prompt logic can reference raidWindow.open for the HasSeenRaidExplanation
 -- stage. The OnClientEvent handler here is the sole writer.
+local function formatRaidTime(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	local m = math.floor(seconds / 60)
+	local s = seconds % 60
+	return string.format("%d:%02d", m, s)
+end
+
+local function updateRaidCountdown()
+	if raidWindow.open then
+		raidBanner.Visible = true
+		raidBannerLabel.Text = "RAID WATERS OPEN " .. formatRaidTime(raidWindow.remainingSeconds)
+		raidCountdownLabel.Text = "Closes in " .. formatRaidTime(raidWindow.remainingSeconds)
+	else
+		raidBanner.Visible = false
+		raidCountdownLabel.Text = "Next window in " .. formatRaidTime(raidWindow.nextWindowInSeconds)
+	end
+	if activePanel == raidPanel then
+		refreshRaidPanel()
+	end
+end
+
 Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSeconds, nextWindowInSeconds)
 	local wasOpen = raidWindow.open
 	raidWindow.open = isOpen == true
 	raidWindow.remainingSeconds = remainingSeconds or 0
 	raidWindow.nextWindowInSeconds = nextWindowInSeconds or 0
+	updateRaidCountdown()
 	if raidWindow.open and not wasOpen then
 		showNotification(
 			string.format("RAID WATERS OPEN for %d minutes! Steal fish from other docks while the window lasts.", math.floor(raidWindow.remainingSeconds / 60)),
@@ -2077,6 +2560,18 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		)
 	elseif not raidWindow.open and wasOpen then
 		showNotification("Raid waters closed. The harbor is safe... for now.", UI.accentSoft)
+	end
+end)
+
+task.spawn(function()
+	while true do
+		task.wait(1)
+		if raidWindow.open then
+			raidWindow.remainingSeconds = math.max(0, raidWindow.remainingSeconds - 1)
+		else
+			raidWindow.nextWindowInSeconds = math.max(0, raidWindow.nextWindowInSeconds - 1)
+		end
+		updateRaidCountdown()
 	end
 end)
 
