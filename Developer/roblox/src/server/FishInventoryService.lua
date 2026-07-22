@@ -203,8 +203,9 @@ function FishInventoryService.init(deps)
 		table.insert(storedFish, fish)
 		-- TASK 14.15 (wqw.15): a fish was added to StoredFish -> invalidate the
 		-- cached incomePerSec so the next push/income-tick recomputes it.
-		-- (SellFish is excluded: it is carried-only per the N3 fix, so it never
-		-- touches StoredFish and does not affect incomePerSec.)
+		-- (NOTE: SellFish's fromAquarium=true path also removes a stored fish
+		-- and invalidates via its own `if soldFromStored` block above; only the
+		-- carried SellFish path doesn't touch StoredFish/affect incomePerSec.)
 		stateSync.invalidateIncomeCache(session)
 		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), Color3.fromRGB(120, 220, 255))
 		stateSync.push(session)
