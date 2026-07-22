@@ -1174,9 +1174,14 @@ local function render()
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
 		local count = state.liveWellCounts[rarity.name] or 0
+		-- R2.2 (dt9.2): removed per-rarity incomePerSec display — it was
+		-- reading the dead GameConfig.Rarities[].incomePerSec field which
+		-- disagreed with the actual income (from FishDefinitions per-species
+		-- IncomePerMinute) by 12-18x. Total income/sec from StateSync.snapshot
+		-- (the authoritative, multiplier-aware value) is shown at line 1148.
 		table.insert(lines, string.format(
-			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each • +$%.1f/s</font>',
-			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value, rarity.incomePerSec
+			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each</font>',
+			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")

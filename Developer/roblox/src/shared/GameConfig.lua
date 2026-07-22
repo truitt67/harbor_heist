@@ -1,11 +1,17 @@
 local GameConfig = {}
 
 GameConfig.Rarities = {
-	{ name = "Common",    weight = 55, value = 10,  incomePerSec = 0.2, color = Color3.fromRGB(190, 190, 190) },
-	{ name = "Uncommon",  weight = 25, value = 25,  incomePerSec = 0.6, color = Color3.fromRGB(85, 200, 120) },
-	{ name = "Rare",      weight = 12, value = 70,  incomePerSec = 1.8, color = Color3.fromRGB(70, 140, 255) },
-	{ name = "Epic",      weight = 6,  value = 180, incomePerSec = 5,   color = Color3.fromRGB(170, 85, 255) },
-	{ name = "Legendary", weight = 2,  value = 500, incomePerSec = 15,  color = Color3.fromRGB(255, 170, 0) },
+	-- R2.2 (dt9.2): incomePerSec field REMOVED — was dead config that
+	-- disagreed with FishDefinitions.Species[].IncomePerMinute (the live
+	-- income source) by 12-18x. The client aquarium rarity breakdown no
+	-- longer displays per-rarity income/sec; the total incomePerSec from
+	-- StateSync.snapshot (the authoritative, multiplier-aware value) is
+	-- shown at the top of the panel instead.
+	{ name = "Common",    weight = 55, value = 10,  color = Color3.fromRGB(190, 190, 190) },
+	{ name = "Uncommon",  weight = 25, value = 25,  color = Color3.fromRGB(85, 200, 120) },
+	{ name = "Rare",      weight = 12, value = 70,  color = Color3.fromRGB(70, 140, 255) },
+	{ name = "Epic",      weight = 6,  value = 180, color = Color3.fromRGB(170, 85, 255) },
+	{ name = "Legendary", weight = 2,  value = 500, color = Color3.fromRGB(255, 170, 0) },
 }
 
 -- TASK 14.10 (wqw.10): the legacy Rods/Baits tables were REMOVED. They
@@ -163,8 +169,11 @@ GameConfig.Economy = {
 	-- A player catching Common fish (15) + storing for income should
 	-- reach 500 in ~5-10 minutes of active play
 	FirstUpgradeTarget = 500,
-	-- Income tuning: stored fish generate this fraction of their sell value per minute
-	IncomeToValueRatio = 0.05,
+	-- R2.2 (dt9.2): IncomeToValueRatio REMOVED — was dead config with zero
+	-- consumers. FishDefinitions.Species[].IncomePerMinute (copied into each
+	-- FishInstance at creation) is the single source of truth for per-fish
+	-- income. If a ratio-based derivation is desired in the future, add it
+	-- as a separate balance task after playtesting the current hand-maintained values.
 	-- Maximum unclaimed income before auto-claim kicks in (prevents extreme accumulation)
 	MaxUnclaimedIncome = 50000,
 }
