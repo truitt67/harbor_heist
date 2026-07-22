@@ -476,6 +476,12 @@ function DataManager.load(player)
 		casting = false,
 		dockIndex = nil,
 		isSaving = false,
+		-- TASK 14.26 (5gr): dirty-flag for checkpoint-save coalescing. Set by
+		-- non-shutdown save() calls that arrive while another save is in flight;
+		-- cleared by the in-flight save's trailing-write check on completion.
+		-- This collapses N rapid checkpoint calls into at most 2 sequential
+		-- DataStore writes instead of N sequential (each with GetAsync+SetAsync).
+		saveDirty = false,
 		-- Runtime-only os.clock timers (NOT persisted; persist as epoch in profile)
 		lockedUntil = 0,
 		lockCooldownUntil = 0,
@@ -559,16 +565,31 @@ function DataManager.save(player, isShutdown)
 		return
 	end
 
-	-- RELIABILITY: If a save is already in flight (e.g. autosave), WAIT for it
-	-- instead of skipping - skipping the final save on leave/shutdown loses data.
-	local waited = 0
-	while session.isSaving and waited < 15 do
-		task.wait(0.1)
-		waited += 0.1
-	end
+	-- RELIABILITY: If a save is already in flight:
+	-- • Shutdown/leave saves (isShutdown=true) MUST persist synchronously — wait
+	--   for the in-flight save to finish, then run ours. Skipping the final save
+	--   on leave/shutdown loses data.
+	-- • Checkpoint/autosave saves (isShutdown=nil) coalesce via a dirty flag —
+	--   set saveDirty and return immediately. The in-flight save will run ONE
+	--   trailing write to pick up all changes that arrived during it, collapsing
+	--   N rapid checkpoint calls into at most 2 sequential DataStore writes
+	--   instead of N sequential (each with GetAsync+SetAsync). This prevents
+	--   DataStore budget throttling under transaction-heavy load.
 	if session.isSaving then
-		warn("[HarborHeist] Timed out waiting for in-flight save for " .. player.Name)
-		return
+		if isShutdown then
+			local waited = 0
+			while session.isSaving and waited < 15 do
+				task.wait(0.1)
+				waited += 0.1
+			end
+			if session.isSaving then
+				warn("[HarborHeist] Timed out waiting for in-flight save for " .. player.Name)
+				return
+			end
+		else
+			session.saveDirty = true
+			return
+		end
 	end
 
 	session.isSaving = true
@@ -645,6 +666,17 @@ function DataManager.save(player, isShutdown)
 		recordFailure()
 	else
 		recordSuccess()
+	end
+
+	-- TASK 14.26 (5gr): Dirty-flag coalescing trailing write. If save() was
+	-- called while this save was in flight (non-shutdown callers set saveDirty),
+	-- run ONE trailing save to pick up all accumulated changes. This collapses
+	-- N rapid checkpoint calls into at most 2 sequential DataStore writes.
+	-- Skip for shutdown saves: their callers (BindToClose, leave) already
+	-- waited for the in-flight save above and run their own synchronous save.
+	if not isShutdown and sessions[player] and session.saveDirty then
+		session.saveDirty = false
+		DataManager.save(player)
 	end
 end
 

@@ -5,7 +5,7 @@
 	from carried to aquarium. All operations are server-validated (PRD INV-06).
 	Prevents duplication, negative quantities, over-capacity transfers (INV-05).
 
-	The bulk "SellAll" and "StoreFish" (store-all) remain in AquariumService
+	The bulk "RequestSellFish" and "RequestStoreFish" (store-all) remain in AquariumService
 	as convenience wrappers. This service adds the granular per-fish API.
 ]]
 

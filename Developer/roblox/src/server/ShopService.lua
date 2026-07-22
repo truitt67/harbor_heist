@@ -128,9 +128,9 @@ function ShopService.init(deps)
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on purchase (not just autosave + leave).
 		-- Spawned so the handler returns immediately instead of blocking on
-		-- UpdateAsync; coalesced by DataManager.save's isSaving guard (waits
-		-- then skips if a save is in-flight), so no double-write races and no
-		-- DataStore hammering.
+		-- UpdateAsync; coalesced by DataManager.save's dirty-flag guard (sets
+		-- saveDirty if a save is in-flight, one trailing write picks it up),
+		-- so no double-write races and no DataStore hammering.
 		task.spawn(function()
 			dataManager.save(player)
 		end)

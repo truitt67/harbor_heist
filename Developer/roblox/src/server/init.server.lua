@@ -244,8 +244,11 @@ local function onPlayerRemoving(player)
 	-- the Player object is destroyed. If shutdown kills this spawn before the
 	-- save completes, BindToClose still saves sessions[player] (remove hasn't
 	-- cleared it yet) -- no data loss.
+	-- TASK 14.26 (5gr): isShutdown=true so the leave save WAITS for any in-flight
+	-- save instead of coalescing (setting dirty+returning, then remove() would
+	-- clear the session before the trailing save can run → data loss).
 	task.spawn(function()
-		pcall(DataManager.save, player)
+		pcall(DataManager.save, player, true)
 		DataManager.remove(player)
 	end)
 end
