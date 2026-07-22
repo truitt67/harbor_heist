@@ -361,11 +361,11 @@ end
 local onboardingPrompt = Instance.new("Frame")
 onboardingPrompt.Name = "OnboardingPrompt"
 onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
--- Mobile: position above the right-edge action bar stack (6 buttons × 70
--- = 420px tall, bottom at -90 → top at -510; +12px gap → -522).
+-- Mobile: position above the right-edge action bar stack (7 buttons × 70
+-- = 490px tall, bottom at -90 → top at -580; +12px gap → -592).
 -- Desktop: just above the bottom action bar (58px at -18 → top at -76;
 -- +8px gap → -84).
-onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -522 or -84)
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -592 or -84)
 onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
 onboardingPrompt.BackgroundColor3 = UI.surface
 onboardingPrompt.BackgroundTransparency = 0.1
@@ -872,6 +872,9 @@ local SERVER_NOTIFIED_REASONS = {
 }
 
 local function fishDisplayName(fish)
+	if not fish then
+		return "Fish"
+	end
 	local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
 	return (ok and def and def.DisplayName) or fish.SpeciesId or "Fish"
 end
@@ -2390,8 +2393,10 @@ local function render()
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
 	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
 
-	local rodName = GameConfig.Rods[state.rodLevel].name
-	local baitName = GameConfig.Baits[state.baitLevel].name
+	local rodLevel = state.rodLevel or 1
+	local baitLevel = state.baitLevel or 1
+	local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
+	local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
 	aquariumStats.Text = string.format(
 		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>$%.1f / sec</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
@@ -2616,18 +2621,9 @@ marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 marker.Parent = barTrack
 corner(marker, 2)
 
--- Result text
-local minigameResult = makeLabel(minigameFrame, {
-	Size = UDim2.new(1, 0, 0, 24),
-	Position = UDim2.new(0, 0, 0, 80),
-	Text = "",
-	TextColor3 = UI.text,
-})
-
 local minigameActive = false
 local minigameStartTime = 0
 local minigameWindow = 3.0
-local minigameZoneId = nil
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -2638,11 +2634,9 @@ local minigameZoneHalfWidth = 0.15
 local function runMinigame(zoneId, windowSeconds)
 	if minigameActive then return end
 	minigameActive = true
-	minigameZoneId = zoneId
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
-	minigameResult.Text = ""
 
 	-- ROUND-3 FIX (fellow-agent review): the minigame zone was hardcoded to
 	-- 30% ([0.35, 0.65]) in BOTH the visual frame and the tap hit-test, but
@@ -2739,8 +2733,6 @@ local function doFish()
 end
 
 actionButtons.fish.Activated:Connect(doFish)
--- Panel close (✕) buttons were created by makePanel but never wired — dead
--- UI on every panel (backdrop click and Escape worked; the ✕ did nothing).
 aquariumClose.Activated:Connect(hidePanels)
 inventoryClose.Activated:Connect(hidePanels)
 shopClose.Activated:Connect(hidePanels)
