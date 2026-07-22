@@ -464,6 +464,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(110, 80, 50),
 			Material = Enum.Material.Wood,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -480,6 +481,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(180, 155, 110),
 			Material = Enum.Material.Fabric,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -496,6 +498,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(120, 90, 60),
 			Material = Enum.Material.Wood,
+			CanCollide = false,
 			Parent = parent,
 		})
 		makePart({
@@ -505,6 +508,7 @@ function WorldBuilder.buildDecorations(parent)
 			CFrame = CFrame.new(math.cos(angle) * r, 3, math.sin(angle) * r),
 			Color = Color3.fromRGB(60, 130, 65),
 			Material = Enum.Material.Grass,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -522,6 +526,7 @@ function WorldBuilder.buildDecorations(parent)
 			CFrame = CFrame.new(math.cos(angle) * r, rng:NextNumber(-1, 1.5), math.sin(angle) * r),
 			Color = Color3.fromRGB(90, 88, 85),
 			Material = Enum.Material.Slate,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end

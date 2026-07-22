@@ -5997,7 +5997,14 @@ end
 -- Map rarity name -> ordinal for `catch_rarity` quest comparisons.
 -- FishInstance.Rarity is a string ("Common".."Legendary"); quests store a
 -- numeric threshold (3 = Rare+, 4 = Epic+, 5 = Legendary).
-local RARITY_ORDINAL = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
+-- harborheist-lunp: derive from GameConfig.Rarities (ordered Common ->
+-- Legendary, so the array index doubles as rarity rank) instead of hardcoding —
+-- same dt9.5 pattern as FishDefinitions.RARITY_ORDER and DockManager, so a
+-- rarity reorder/rename cannot silently desync quest thresholds.
+local RARITY_ORDINAL = {}
+for i, rarity in ipairs(GameConfig.Rarities) do
+	RARITY_ORDINAL[rarity.name] = i
+end
 
 function QuestService.onFishCaught(session, rarity)
 	-- Accept either a string rarity name (from FishInstance) or a numeric
@@ -8391,6 +8398,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(110, 80, 50),
 			Material = Enum.Material.Wood,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -8407,6 +8415,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(180, 155, 110),
 			Material = Enum.Material.Fabric,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -8423,6 +8432,7 @@ function WorldBuilder.buildDecorations(parent)
 				* CFrame.Angles(0, 0, math.rad(90)),
 			Color = Color3.fromRGB(120, 90, 60),
 			Material = Enum.Material.Wood,
+			CanCollide = false,
 			Parent = parent,
 		})
 		makePart({
@@ -8432,6 +8442,7 @@ function WorldBuilder.buildDecorations(parent)
 			CFrame = CFrame.new(math.cos(angle) * r, 3, math.sin(angle) * r),
 			Color = Color3.fromRGB(60, 130, 65),
 			Material = Enum.Material.Grass,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -8449,6 +8460,7 @@ function WorldBuilder.buildDecorations(parent)
 			CFrame = CFrame.new(math.cos(angle) * r, rng:NextNumber(-1, 1.5), math.sin(angle) * r),
 			Color = Color3.fromRGB(90, 88, 85),
 			Material = Enum.Material.Slate,
+			CanCollide = false,
 			Parent = parent,
 		})
 	end
@@ -9279,7 +9291,9 @@ local lockButton = makeButton(aquariumContent, {
 -- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
 local raidOptInButton = makeButton(aquariumContent, {
 	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 32),
-	Position = UDim2.new(0, 0, 1, -buttonH - 40),
+	-- thj.5: keep a 4px gap above the SELL/LOCK buttons on mobile; the taller
+	-- button would otherwise overlap because buttonH is also larger on mobile.
+	Position = UDim2.new(0, 0, 1, -buttonH - (IS_MOBILE and 52 or 40)),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
@@ -10157,7 +10171,8 @@ local raidCountdownLabel = makeLabel(raidContent, {
 
 local raidOptInPanelButton = makeButton(raidContent, {
 	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 36),
-	Position = UDim2.new(0, 0, 0, IS_MOBILE and 84 or 78),
+	-- thj.5: keep the bottom edge at 114 so the label at y=116 keeps its 2px gap.
+	Position = UDim2.new(0, 0, 0, IS_MOBILE and 70 or 78),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
