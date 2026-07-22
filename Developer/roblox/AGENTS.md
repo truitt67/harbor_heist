@@ -14,7 +14,9 @@ Project-local instructions in this file take precedence over shared skill-librar
 
 **Project Name:** harbor_heist
 
-**Description:** harbot_heist
+**Description:** Harbor Heist is a server-authoritative multiplayer fishing/aquarium tycoon game with PvP raids, fully implemented with 17 server services, persistence, analytics, anti-exploit
+  hardening, and mobile UI, currently in closed V1 test phase with recent critical bug fixes (analytics API, quest hooks, stun exploit) and ready for launch pending final
+  balance/decision finalization.
 
 **Primary audience:** Autonomous coding agents and humans coordinating with those agents.
 

@@ -23,10 +23,6 @@ Start at your own dock with a simple rod. Cast into the harbor, master the timin
 
 No pay-to-win. Just cozy fishing, friendly competition, and a harbor that gets prettier as you progress.
 
-## Limited Launch Event — "Harbor Collection Week"
-
-During the first 7 days of public launch, players who catch every fish species at least once earn the exclusive **Harbor Master** title and a golden lantern dock decoration. The event highlights the collection system, gives new players a clear aspirational goal, and creates a shared social moment around discovery.
-
 ## Notes
 - Assets were generated to match the PRD's cozy harbor aesthetic (sunset palette, wood/glass/water, non-threatening raid vibe).
 - Text and logos are intentionally omitted from the generated images so they can be overlaid in Roblox Studio or the Creator Dashboard with the official game title.

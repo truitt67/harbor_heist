@@ -25,7 +25,7 @@ In un-published Studio sessions the game still runs fine — it just skips savin
 | Store fish | Press **STORE** — stored fish earn cash every second (rarer = more) |
 | Sell fish | Open **AQUARIUM** panel → **SELL ALL** for instant cash |
 | Upgrade gear | Walk to the **Bait & Tackle Shop** at the plaza center, press E, buy rods/bait (better luck = rarer fish) |
-| Steal | Walk to another player's aquarium and hold the prompt — 50% chance to grab one of their fish (20s cooldown) |
+| Steal | During a **Raid Window** (announced in HUD), opt in via the aquarium panel, then target another player's aquarium — one fish max per window if you succeed |
 | Defend | Open **AQUARIUM** panel → **LOCK** — blocks all theft for 60s (2 min recharge) |
 
 Fish rarities: Common ($10), Uncommon ($25), Rare ($70), Epic ($180), Legendary ($500) — each also earns passive income per second while stored.
@@ -59,4 +59,4 @@ rojo build -o HarborHeist.rbxlx
 Or use `rojo serve` with the Rojo Studio plugin for live syncing while you edit.
 
 ## Tuning the Game
-Everything balance-related lives in `src/shared/GameConfig.lua`: rarity weights/values/income, rod & bait tiers and costs, aquarium capacity (20), lock duration (60s), lock cooldown (120s), steal chance (50%), steal cooldown (20s), max carried fish (5), and dock count (8).
+Everything balance-related lives in `src/shared/GameConfig.lua`: rarity weights/values/income, rod & bait tiers and costs, aquarium capacity (20), lock duration (60s), lock cooldown (120s), max carried fish (5), dock count (8), and raid window timing (20–30 min interval, 5 min window, 1 fish max per raid).

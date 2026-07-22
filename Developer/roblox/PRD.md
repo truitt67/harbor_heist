@@ -270,7 +270,8 @@ Roblox DataStores provide persistent storage across places in an experience, mak
 
 ```lua
 PlayerProfile = {
-    Version = 1,
+    -- Schema version. Bump on breaking changes; DataManager uses this for migration.
+    Version = 2,
     Coins = 0,
     TotalCoinsEarned = 0,
 
@@ -283,7 +284,7 @@ PlayerProfile = {
     },
 
     Aquarium = {
-        Capacity = 10,
+        Capacity = 20, -- Starter Tank capacity; matches GameConfig.lua upgrade tier 1
         UpgradeLevel = 1,
         StoredFish = {
             -- FishInstance records
