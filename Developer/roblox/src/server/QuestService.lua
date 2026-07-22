@@ -200,6 +200,11 @@ function QuestService.init(deps)
 	remotes = deps.remotes
 	stateSync = deps.stateSync
 	local dataManager = deps.dataManager
+	-- Round-4 review (harborheist-xdt): wire antiExploit so the OpenQuests
+	-- rate-limit guard below is LIVE, not dead code. Was referenced but never
+	-- extracted from deps, so `if antiExploit then` always evaluated false and
+	-- the EPIC-10 quest=10/10s rate limit never applied.
+	local antiExploit = deps.antiExploit
 
 	for _, session in pairs(dataManager.allSessions()) do
 		QuestService.initializeQuests(session)

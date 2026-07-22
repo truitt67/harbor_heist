@@ -31,6 +31,11 @@ local CollectionService = {}
 -- Module-level deps captured in init()
 local remotes
 local dataManager
+-- Round-4 review (harborheist-xdt): wire antiExploit so the rate-limit guards
+-- on RequestCollection + ClaimCollectionReward are LIVE. Was referenced but
+-- never assigned, so the guards were dead code -> the collection=20/10s limit
+-- never applied (notably on the mutating ClaimCollectionReward remote).
+local antiExploit
 
 -- Rarity ordinal for milestone reward scaling. Uses the SINGLE source of
 -- truth exported by FishDefinitions (not a hardcoded duplicate that could
@@ -189,6 +194,7 @@ end
 function CollectionService.init(deps)
 	remotes = deps.remotes
 	dataManager = deps.dataManager
+	antiExploit = deps.antiExploit
 
 	-- RequestCollection (RemoteFunction): client asks for its book. Returns
 	-- the COLL-04-safe payload. Read-only — no state mutation here.

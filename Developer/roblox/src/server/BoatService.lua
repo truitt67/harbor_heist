@@ -9,6 +9,11 @@ local seatConnections = {}
 local dataManager = nil
 local stateSync = nil
 local remotes = nil
+-- Round-4 review (harborheist-xdt): wire antiExploit so the SpawnBoat rate
+-- limit (boat=5/10s) applies. handleSpawnRequest is the chokepoint for BOTH
+-- the RemoteFunction and the ProximityPrompt entry point, so the module-level
+-- var (visible to this module-level function) is required.
+local antiExploit = nil
 
 local function setSessionBoat(player, model)
 	if not dataManager then
@@ -423,6 +428,13 @@ local worldFolderRef = nil
 --- @param player Player
 --- @return table { ok = boolean, reason = string? }
 function BoatService.handleSpawnRequest(player)
+	-- Round-4 review (harborheist-xdt): rate-limit at the chokepoint so the
+	-- EPIC-10 boat=5/10s limit applies to BOTH the SpawnBoat RemoteFunction
+	-- and the ProximityPrompt entry point. Cheapest reject first.
+	if antiExploit then
+		local ok, reason = antiExploit.checkRate(player, "boat")
+		if not ok then return { ok = false, reason = reason } end
+	end
 	if boats[player] then
 		return { ok = false, reason = "already_has_boat" }
 	end
@@ -466,6 +478,7 @@ function BoatService.init(deps)
 	worldFolderRef = deps.worldFolder
 	dataManager = deps.dataManager
 	stateSync = deps.stateSync
+	antiExploit = deps.antiExploit
 
 	remotes.SpawnBoat.OnServerInvoke = function(player)
 		return BoatService.handleSpawnRequest(player)
