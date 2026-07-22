@@ -41,6 +41,13 @@ end)
 
 local sessions = {}
 
+-- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
+-- checks this BEFORE GetAsync so a rapid same-UserId rejoin doesn't read stale
+-- pre-save data (the wqw.20 deferred leave-save can be mid-UpdateAsync when the
+-- rejoin's GetAsync fires on the same key). Set in save() after isSaving, cleared
+-- after the save completes. Keyed by UserId (stable across rejoins) not Player.
+local pendingSaveUserIds = {}
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- DEEP SANITIZE — last line of defense against corrupted/exploited data.
 -- TASK 1.5 expands this; the structure here validates every field from the
@@ -371,6 +378,19 @@ end
 
 function DataManager.load(player)
 	local saved = nil
+	-- TASK 14.27 (xsk): wait for any in-flight deferred save to this key before
+	-- reading, so a rapid rejoin doesn't load stale pre-save DataStore data.
+	-- The wqw.20 onPlayerRemoving defers save via task.spawn; if the rejoin's
+	-- GetAsync fires before that save's UpdateAsync commits, it returns the
+	-- OLD value. Bounded by the save's retry duration; 16s cap exceeds the
+	-- save's 15s isSaving wait + 1s UpdateAsync. After the wait, GetAsync sees
+	-- the committed data. If the save failed/timed out, the 60s autosave +
+	-- transactional saves (thj.2) still persist the data shortly.
+	local pendingWaited = 0
+	while pendingSaveUserIds[player.UserId] and pendingWaited < 16 do
+		task.wait(0.1)
+		pendingWaited += 0.1
+	end
 	if dataStore then
 		local ok, result = withRetries(function()
 			return dataStore:GetAsync(keyFor(player))
@@ -498,6 +518,9 @@ function DataManager.save(player, isShutdown)
 	end
 
 	session.isSaving = true
+	-- TASK 14.27 (xsk): mark this userId as save-in-flight so a concurrent
+	-- load() (rapid rejoin) waits for the UpdateAsync to commit before reading.
+	pendingSaveUserIds[player.UserId] = true
 
 	local profile = session.profile
 
@@ -544,6 +567,8 @@ function DataManager.save(player, isShutdown)
 	end, isShutdown and 2 or 4)
 
 	session.isSaving = false
+	-- TASK 14.27 (xsk): save committed (or failed) — unblock any waiting load().
+	pendingSaveUserIds[player.UserId] = nil
 
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
