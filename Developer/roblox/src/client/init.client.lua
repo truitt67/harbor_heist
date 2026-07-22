@@ -459,7 +459,7 @@ end
 local sellStorePrompt = Instance.new("Frame")
 sellStorePrompt.Name = "SellStorePrompt"
 sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
-sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 80)
+sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 140)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
 sellStorePrompt.BackgroundColor3 = UI.surface
 sellStorePrompt.BackgroundTransparency = 0.08
@@ -2221,20 +2221,33 @@ local function render()
 	-- Detect a carried-count increase (new fish caught) and show the
 	-- comparison once, unless the player has already seen/dismissed it.
 	local carriedCount = state.carried or 0
+	local carriedFish = state.carriedFish or {}
+
+	-- If the prompt is open but its target fish is no longer in the carried
+	-- inventory (player sold/stored it through another path), hide it and allow
+	-- it to reappear on the next catch so the comparison is still presented.
+	if sellStorePrompt.Visible and sellStoreTargetFish then
+		local targetStillPresent = false
+		for _, fish in ipairs(carriedFish) do
+			if fish.InstanceId == sellStoreTargetFish.InstanceId then
+				targetStillPresent = true
+				break
+			end
+		end
+		if not targetStillPresent then
+			hideSellStorePrompt()
+			sellStorePromptShown = false
+		end
+	end
+
 	if carriedCount > lastCarriedCount
 		and not sellStorePromptShown
 		and not (state.onboarding or {}).HasSeenSellStoreComparison
 		and not sellStorePrompt.Visible then
-		local carriedFish = state.carriedFish or {}
 		local firstFish = carriedFish[1]
 		if firstFish then
 			showSellStorePrompt(firstFish)
 		end
-	elseif carriedCount == 0 and sellStorePrompt.Visible then
-		-- Fish was sold or stored through another path (e.g. the bag panel);
-		-- hide the stale prompt but do NOT mark the comparison as seen, so the
-		-- prompt still appears on the next catch if the player hasn't acted on it.
-		hideSellStorePrompt()
 	end
 	lastCarriedCount = carriedCount
 end
