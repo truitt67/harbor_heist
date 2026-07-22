@@ -1,5 +1,6 @@
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 local FishVisuals = require(ReplicatedStorage.Shared.FishVisuals) -- TASK 2.8
 -- TASK 5.6 / DEC-6: rarity ordinal for curated highest-rarity display
@@ -18,6 +19,82 @@ local DOCK_WIDTH = 6
 
 local docks = {}
 local docksFolder = nil
+
+-- TASK 12.3: global pool for aquarium fish models so we don't create/destroy
+-- them on every store/sell update. Models are keyed by species+rarity and
+-- capped at a server-wide total to avoid unbounded memory growth.
+local fishModelPool = {} -- [key] = { model1, model2, ... }
+local activeFishTweens = {} -- [model] = Tween
+local MAX_POOL_SIZE = 80
+local poolFolder = nil
+
+local function getPoolFolder()
+	if not poolFolder then
+		poolFolder = Instance.new("Folder")
+		poolFolder.Name = "FishModelPool"
+		poolFolder.Parent = ServerStorage
+	end
+	return poolFolder
+end
+
+local function stopFishTween(model)
+	local tween = activeFishTweens[model]
+	if tween then
+		tween:Cancel()
+		activeFishTweens[model] = nil
+	end
+end
+
+local function releaseModel(model)
+	if not model or not model.Parent then
+		return
+	end
+	stopFishTween(model)
+	model.Parent = getPoolFolder()
+	local key = model:GetAttribute("FishModelKey")
+	if key then
+		fishModelPool[key] = fishModelPool[key] or {}
+		table.insert(fishModelPool[key], model)
+	end
+end
+
+local function getPooledModel(key)
+	local pool = fishModelPool[key]
+	if pool then
+		for i = #pool, 1, -1 do
+			local model = pool[i]
+			if model and model.Parent then
+				table.remove(pool, i)
+				return model
+			end
+		end
+	end
+	return nil
+end
+
+local function trimPool()
+	local total = 0
+	for _, pool in pairs(fishModelPool) do
+		total += #pool
+	end
+	if total <= MAX_POOL_SIZE then
+		return
+	end
+	local excess = total - MAX_POOL_SIZE
+	for _, pool in pairs(fishModelPool) do
+		while excess > 0 and #pool > 0 do
+			local model = table.remove(pool, 1)
+			if model then
+				stopFishTween(model)
+				model:Destroy()
+			end
+			excess -= 1
+		end
+		if excess <= 0 then
+			break
+		end
+	end
+end
 
 local function makePart(props)
 	local part = Instance.new("Part")
@@ -306,11 +383,14 @@ function DockManager.release(player)
 					prompt.Enabled = false
 				end
 			end
-			-- SECURITY: Clear fish display instances
-			local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
-			if fishDisplay then
-				fishDisplay:ClearAllChildren()
+		-- TASK 12.3: release fish display models back to the global pool instead
+		-- of destroying them, so the next aquarium update can reuse them.
+		local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
+		if fishDisplay then
+			for _, child in ipairs(fishDisplay:GetChildren()) do
+				releaseModel(child)
 			end
+		end
 			-- TASK 6.4: clear cosmetic dock décor so a re-claimed dock resets
 			-- to the next owner's tier (rebuilt on their join/store refresh).
 			local dockDecor = dock.model and dock.model:FindFirstChild("DockDecor")
@@ -528,7 +608,13 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 
 	local rng = Random.new(dock.index * 1000 + #stored)
 	local display = dock.aquarium.FishDisplay
-	display:ClearAllChildren()
+
+	-- TASK 12.3: pool fish models instead of destroying/recreating them on
+	-- every store/sell refresh. Move currently displayed models back to the
+	-- global pool so they can be reused for the same (species, rarity) pair.
+	for _, child in ipairs(display:GetChildren()) do
+		releaseModel(child)
+	end
 
 	local waterCFrame = dock.aquarium.Water.CFrame
 	local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
@@ -539,34 +625,49 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	for i = 1, shown do
 		local fishData = validFish[i]
 		local speciesId = fishData.SpeciesId
-		local fishModel = FishVisuals.build(speciesId, fishData.Rarity)
+		local rarityName = fishData.Rarity
+		local key = FishVisuals.getModelKey(speciesId, rarityName)
+
+		-- Try to reuse a pooled model for this visual identity; build a new one
+		-- only if the pool has no match.
+		local fishModel = getPooledModel(key)
+		if not fishModel then
+			fishModel = FishVisuals.build(speciesId, rarityName)
+			fishModel:SetAttribute("FishModelKey", key)
+		end
+
 		local body = fishModel.PrimaryPart
+		if body then
+			local startYaw = rng:NextNumber(0, math.pi * 2)
+			local startCFrame = waterCFrame
+				* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
+				* CFrame.Angles(0, startYaw, 0)
+			fishModel:SetPrimaryPartCFrame(startCFrame)
+			fishModel.Parent = display
 
-		local startYaw = rng:NextNumber(0, math.pi * 2)
-		local startCFrame = waterCFrame
-			* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
-			* CFrame.Angles(0, startYaw, 0)
-		fishModel:SetPrimaryPartCFrame(startCFrame)
-		fishModel.Parent = display
-
-		-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
-		local driftCFrame = startCFrame
-			* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
-			* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
-		local swimTween = TweenService:Create(
-			body,
-			TweenInfo.new(
-				rng:NextNumber(2.2, 3.6),
-				Enum.EasingStyle.Sine,
-				Enum.EasingDirection.InOut,
-				-1,
-				true,
-				rng:NextNumber(0, 1.5)
-			),
-			{ CFrame = driftCFrame }
-		)
-		swimTween:Play()
+			-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
+			local driftCFrame = startCFrame
+				* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
+				* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
+			local swimTween = TweenService:Create(
+				body,
+				TweenInfo.new(
+					rng:NextNumber(2.2, 3.6),
+					Enum.EasingStyle.Sine,
+					Enum.EasingDirection.InOut,
+					-1,
+					true,
+					rng:NextNumber(0, 1.5)
+				),
+				{ CFrame = driftCFrame }
+			)
+			swimTween:Play()
+			activeFishTweens[fishModel] = swimTween
+		end
 	end
+
+	-- TASK 12.3: cap the global pool so memory does not grow without bound.
+	trimPool()
 
 	-- SECURITY: Verify sign elements exist before updating
 	local sign = dock.aquarium.PrimaryPart and dock.aquarium.PrimaryPart:FindFirstChild("InfoSign")
@@ -590,4 +691,3 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 end
 
 return DockManager
-

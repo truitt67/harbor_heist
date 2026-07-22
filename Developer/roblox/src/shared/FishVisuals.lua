@@ -325,4 +325,12 @@ function FishVisuals.buildSilhouette(speciesId)
 	return buildInternal(speciesId, "Common", "silhouette")
 end
 
+--[[
+	Return a canonical key for a (speciesId, rarityName) pair.
+	Used by consumers that want to pool or cache models by visual identity.
+]]
+function FishVisuals.getModelKey(speciesId, rarityName)
+	return tostring(speciesId) .. "_" .. tostring(rarityName)
+end
+
 return FishVisuals
