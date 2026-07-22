@@ -1107,7 +1107,7 @@ return GameConfig
       <Item class="ModuleScript" referent="7">
         <Properties>
           <string name="Name">PlayerProfile</string>
-          <string name="Source"><![CDATA[--[[
+          <string name="Source">--[[
 	PlayerProfile.lua — Structured profile schema for Harbor Heist V1.
 
 	This module defines the authoritative shape of a player's persistent data.
@@ -1209,6 +1209,16 @@ function PlayerProfile.default()
 			LockFreeUsesRemaining = GameConfig.Defense.LockFreeUsesMax,
 			LockFreeUsesMax = GameConfig.Defense.LockFreeUsesMax,
 		},
+		-- harborheist-qtp8: persisted quest pools (sanitized by DataManager so
+		-- rewards can't be re-claimed on rejoin; runtime-mutable on the session,
+		-- written back at save). The KEY fields (dailyQuestKey/weeklyQuestKey)
+		-- stay nil until QuestService assigns them, but the LIST fields MUST
+		-- default to {} so callers can safely take #session.dailyQuests even for
+		-- a brand-new player — sanitize(nil) returns early BEFORE its
+		-- quest-patching block, so without these defaults initializeQuests
+		-- relies on the `or` short-circuit to avoid a #nil crash (fragile).
+		dailyQuests = {},
+		weeklyQuests = {},
 	}
 end
 
@@ -1222,7 +1232,7 @@ function PlayerProfile.clampCoins(value)
 	end
 	-- R1.2 (egf.2): NaN passes Lua's type() guard (type(NaN) == "number")
 	-- but propagates through math.min/max/floor, reaching DataStore and
-	-- purchase gates. (NaN < cost) is always false, so a NaN-coined player
+	-- purchase gates. (NaN &lt; cost) is always false, so a NaN-coined player
 	-- can buy everything for free. Reject NaN (the only number not equal to
 	-- itself) before the clamp. ±Inf are already handled by math.min/max.
 	if value ~= value then
@@ -1231,8 +1241,7 @@ function PlayerProfile.clampCoins(value)
 	return math.floor(math.max(0, math.min(PlayerProfile.MAX_COINS, value)))
 end
 
-return PlayerProfile
-]]></string>
+return PlayerProfile</string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="8">
@@ -6556,6 +6565,19 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		markerSpeed = cfg.markerSpeed,
 		deadline = os.clock() + cfg.durationSeconds,
 	}
+	-- harborheist-umqk: victim's alarm warns at ATTEMPT time (notifyChance).
+	-- This is the alarm's counterplay half: submitRaidResult re-validates
+	-- victim eligibility at resolution, so a warned victim can lock their
+	-- aquarium during the minigame window and void the raid.
+	local alarmLevel = targetSession.profile.Aquarium.AlarmLevel or 0
+	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+	if alarmConfig and (alarmConfig.notifyChance or 0) >= rng:NextNumber() then
+		remotes.notify(
+			targetPlayer,
+			string.format("ALARM! %s is trying to steal from your aquarium!", player.DisplayName),
+			Color3.fromRGB(255, 150, 100)
+		)
+	end
 	if analytics then
 		pcall(function()
 			analytics.track(player, "raid_attempted", { victim_id = targetUserId })
@@ -6662,18 +6684,6 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 	-- wqw.21: wire PvP win/loss stats for successful raids
 	attackerSession.profile.PvP.RaidsWon = (attackerSession.profile.PvP.RaidsWon or 0) + 1
 	victimSession.profile.PvP.RaidsLost = (victimSession.profile.PvP.RaidsLost or 0) + 1
-	-- harborheist-umqk: wire the purchasable Alarm upgrade. A successful theft
-	-- against an alarmed victim stuns the thief for the tier's stunDuration,
-	-- activating the existing stunUntil gates (no re-raid, no boat escape,
-	-- client WalkSpeed slow via stunRemaining). The failure path stays
-	-- stun-free: "stun thief" applies when a theft actually occurred.
-	local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
-	local alarmTier = GameConfig.Upgrades.Alarm[alarmLevel]
-	local alarmNote = ""
-	if alarmTier and (alarmTier.stunDuration or 0) > 0 then
-		attackerSession.stunUntil = os.clock() + alarmTier.stunDuration
-		alarmNote = string.format(" Your alarm stunned them for %ds.", alarmTier.stunDuration)
-	end
 	-- gdj.10 trigger: clear defender notification with what was taken (PVP-09).
 	remotes.notify(
 		victim,
@@ -6681,7 +6691,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			"RAID! %s stole your %s %s (value $%d). You are immune for %ds — lock your aquarium to stay safe.",
 			attacker.DisplayName, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue,
 			GameConfig.Raid.defenderProtectionSeconds
-		) .. alarmNote,
+		),
 		Color3.fromRGB(255, 100, 100)
 	)
 	if fenced then
@@ -6767,9 +6777,9 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		end
 	end
 	local victimSession = victim and dataManager.get(victim)
-	local function failOutcome(reason)
+	local function failOutcome(reason, victimNoteSuffix)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100))
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName) .. (victimNoteSuffix or ""), Color3.fromRGB(255, 200, 100))
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
@@ -6815,7 +6825,39 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
 		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
-		return failOutcome("missed")
+		-- harborheist-umqk: the victim's alarm trips on the failed attempt,
+		-- stunning the thief (restores the pre-gdj.15 semantics: the stun
+		-- punishes a botched theft, not a successful one). The delayed push
+		-- flips stunRemaining to 0 on expiry so the client WalkSpeed gate
+		-- (init.client.lua render) restores normal speed without waiting
+		-- for an unrelated snapshot.
+		local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
+		local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+		local victimNoteSuffix
+		if alarmConfig and (alarmConfig.stunDuration or 0) > 0 then
+			local now = os.clock()
+			if (session.stunUntil or 0) < now + alarmConfig.stunDuration then
+				session.stunUntil = now + alarmConfig.stunDuration
+			end
+			remotes.notify(
+				player,
+				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
+				Color3.fromRGB(255, 100, 100)
+			)
+			victimNoteSuffix = string.format(" Your alarm stunned them for %ds.", alarmConfig.stunDuration)
+			-- Push now so the attacker's client applies the WalkSpeed gate
+			-- immediately (a zero-income attacker would otherwise wait for an
+			-- unrelated snapshot; the income loop only pushes when income>0).
+			stateSync.push(session)
+			local stunnedPlayer = player
+			local stunnedSession = session
+			task.delay(alarmConfig.stunDuration, function()
+				if stunnedPlayer.Parent and dataManager.get(stunnedPlayer) == stunnedSession then
+					stateSync.push(stunnedSession)
+				end
+			end)
+		end
+		return failOutcome("missed", victimNoteSuffix)
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
 	if not outcome.ok then
@@ -8497,15 +8539,20 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="StarterPlayer" referent="29">
+  <Item class="ServerStorage" referent="29">
+    <Properties>
+      <string name="Name">ServerStorage</string>
+    </Properties>
+  </Item>
+  <Item class="StarterPlayer" referent="30">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="30">
+    <Item class="StarterPlayerScripts" referent="31">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="31">
+      <Item class="LocalScript" referent="32">
         <Properties>
           <string name="Name">HarborHeistClient</string>
           <string name="Source">local Players = game:GetService("Players")
@@ -8871,11 +8918,11 @@ end
 local onboardingPrompt = Instance.new("Frame")
 onboardingPrompt.Name = "OnboardingPrompt"
 onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
--- Mobile: position above the right-edge action bar stack (6 buttons × 70
--- = 420px tall, bottom at -90 → top at -510; +12px gap → -522).
+-- Mobile: position above the right-edge action bar stack (7 buttons × 70
+-- = 490px tall, bottom at -90 → top at -580; +12px gap → -592).
 -- Desktop: just above the bottom action bar (58px at -18 → top at -76;
 -- +8px gap → -84).
-onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -522 or -84)
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -592 or -84)
 onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
 onboardingPrompt.BackgroundColor3 = UI.surface
 onboardingPrompt.BackgroundTransparency = 0.1
@@ -9382,6 +9429,9 @@ local SERVER_NOTIFIED_REASONS = {
 }
 
 local function fishDisplayName(fish)
+	if not fish then
+		return "Fish"
+	end
 	local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
 	return (ok and def and def.DisplayName) or fish.SpeciesId or "Fish"
 end
@@ -10900,8 +10950,10 @@ local function render()
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
 	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
 
-	local rodName = GameConfig.Rods[state.rodLevel].name
-	local baitName = GameConfig.Baits[state.baitLevel].name
+	local rodLevel = state.rodLevel or 1
+	local baitLevel = state.baitLevel or 1
+	local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
+	local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
 	aquariumStats.Text = string.format(
 		'&lt;font color="#EEF3FA">&lt;b>%d / %d fish&lt;/b>&lt;/font>  •  &lt;font color="#86EFAC">&lt;b>$%.1f / sec&lt;/b>&lt;/font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
@@ -11126,18 +11178,9 @@ marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 marker.Parent = barTrack
 corner(marker, 2)
 
--- Result text
-local minigameResult = makeLabel(minigameFrame, {
-	Size = UDim2.new(1, 0, 0, 24),
-	Position = UDim2.new(0, 0, 0, 80),
-	Text = "",
-	TextColor3 = UI.text,
-})
-
 local minigameActive = false
 local minigameStartTime = 0
 local minigameWindow = 3.0
-local minigameZoneId = nil
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -11148,11 +11191,9 @@ local minigameZoneHalfWidth = 0.15
 local function runMinigame(zoneId, windowSeconds)
 	if minigameActive then return end
 	minigameActive = true
-	minigameZoneId = zoneId
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
-	minigameResult.Text = ""
 
 	-- ROUND-3 FIX (fellow-agent review): the minigame zone was hardcoded to
 	-- 30% ([0.35, 0.65]) in BOTH the visual frame and the tap hit-test, but
@@ -11249,8 +11290,6 @@ local function doFish()
 end
 
 actionButtons.fish.Activated:Connect(doFish)
--- Panel close (✕) buttons were created by makePanel but never wired — dead
--- UI on every panel (backdrop click and Escape worked; the ✕ did nothing).
 aquariumClose.Activated:Connect(hidePanels)
 inventoryClose.Activated:Connect(hidePanels)
 shopClose.Activated:Connect(hidePanels)
@@ -11555,7 +11594,7 @@ end)</string>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="32">
+  <Item class="Workspace" referent="33">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="NeedsPivotMigration">false</bool>

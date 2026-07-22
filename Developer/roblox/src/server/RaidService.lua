@@ -451,6 +451,19 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		markerSpeed = cfg.markerSpeed,
 		deadline = os.clock() + cfg.durationSeconds,
 	}
+	-- harborheist-umqk: victim's alarm warns at ATTEMPT time (notifyChance).
+	-- This is the alarm's counterplay half: submitRaidResult re-validates
+	-- victim eligibility at resolution, so a warned victim can lock their
+	-- aquarium during the minigame window and void the raid.
+	local alarmLevel = targetSession.profile.Aquarium.AlarmLevel or 0
+	local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+	if alarmConfig and (alarmConfig.notifyChance or 0) >= rng:NextNumber() then
+		remotes.notify(
+			targetPlayer,
+			string.format("ALARM! %s is trying to steal from your aquarium!", player.DisplayName),
+			Color3.fromRGB(255, 150, 100)
+		)
+	end
 	if analytics then
 		pcall(function()
 			analytics.track(player, "raid_attempted", { victim_id = targetUserId })
@@ -557,18 +570,6 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 	-- wqw.21: wire PvP win/loss stats for successful raids
 	attackerSession.profile.PvP.RaidsWon = (attackerSession.profile.PvP.RaidsWon or 0) + 1
 	victimSession.profile.PvP.RaidsLost = (victimSession.profile.PvP.RaidsLost or 0) + 1
-	-- harborheist-umqk: wire the purchasable Alarm upgrade. A successful theft
-	-- against an alarmed victim stuns the thief for the tier's stunDuration,
-	-- activating the existing stunUntil gates (no re-raid, no boat escape,
-	-- client WalkSpeed slow via stunRemaining). The failure path stays
-	-- stun-free: "stun thief" applies when a theft actually occurred.
-	local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
-	local alarmTier = GameConfig.Upgrades.Alarm[alarmLevel]
-	local alarmNote = ""
-	if alarmTier and (alarmTier.stunDuration or 0) > 0 then
-		attackerSession.stunUntil = os.clock() + alarmTier.stunDuration
-		alarmNote = string.format(" Your alarm stunned them for %ds.", alarmTier.stunDuration)
-	end
 	-- gdj.10 trigger: clear defender notification with what was taken (PVP-09).
 	remotes.notify(
 		victim,
@@ -576,7 +577,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			"RAID! %s stole your %s %s (value $%d). You are immune for %ds — lock your aquarium to stay safe.",
 			attacker.DisplayName, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue,
 			GameConfig.Raid.defenderProtectionSeconds
-		) .. alarmNote,
+		),
 		Color3.fromRGB(255, 100, 100)
 	)
 	if fenced then
@@ -662,9 +663,9 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		end
 	end
 	local victimSession = victim and dataManager.get(victim)
-	local function failOutcome(reason)
+	local function failOutcome(reason, victimNoteSuffix)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100))
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName) .. (victimNoteSuffix or ""), Color3.fromRGB(255, 200, 100))
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
@@ -710,7 +711,39 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
 		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
-		return failOutcome("missed")
+		-- harborheist-umqk: the victim's alarm trips on the failed attempt,
+		-- stunning the thief (restores the pre-gdj.15 semantics: the stun
+		-- punishes a botched theft, not a successful one). The delayed push
+		-- flips stunRemaining to 0 on expiry so the client WalkSpeed gate
+		-- (init.client.lua render) restores normal speed without waiting
+		-- for an unrelated snapshot.
+		local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
+		local alarmConfig = alarmLevel > 0 and GameConfig.Upgrades.Alarm[alarmLevel] or nil
+		local victimNoteSuffix
+		if alarmConfig and (alarmConfig.stunDuration or 0) > 0 then
+			local now = os.clock()
+			if (session.stunUntil or 0) < now + alarmConfig.stunDuration then
+				session.stunUntil = now + alarmConfig.stunDuration
+			end
+			remotes.notify(
+				player,
+				string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
+				Color3.fromRGB(255, 100, 100)
+			)
+			victimNoteSuffix = string.format(" Your alarm stunned them for %ds.", alarmConfig.stunDuration)
+			-- Push now so the attacker's client applies the WalkSpeed gate
+			-- immediately (a zero-income attacker would otherwise wait for an
+			-- unrelated snapshot; the income loop only pushes when income>0).
+			stateSync.push(session)
+			local stunnedPlayer = player
+			local stunnedSession = session
+			task.delay(alarmConfig.stunDuration, function()
+				if stunnedPlayer.Parent and dataManager.get(stunnedPlayer) == stunnedSession then
+					stateSync.push(stunnedSession)
+				end
+			end)
+		end
+		return failOutcome("missed", victimNoteSuffix)
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
 	if not outcome.ok then
