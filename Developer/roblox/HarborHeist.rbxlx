@@ -9164,7 +9164,7 @@ local lockButton = makeButton(aquariumContent, {
 
 -- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
 local raidOptInButton = makeButton(aquariumContent, {
-	Size = UDim2.new(1, 0, 0, 32),
+	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 32),
 	Position = UDim2.new(0, 0, 1, -buttonH - 40),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
@@ -9558,8 +9558,8 @@ local function makeMilestoneRow(parent, order, milestone)
 		})
 	elseif milestone.complete then
 		local claimBtn = makeButton(row, {
-			Size = UDim2.new(0, 80, 0, 32),
-			Position = UDim2.new(1, -90, 0.5, -16),
+			Size = UDim2.new(0, IS_MOBILE and 96 or 80, 0, IS_MOBILE and 44 or 32),
+			Position = UDim2.new(1, IS_MOBILE and -106 or -90, 0.5, IS_MOBILE and -22 or -16),
 			Text = "CLAIM",
 			Font = FONT_BOLD,
 			TextSize = 12,
@@ -10042,8 +10042,8 @@ local raidCountdownLabel = makeLabel(raidContent, {
 })
 
 local raidOptInPanelButton = makeButton(raidContent, {
-	Size = UDim2.new(1, 0, 0, 36),
-	Position = UDim2.new(0, 0, 0, 78),
+	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 36),
+	Position = UDim2.new(0, 0, 0, IS_MOBILE and 84 or 78),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
@@ -10077,8 +10077,8 @@ raidTargetLayout.SortOrder = Enum.SortOrder.LayoutOrder
 raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
-	Size = UDim2.new(0, 90, 0, 28),
-	Position = UDim2.new(1, -94, 0, 112),
+	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 36 or 28),
+	Position = UDim2.new(1, IS_MOBILE and -104 or -94, 0, IS_MOBILE and 104 or 112),
 	Text = "REFRESH",
 	BackgroundColor3 = UI.surfaceHi,
 	TextColor3 = UI.text,
@@ -10175,8 +10175,8 @@ local function renderRaidTargets(data)
 			ZIndex = 27,
 		})
 		local attempt = makeButton(row, {
-			Size = UDim2.new(0, 92, 0, 32),
-			Position = UDim2.new(1, -102, 0.5, -16),
+			Size = UDim2.new(0, IS_MOBILE and 104 or 92, 0, IS_MOBILE and 44 or 32),
+			Position = UDim2.new(1, IS_MOBILE and -114 or -102, 0.5, IS_MOBILE and -22 or -16),
 			Text = "RAID",
 			BackgroundColor3 = UI.bad,
 			TextSize = 12,

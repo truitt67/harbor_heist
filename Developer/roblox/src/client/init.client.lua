@@ -396,10 +396,10 @@ local onboardingLabel = makeLabel(onboardingPrompt, {
 })
 
 local onboardingDismiss = makeButton(onboardingPrompt, {
-	Size = UDim2.new(0, 24, 0, 24),
-	Position = UDim2.new(1, -30, 0.5, -12),
+	Size = UDim2.new(0, IS_MOBILE and 36 or 24, 0, IS_MOBILE and 36 or 24),
+	Position = UDim2.new(1, IS_MOBILE and -42 or -30, 0.5, IS_MOBILE and -18 or -12),
 	Text = "✕",
-	TextSize = 12,
+	TextSize = IS_MOBILE and 14 or 12,
 	BackgroundColor3 = UI.surfaceHi,
 	TextColor3 = UI.textDim,
 	CornerRadius = 999,
@@ -493,8 +493,8 @@ makeLabel(sellStorePrompt, {
 })
 
 local sellStoreClose = makeButton(sellStorePrompt, {
-	Size = UDim2.new(0, 26, 0, 26),
-	Position = UDim2.new(1, -31, 0, 8),
+	Size = UDim2.new(0, IS_MOBILE and 36 or 26, 0, IS_MOBILE and 36 or 26),
+	Position = UDim2.new(1, IS_MOBILE and -41 or -31, 0, IS_MOBILE and 4 or 8),
 	Text = "✕",
 	TextSize = 13,
 	BackgroundColor3 = UI.surfaceHi,
@@ -504,8 +504,8 @@ local sellStoreClose = makeButton(sellStorePrompt, {
 })
 
 local sellStoreSellBtn = makeButton(sellStorePrompt, {
-	Size = UDim2.new(0.48, -6, 0, 36),
-	Position = UDim2.new(0, 10, 1, -48),
+	Size = UDim2.new(0.48, -6, 0, IS_MOBILE and 44 or 36),
+	Position = UDim2.new(0, 10, 1, IS_MOBILE and -56 or -48),
 	Text = "SELL $0",
 	BackgroundColor3 = UI.good,
 	TextColor3 = UI.ink,
@@ -514,8 +514,8 @@ local sellStoreSellBtn = makeButton(sellStorePrompt, {
 })
 
 local sellStoreStoreBtn = makeButton(sellStorePrompt, {
-	Size = UDim2.new(0.48, -6, 0, 36),
-	Position = UDim2.new(0.52, 4, 1, -48),
+	Size = UDim2.new(0.48, -6, 0, IS_MOBILE and 44 or 36),
+	Position = UDim2.new(0.52, 4, 1, IS_MOBILE and -56 or -48),
 	Text = "STORE $0/min",
 	BackgroundColor3 = UI.accent,
 	TextColor3 = UI.ink,
@@ -757,7 +757,7 @@ vGradient(capacityFill, Color3.fromRGB(196, 181, 253), UI.purple)
 
 -- TASK 5.1: claim accumulated aquarium income
 local claimButton = makeButton(aquariumPanel, {
-	Size = UDim2.new(1, -16, 0, 34),
+	Size = UDim2.new(1, -16, 0, IS_MOBILE and 44 or 34),
 	Position = UDim2.new(0, 8, 1, -122),
 	Text = "CLAIM $0",
 	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
@@ -805,7 +805,7 @@ local lockButton = makeButton(aquariumContent, {
 
 -- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
 local raidOptInButton = makeButton(aquariumContent, {
-	Size = UDim2.new(1, 0, 0, 32),
+	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 32),
 	Position = UDim2.new(0, 0, 1, -buttonH - 40),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
@@ -1199,8 +1199,8 @@ local function makeMilestoneRow(parent, order, milestone)
 		})
 	elseif milestone.complete then
 		local claimBtn = makeButton(row, {
-			Size = UDim2.new(0, 80, 0, 32),
-			Position = UDim2.new(1, -90, 0.5, -16),
+			Size = UDim2.new(0, IS_MOBILE and 96 or 80, 0, IS_MOBILE and 44 or 32),
+			Position = UDim2.new(1, IS_MOBILE and -106 or -90, 0.5, IS_MOBILE and -22 or -16),
 			Text = "CLAIM",
 			Font = FONT_BOLD,
 			TextSize = 12,
@@ -1683,8 +1683,8 @@ local raidCountdownLabel = makeLabel(raidContent, {
 })
 
 local raidOptInPanelButton = makeButton(raidContent, {
-	Size = UDim2.new(1, 0, 0, 36),
-	Position = UDim2.new(0, 0, 0, 78),
+	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 36),
+	Position = UDim2.new(0, 0, 0, IS_MOBILE and 84 or 78),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
@@ -1718,8 +1718,8 @@ raidTargetLayout.SortOrder = Enum.SortOrder.LayoutOrder
 raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
-	Size = UDim2.new(0, 90, 0, 28),
-	Position = UDim2.new(1, -94, 0, 112),
+	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 36 or 28),
+	Position = UDim2.new(1, IS_MOBILE and -104 or -94, 0, IS_MOBILE and 104 or 112),
 	Text = "REFRESH",
 	BackgroundColor3 = UI.surfaceHi,
 	TextColor3 = UI.text,
@@ -1816,8 +1816,8 @@ local function renderRaidTargets(data)
 			ZIndex = 27,
 		})
 		local attempt = makeButton(row, {
-			Size = UDim2.new(0, 92, 0, 32),
-			Position = UDim2.new(1, -102, 0.5, -16),
+			Size = UDim2.new(0, IS_MOBILE and 104 or 92, 0, IS_MOBILE and 44 or 32),
+			Position = UDim2.new(1, IS_MOBILE and -114 or -102, 0.5, IS_MOBILE and -22 or -16),
 			Text = "RAID",
 			BackgroundColor3 = UI.bad,
 			TextSize = 12,
