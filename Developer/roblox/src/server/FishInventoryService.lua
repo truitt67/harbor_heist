@@ -42,9 +42,11 @@ function FishInventoryService.init(deps)
 	end
 
 	-- ════════════════════════════════════════════════════════════════════════
-	-- Sell a single fish from carried inventory (PRD INV-03)
+	-- Sell a single fish from carried inventory (PRD INV-03), or from the
+	-- aquarium when fromAquarium=true (PRD AQUA-09 / TASK 5.5, gated on
+	-- lock + raid-protection state).
 	-- ════════════════════════════════════════════════════════════════════════
-	remotes.SellFish.OnServerInvoke = function(player, instanceId)
+	remotes.SellFish.OnServerInvoke = function(player, instanceId, fromAquarium)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "sell")
 			if not ok then return { ok = false, reason = reason } end
@@ -60,12 +62,36 @@ function FishInventoryService.init(deps)
 		-- Find the fish in carried inventory.
 		-- N3 (CRITICAL): previously fell through to search Aquarium.StoredFish
 		-- on a miss, which let an exploiter fire SellFish(id) + StoreSingleFish(id)
-		-- in the same frame to double-pay. SellFish now only sells from carried;
-		-- aquarium sells must go through SellAll or an explicit fromAquarium flag.
-		local idx = findFishIndex(session.carried, instanceId)
+		-- in the same frame to double-pay. SellFish now only sells from carried
+		-- UNLESS the caller passes an explicit fromAquarium=true flag (TASK 5.5).
 		local fish = nil
-		if idx then
-			fish = table.remove(session.carried, idx)
+		local soldFromStored = false
+		if fromAquarium == true then
+			-- TASK 5.5 (9mu.5 / PRD AQUA-09): direct-sell one STORED fish.
+			-- Restricted during an active lock or raid protection so a player
+			-- cannot hide fish from an imminent raid by liquidating them (same
+			-- gate pattern as wqw.6 SellAll + isEligibleRaidTarget).
+			local locked = (session.lockedUntil or 0) > os.clock()
+			if locked then
+				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				return { ok = false, reason = "aquarium_locked" }
+			end
+			local raidProtected = (session.profile.Aquarium.RaidProtectionUntilTimestamp or 0) > os.time()
+			if raidProtected then
+				notify(player, "Raid protection active — stored fish can't be removed right now.", Color3.fromRGB(255, 170, 80))
+				return { ok = false, reason = "raid_protected" }
+			end
+			local storedFish = session.profile.Aquarium.StoredFish
+			local idx = findFishIndex(storedFish, instanceId)
+			if idx then
+				fish = table.remove(storedFish, idx)
+				soldFromStored = true
+			end
+		else
+			local idx = findFishIndex(session.carried, instanceId)
+			if idx then
+				fish = table.remove(session.carried, idx)
+			end
 		end
 
 		if not fish then
@@ -83,6 +109,11 @@ function FishInventoryService.init(deps)
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 
+		if soldFromStored then
+			-- TASK 14.15 (wqw.15): a fish was removed from StoredFish -> invalidate
+			-- the cached incomePerSec so the next push/income-tick recomputes it.
+			stateSync.invalidateIncomeCache(session)
+		end
 		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish sell (not just autosave).
@@ -109,6 +140,7 @@ function FishInventoryService.init(deps)
 				species_id = fish.SpeciesId,
 				rarity = fish.Rarity,
 				payout = payout,
+				source = soldFromStored and "aquarium" or "carried",
 			})
 			if analytics.isFirst(player.UserId, "first_sale") then
 				analytics.track(player, "first_sale", { payout = payout })
