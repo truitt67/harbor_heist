@@ -24,13 +24,14 @@ import sys
 REPO = "/home/ubuntu/Developer/roblox"
 ISSUES_JSONL = REPO + "/.beads/issues.jsonl"
 
-EPIC18 = None  # filled after creation
-EPIC19 = None
 
 
 def run(cmd):
     """RELIABILITY: every br subprocess gets a timeout (pattern from epic14 script)."""
-    r = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, timeout=30)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO, timeout=30)
+    except subprocess.TimeoutExpired:
+        return "", f"TIMEOUT after 30s: {' '.join(cmd[:3])}...", 1
     return r.stdout.strip(), r.stderr.strip(), r.returncode
 
 
@@ -127,7 +128,7 @@ EPIC19_DESC = """Umbrella for end-to-end integration test scripts that drive the
 - No e2e scripts, no test harness, no logging infrastructure. Manual playthrough only (HarborHeist_test.rbxlx).
 
 ## WHAT "E2E" MEANS HERE
-- A test client script inside a real Roblox server session drives the REAL RemoteEvents/RemoteFunctions (RequestCast, SubmitCatchInput, RequestStoreFish, RequestClaimIncome, RequestPurchaseUpgrade, RequestRaidAttempt, etc. — 15 events + 17 functions in src/server/Remotes.lua) and asserts on REAL server state via GetState snapshots and observed events.
+- A test client script inside a real Roblox server session drives the REAL RemoteEvents/RemoteFunctions (RequestCast, SubmitCatchInput, RequestStoreFish, RequestClaimIncome, RequestPurchaseUpgrade, RequestRaidAttempt, etc. — 11 events + 17 functions in src/server/Remotes.lua) and asserts on REAL server state via GetState snapshots and observed events.
 - No service is stubbed. Where a flow needs money/time, the harness uses real server-side paths (income accrual, session credit through the same code the income loop uses, or the real RaidService window API) — never client-side forgery.
 
 ## STRUCTURED LOGGING (the point of the epic)
@@ -882,6 +883,9 @@ def main():
 
     out, err, rc = run(["br", "dep", "cycles"])
     print("dep cycles check:", out or err or "(clean)")
+    if rc != 0 or "No dependency cycles" not in out:
+        print("FAIL: dependency cycle check did not pass cleanly", file=sys.stderr)
+        failures += 1
 
     map_path = REPO + "/scripts/epic18_19_bead_id_map.json"
     with open(map_path, "w") as f:
