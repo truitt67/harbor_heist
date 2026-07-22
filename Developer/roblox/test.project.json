@@ -9,6 +9,9 @@
       },
       "TestEZ": {
         "$path": "Packages/TestEZ"
+      },
+      "TestFlag": {
+        "$path": "test/TestFlag.lua"
       }
     },
     "ServerScriptService": {
@@ -18,6 +21,9 @@
       },
       "Tests": {
         "$path": "test/specs"
+      },
+      "E2ETests": {
+        "$path": "tests/e2e"
       },
       "RunTests": {
         "$path": "test/bootstrap.server.lua"
