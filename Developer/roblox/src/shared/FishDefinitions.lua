@@ -9,6 +9,9 @@
 	values scale exponentially with rarity to make progression feel rewarding.
 ]]
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
+
 local FishDefinitions = {}
 
 FishDefinitions.Species = {
@@ -238,9 +241,13 @@ function FishDefinitions.get(speciesId)
 end
 
 -- Rarity ordinal for luck weighting (higher = rarer)
-local RARITY_ORDER = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5 }
--- Export so consumers (CollectionService, etc.) share ONE source of truth
--- instead of hardcoding a duplicate copy that could silently diverge.
+-- R2.5 (dt9.5): derive from GameConfig.Rarities so reordering/renaming rarities
+-- propagates automatically and cannot drift from a hardcoded map.
+local RARITY_ORDER = {}
+for i, rarity in ipairs(GameConfig.Rarities) do
+	RARITY_ORDER[rarity.name] = i
+end
+-- Export so consumers (CollectionService, etc.) share this derived map.
 FishDefinitions.RARITY_ORDER = RARITY_ORDER
 
 --[[

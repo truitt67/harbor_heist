@@ -307,22 +307,13 @@ function GameConfig.validate()
 		end
 	end
 
-	-- R2.4.3 (dt9.4.3): rarity weight/order monotonicity.
-	-- Two independent code paths scale luck by rarity ordinal: rollRarity
-	-- uses the array index i, FishDefinitions.getRandomInZone uses
-	-- RARITY_ORDER[name]. Building the ordinal map from the array order and
-	-- comparing to RARITY_ORDER catches a reorder/rename that silently
-	-- desyncs species weighting from rarity rolling. Also asserts weights
-	-- are non-increasing (Common heaviest) — an inverted weight flips the
-	-- economy and is exactly the kind of typo a balance edit produces.
+	-- R2.4.3 (dt9.4.3): rarity weight monotonicity.
+	-- R2.5 (dt9.5) derives FishDefinitions.RARITY_ORDER from this array,
+	-- so the old desync check is now obsolete-by-construction. We still
+	-- assert weights are non-increasing (Common heaviest) — an inverted
+	-- weight flips the economy and is exactly the kind of typo a balance
+	-- edit produces.
 	for i, rarity in ipairs(GameConfig.Rarities) do
-		local expectedOrder = FishDefinitions.RARITY_ORDER[rarity.name]
-		if expectedOrder ~= i then
-			table.insert(violations, string.format(
-				"Rarities[%d] (%s): FishDefinitions.RARITY_ORDER maps it to %s — ordinal desync between array index and RARITY_ORDER. Luck scaling would buff the wrong rarity bucket. Fix: reorder GameConfig.Rarities or update RARITY_ORDER to match.",
-				i, tostring(rarity.name), tostring(expectedOrder)
-			))
-		end
 		if i > 1 then
 			local prev = GameConfig.Rarities[i - 1]
 			if prev and rarity.weight > prev.weight then
