@@ -9246,6 +9246,10 @@ local claimButton = makeButton(aquariumPanel, {
 	Position = UDim2.new(0, 8, 1, -122),
 	Text = "CLAIM $0",
 	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
+	-- thj.5: claimButton is a sibling of the content frame (ZIndex 26); ensure
+	-- it renders/interacts on top so the larger mobile buttons above it don't
+	-- steal input in the overlapping region.
+	ZIndex = 27,
 })
 
 makeLabel(aquariumContent, {

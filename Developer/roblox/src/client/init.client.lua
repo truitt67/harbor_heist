@@ -761,6 +761,10 @@ local claimButton = makeButton(aquariumPanel, {
 	Position = UDim2.new(0, 8, 1, -122),
 	Text = "CLAIM $0",
 	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
+	-- thj.5: claimButton is a sibling of the content frame (ZIndex 26); ensure
+	-- it renders/interacts on top so the larger mobile buttons above it don't
+	-- steal input in the overlapping region.
+	ZIndex = 27,
 })
 
 makeLabel(aquariumContent, {
@@ -806,7 +810,9 @@ local lockButton = makeButton(aquariumContent, {
 -- TASK 8.2/8.3: Raid opt-in toggle (server validates new-player gate)
 local raidOptInButton = makeButton(aquariumContent, {
 	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 32),
-	Position = UDim2.new(0, 0, 1, -buttonH - 40),
+	-- thj.5: keep a 4px gap above the SELL/LOCK buttons on mobile; the taller
+	-- button would otherwise overlap because buttonH is also larger on mobile.
+	Position = UDim2.new(0, 0, 1, -buttonH - (IS_MOBILE and 52 or 40)),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
@@ -1684,7 +1690,8 @@ local raidCountdownLabel = makeLabel(raidContent, {
 
 local raidOptInPanelButton = makeButton(raidContent, {
 	Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 36),
-	Position = UDim2.new(0, 0, 0, IS_MOBILE and 84 or 78),
+	-- thj.5: keep the bottom edge at 114 so the label at y=116 keeps its 2px gap.
+	Position = UDim2.new(0, 0, 0, IS_MOBILE and 70 or 78),
 	Text = "RAID OPT-IN: OFF",
 	BackgroundColor3 = UI.surfaceHi,
 	ZIndex = 26,
