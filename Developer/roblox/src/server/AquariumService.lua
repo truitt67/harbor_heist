@@ -20,9 +20,10 @@ function AquariumService.init(deps)
 			dockManager.updateAquariumVisual(dock, session, stateSync.getCapacity(session))
 		end
 	end
-	AquariumService.refreshVisual = function(session)
-		refreshVisual(session)
-	end
+	-- harborheist-0sts: removed redundant closure wrapper assignment here.
+	-- The direct assignment at the end of init() (line 374) is the canonical
+	-- one; this wrapper was a duplicate that added an unnecessary function
+	-- call layer and confusingly overwrote itself.
 
 	remotes.RequestStoreFish.OnServerInvoke = function(player)
 		if antiExploit then
