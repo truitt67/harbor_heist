@@ -412,12 +412,14 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 	if RaidService.isLossCapped(targetSession) then
 		return { ok = false, reason = "loss_capped" }
 	end
-	-- Commit: cooldowns burn now, then build the server-authoritative challenge.
-	commitAttackerCooldowns(session, targetUserId)
+	-- xqd.4 (TASK 10.4): build the server-authoritative challenge BEFORE
+	-- burning cooldowns, so a throw in challenge math doesn't leave the
+	-- attacker with burned cooldowns and no raid to play.
 	local cfg = GameConfig.Raid.minigame
 	local goodHalf = cfg.goodZoneSize / 2
 	local center = rng:NextNumber(goodHalf, 1 - goodHalf)
 	local perfectHalf = cfg.perfectZoneSize / 2
+	commitAttackerCooldowns(session, targetUserId)
 	activeRaids[player] = {
 		targetUserId = targetUserId,
 		goodStart = center - goodHalf,
@@ -488,20 +490,40 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 	if not liveIndex then
 		return { ok = false, reason = "fish_gone" }
 	end
-	local stolenFish = table.remove(victimFish, liveIndex)
-	-- Land the fish in the attacker's aquarium when there is room (capacity is
-	-- the authoritative StateSync value); otherwise fence it for its sell
-	-- value so the transfer is always atomic (never duplicated, never lost).
-	local capacity = stateSync.getCapacity(attackerSession)
-	local attackerFish = attackerSession.profile.Aquarium.StoredFish
+	-- xqd.4 (TASK 10.4): wrap the fish transfer in a pcall so a throw
+	-- between victim-removal and attacker-insertion rolls the fish back
+	-- into the victim's list at its original index — never duplicated,
+	-- never lost. Post-transfer side effects (immunity, bookkeeping,
+	-- notifications, saves) are NOT part of the transaction.
+	local stolenFish
+	local capacity
+	local attackerFish
 	local fenced = false
-	if #attackerFish < capacity then
-		table.insert(attackerFish, stolenFish)
-		stateSync.invalidateIncomeCache(attackerSession)
-	else
-		fenced = true
-		attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
-		attackerSession.profile.TotalCoinsEarned += stolenFish.BaseSellValue
+	local transferOk, transferErr = pcall(function()
+		stolenFish = table.remove(victimFish, liveIndex)
+		capacity = stateSync.getCapacity(attackerSession)
+		attackerFish = attackerSession.profile.Aquarium.StoredFish
+		if #attackerFish < capacity then
+			table.insert(attackerFish, stolenFish)
+			stateSync.invalidateIncomeCache(attackerSession)
+		else
+			fenced = true
+			attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
+			attackerSession.profile.TotalCoinsEarned += stolenFish.BaseSellValue
+		end
+	end)
+	if not transferOk then
+		-- Rollback: re-insert the fish at the original index if it was
+		-- removed but not yet landed. This preserves the victim's inventory.
+		if stolenFish and liveIndex then
+			table.insert(victimFish, liveIndex, stolenFish)
+			stateSync.invalidateIncomeCache(victimSession)
+		end
+		warn(string.format("[RaidService] Transfer failed for %s -> %s: %s", tostring(attacker), tostring(victim), tostring(transferErr)))
+		if auditLog then
+			pcall(function() auditLog.logRaidTransfer(attacker, victim, stolenFish, false) end)
+		end
+		return { ok = false, reason = "transfer_failed" }
 	end
 	stateSync.invalidateIncomeCache(victimSession)
 	-- gdj.7 trigger: defender immunity after a successful loss (PVP-06).
