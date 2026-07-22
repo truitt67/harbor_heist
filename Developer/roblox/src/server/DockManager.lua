@@ -246,6 +246,8 @@ local function buildDock(index)
 		index = index,
 		model = dockModel,
 		walkway = walkway,
+		originalWalkwayColor = walkway.Color,
+		originalWalkwayMaterial = walkway.Material,
 		fishingZone = fishingZone,
 		deepWaterZone = deepWaterZone,
 		aquarium = aquarium,
@@ -312,6 +314,12 @@ function DockManager.release(player)
 			-- TASK 6.4: clear cosmetic dock décor so a re-claimed dock resets
 			-- to the next owner's tier (rebuilt on their join/store refresh).
 			local dockDecor = dock.model and dock.model:FindFirstChild("DockDecor")
+			-- TASK 17.5: restore the base walkway color/material so a level-4
+			-- dock does not leave a golden walkway for the next owner.
+			if dock.walkway then
+				dock.walkway.Color = dock.originalWalkwayColor
+				dock.walkway.Material = dock.originalWalkwayMaterial
+			end
 			if dockDecor then
 				dockDecor:ClearAllChildren()
 			end
@@ -363,12 +371,60 @@ function DockManager.isInFishingZone(dock, character)
 	return false, nil
 end
 
--- TASK 6.4 (EPIC 6 / 17): unlock cosmetic dock décor per Dock.UpgradeLevel.
--- Tier 1 = base dock (no décor). Tier 2+ adds a warm lantern on a piling;
--- tier 3+ adds a banner on the opposite piling; tier 4 gilds the lantern.
--- Bounded: at most ~3 static anchored parts per dock, rebuilt from
--- profile.Dock.UpgradeLevel so the visual matches the purchased tier and
--- resets on dock release. Cosmetic-only — no gameplay effect.
+-- TASK 6.4 / TASK 17.5 (EPIC 6 / 17): render cosmetic dock upgrades per
+-- Dock.UpgradeLevel. Tier 1 = base dock. Tier 2 adds lamp posts at the
+-- entrance. Tier 3 adds planters along the walkway. Tier 4 applies golden
+-- trim to the walkway. Cosmetic-only — no gameplay effect.
+local function buildLampPost(parent, cframe)
+	local pole = makePart({
+		Name = "LampPostPole",
+		Size = Vector3.new(0.8, 5, 0.8),
+		CFrame = cframe,
+		Color = Color3.fromRGB(60, 60, 60),
+		Material = Enum.Material.Metal,
+		CanCollide = false, -- decorative: don't obstruct players
+		Parent = parent,
+	})
+	local lamp = makePart({
+		Name = "LampPostLight",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(1.6, 1.6, 1.6),
+		CFrame = cframe * CFrame.new(0, 3, 0),
+		Color = Color3.fromRGB(255, 235, 150),
+		Material = Enum.Material.Neon,
+		CanCollide = false,
+		Parent = parent,
+	})
+	local light = Instance.new("PointLight")
+	light.Range = 18
+	light.Brightness = 1.2
+	light.Color = Color3.fromRGB(255, 230, 160)
+	light.Parent = lamp
+	return pole
+end
+
+local function buildPlanter(parent, cframe)
+	local box = makePart({
+		Name = "PlanterBox",
+		Size = Vector3.new(1.6, 1, 1.6),
+		CFrame = cframe,
+		Color = Color3.fromRGB(120, 80, 50),
+		Material = Enum.Material.Wood,
+		CanCollide = false,
+		Parent = parent,
+	})
+	makePart({
+		Name = "PlanterFoliage",
+		Shape = Enum.PartType.Ball,
+		Size = Vector3.new(1.2, 1.0, 1.2),
+		CFrame = cframe * CFrame.new(0, 0.6, 0),
+		Color = Color3.fromRGB(60, 160, 80),
+		Material = Enum.Material.Grass,
+		CanCollide = false,
+		Parent = parent,
+	})
+end
+
 function DockManager.updateDockCosmetics(dock, session)
 	if not dock or not session then
 		return
@@ -386,44 +442,45 @@ function DockManager.updateDockCosmetics(dock, session)
 	decor:ClearAllChildren()
 
 	local tier = (session.profile.Dock and session.profile.Dock.UpgradeLevel) or 1
-	if tier < 2 then
-		return -- base dock: no décor
+	local tierConfig = GameConfig.DockUpgradeTiers[tier] or {}
+	local cosmeticUnlocks = tierConfig.cosmeticUnlocks or {}
+	local unlockSet = {}
+	for _, name in ipairs(cosmeticUnlocks) do
+		unlockSet[name] = true
 	end
 
 	local anchor = dock.walkway and dock.walkway.CFrame
-	if not anchor then
-		return
+
+	-- Lamp posts at the dock entrance (tier 2+).
+	if unlockSet["LampPost"] and anchor then
+		local leftPost = anchor * CFrame.new(-(DOCK_WIDTH / 2 - 0.5), 2.5, -DOCK_LENGTH / 2 + 1.5)
+		local rightPost = anchor * CFrame.new((DOCK_WIDTH / 2 - 0.5), 2.5, -DOCK_LENGTH / 2 + 1.5)
+		buildLampPost(decor, leftPost)
+		buildLampPost(decor, rightPost)
 	end
 
-	-- Lantern on the near-left piling (tier 2+); gilded at tier 4.
-	local lanternColor = (tier >= 4) and Color3.fromRGB(255, 215, 90) or Color3.fromRGB(255, 200, 120)
-	local lantern = makePart({
-		Name = "Lantern",
-		Size = Vector3.new(0.7, 1.1, 0.7),
-		CFrame = anchor * CFrame.new(-(DOCK_WIDTH / 2 - 0.5), 2.0, -DOCK_LENGTH / 2 + 4),
-		Color = lanternColor,
-		Material = Enum.Material.Neon,
-		CanCollide = false, -- decorative: don't obstruct players near the dock edge
-		Parent = decor,
-	})
-	local light = Instance.new("PointLight")
-	light.Color = lanternColor
-	light.Range = 16
-	light.Brightness = (tier >= 4) and 2.2 or 1.4
-	light.Parent = lantern
+	-- Planters along the walkway edges (tier 3+).
+	if unlockSet["Planters"] and anchor then
+		for _, zOffset in ipairs({ -3, 5 }) do
+			for _, side in ipairs({ -1, 1 }) do
+				local planterCFrame = anchor * CFrame.new(side * (DOCK_WIDTH / 2 - 0.3), 0.5, zOffset)
+				buildPlanter(decor, planterCFrame)
+			end
+		end
+	end
 
-	-- Banner on the near-right piling (tier 3+); golden at tier 4.
-	if tier >= 3 then
-		local bannerColor = (tier >= 4) and Color3.fromRGB(255, 180, 60) or Color3.fromRGB(120, 200, 255)
-		makePart({
-			Name = "Banner",
-			Size = Vector3.new(0.3, 2.2, 1.4),
-			CFrame = anchor * CFrame.new((DOCK_WIDTH / 2 - 0.5), 3.0, -DOCK_LENGTH / 2 + 4),
-			Color = bannerColor,
-			Material = Enum.Material.SmoothPlastic,
-			CanCollide = false, -- decorative: don't obstruct players near the dock edge
-			Parent = decor,
-		})
+	-- Golden trim: gold-tinted walkway with metal material (tier 4+).
+	if unlockSet["GoldenTrim"] then
+		if dock.walkway then
+			dock.walkway.Color = Color3.fromRGB(200, 170, 50)
+			dock.walkway.Material = Enum.Material.Metal
+		end
+	else
+		-- Restore the base dock appearance when cosmetics are absent or downgraded.
+		if dock.walkway then
+			dock.walkway.Color = dock.originalWalkwayColor
+			dock.walkway.Material = dock.originalWalkwayMaterial
+		end
 	end
 end
 
@@ -533,3 +590,4 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 end
 
 return DockManager
+
