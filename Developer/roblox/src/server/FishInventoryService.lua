@@ -59,7 +59,7 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "bad_id" }
 		end
 
-		-- Find the fish in carried inventory.
+		-- Find the fish: carried by default, StoredFish when fromAquarium=true.
 		-- N3 (CRITICAL): previously fell through to search Aquarium.StoredFish
 		-- on a miss, which let an exploiter fire SellFish(id) + StoreSingleFish(id)
 		-- in the same frame to double-pay. SellFish now only sells from carried
@@ -109,6 +109,14 @@ function FishInventoryService.init(deps)
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
 		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
 
+		-- TASK 10.3 (fresh-eyes, 9mu.5): audit the single-fish money path too —
+		-- SellAll logs every sale, but SellFish (carried AND aquarium sources)
+		-- previously wrote coins with no audit entry, and a stored-fish sale can
+		-- liquidate a high-value Epic/Legendary fish.
+		if auditLog then
+			auditLog.logSell(player, 1, payout)
+		end
+
 		if soldFromStored then
 			-- TASK 14.15 (wqw.15): a fish was removed from StoredFish -> invalidate
 			-- the cached incomePerSec so the next push/income-tick recomputes it.
@@ -147,7 +155,8 @@ function FishInventoryService.init(deps)
 			end
 		end
 
-		-- Update aquarium visual if fish was stored
+		-- Refresh the aquarium visual after a stored-fish sale (no-op for
+		-- carried sales, which never changed the aquarium contents).
 		local dock = dockManager.getDock(player)
 		if dock then
 			dockManager.updateAquariumVisual(dock, session, stateSync.getCapacity(session))
