@@ -197,4 +197,55 @@ function GameConfig.rollRarity(luck, rng)
 	return 1
 end
 
+-- ════════════════════════════════════════════════════════════════════════════
+-- R2.3 (dt9.3): Boot-time config assertion — prevents income definition
+-- divergence from being reintroduced silently after R2.2 unification.
+-- Pattern: hard-fail (error) in Studio for fast feedback, non-fatal warn
+-- in production (availability over strictness). O(#species) cost — negligible.
+-- Extensible: R2.4 config-validation harness can add more named checks here.
+-- Call from init.server.lua after services load.
+-- ════════════════════════════════════════════════════════════════════════════
+function GameConfig.validate()
+	local RunService = game:GetService("RunService")
+	local FishDefinitions = require(game:GetService("ReplicatedStorage").Shared.FishDefinitions)
+	local violations = {}
+
+	-- Check 1: every FishDefinitions species has a valid IncomePerMinute
+	-- (the single source of truth for per-fish income after R2.2).
+	for id, def in pairs(FishDefinitions.Species) do
+		if type(def.IncomePerMinute) ~= "number" or def.IncomePerMinute <= 0 then
+			table.insert(violations, string.format(
+				"FishDefinitions.Species.%s: IncomePerMinute is %s (expected positive number)",
+				tostring(id), tostring(def.IncomePerMinute)
+			))
+		end
+	end
+
+	-- Check 2: GameConfig.Rarities entries must NOT have incomePerSec
+	-- (deleted in R2.2 — was dead config disagreeing 12-18x with live source).
+	for i, rarity in ipairs(GameConfig.Rarities) do
+		if rarity.incomePerSec ~= nil then
+			table.insert(violations, string.format(
+				"GameConfig.Rarities[%d] (%s): incomePerSec field present — should be removed (R2.2 deleted it as dead config)",
+				i, tostring(rarity.name)
+			))
+		end
+	end
+
+	-- Check 3: GameConfig.Economy must NOT have IncomeToValueRatio
+	-- (deleted in R2.2 — was dead config with zero consumers).
+	if GameConfig.Economy.IncomeToValueRatio ~= nil then
+		table.insert(violations, "GameConfig.Economy.IncomeToValueRatio present — should be removed (R2.2 deleted it as dead config)")
+	end
+
+	if #violations > 0 then
+		local msg = "[GameConfig.validate] Income invariant violations:\n" .. table.concat(violations, "\n")
+		if RunService:IsStudio() then
+			error(msg, 0)
+		else
+			warn(msg)
+		end
+	end
+end
+
 return GameConfig

@@ -1,4 +1,6 @@
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 local Remotes = require(script.Remotes)
 local DataManager = require(script.DataManager)
@@ -56,6 +58,11 @@ RaidService.init(deps) -- EPIC 8 / TASK 8.1 (raid-window scheduler)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
+
+-- R2.3 (dt9.3): boot-time config assertion — prevents income definition
+-- divergence from being reintroduced silently after R2.2 unification.
+-- Hard-fails in Studio (fast feedback), warns in production (availability).
+GameConfig.validate()
 
 Remotes.GetState.OnServerInvoke = function(player)
 	local ok, reason = AntiExploitService.checkRate(player, "get_state")
