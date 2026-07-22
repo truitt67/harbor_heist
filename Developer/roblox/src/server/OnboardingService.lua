@@ -38,6 +38,7 @@ local FLAGS = {
 	HasStoredFirstFish = true,
 	HasClaimedIncome = true,
 	HasSeenRaidExplanation = true,
+	HasSeenSellStoreComparison = true,
 }
 
 --- Mark an onboarding flag complete for a session.
@@ -112,6 +113,28 @@ end
 
 function OnboardingService.init(deps)
 	stateSync = deps.stateSync
+
+	-- TASK 9.4 (0jc.4): client can mark the sell-vs-store comparison prompt as
+	-- seen so it does not reappear every session. The server validates the
+	-- flag name against the whitelist and ignores unknown/bogus requests.
+	deps.remotes.MarkOnboardingFlag.OnServerInvoke = function(player, flag)
+		if deps.antiExploit then
+			local ok, reason = deps.antiExploit.checkRate(player, "onboarding_flag")
+			if not ok then
+				return { ok = false, reason = reason }
+			end
+		end
+		local session = deps.dataManager.get(player)
+		if not session or not session.profile then
+			return { ok = false, reason = "no_session" }
+		end
+		if not FLAGS[flag] then
+			warn(("[Onboarding] rejected MarkOnboardingFlag for unknown flag: %s"):format(tostring(flag)))
+			return { ok = false, reason = "unknown_flag" }
+		end
+		OnboardingService.mark(session, flag)
+		return { ok = true }
+	end
 end
 
 return OnboardingService

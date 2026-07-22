@@ -451,6 +451,143 @@ local function dismissOnboardingPrompt(stage)
 end
 
 -- ============================================================
+-- Sell-vs-store comparison prompt (TASK 9.4 / 0jc.4)
+-- Shown on the first catch to help the player decide whether
+-- to sell the fish for instant cash or store it for passive income.
+-- Dismissible and persists via MarkOnboardingFlag.
+-- ============================================================
+local sellStorePrompt = Instance.new("Frame")
+sellStorePrompt.Name = "SellStorePrompt"
+sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
+sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 80)
+sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
+sellStorePrompt.BackgroundColor3 = UI.surface
+sellStorePrompt.BackgroundTransparency = 0.08
+sellStorePrompt.Visible = false
+sellStorePrompt.ZIndex = 16
+sellStorePrompt.Parent = screenGui
+corner(sellStorePrompt, 14)
+stroke(sellStorePrompt, 0.7, UI.accent, 1.5)
+
+makeLabel(sellStorePrompt, {
+	Size = UDim2.new(1, -20, 0, 24),
+	Position = UDim2.new(0, 10, 0, 10),
+	Text = "You caught a fish!",
+	Font = FONT_BOLD,
+	TextSize = IS_MOBILE and 16 or 15,
+	TextColor3 = UI.text,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 17,
+})
+
+makeLabel(sellStorePrompt, {
+	Size = UDim2.new(1, -20, 0, 36),
+	Position = UDim2.new(0, 10, 0, 34),
+	Text = "Sell now for instant cash, or store it to earn income over time.",
+	Font = FONT_BODY,
+	TextSize = IS_MOBILE and 13 or 12,
+	TextColor3 = UI.textDim,
+	TextWrapped = true,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 17,
+})
+
+local sellStoreClose = makeButton(sellStorePrompt, {
+	Size = UDim2.new(0, 26, 0, 26),
+	Position = UDim2.new(1, -31, 0, 8),
+	Text = "✕",
+	TextSize = 13,
+	BackgroundColor3 = UI.surfaceHi,
+	TextColor3 = UI.textDim,
+	CornerRadius = 999,
+	ZIndex = 17,
+})
+
+local sellStoreSellBtn = makeButton(sellStorePrompt, {
+	Size = UDim2.new(0.48, -6, 0, 36),
+	Position = UDim2.new(0, 10, 1, -48),
+	Text = "SELL $0",
+	BackgroundColor3 = UI.good,
+	TextColor3 = UI.ink,
+	CornerRadius = 10,
+	ZIndex = 17,
+})
+
+local sellStoreStoreBtn = makeButton(sellStorePrompt, {
+	Size = UDim2.new(0.48, -6, 0, 36),
+	Position = UDim2.new(0.52, 4, 1, -48),
+	Text = "STORE $0/min",
+	BackgroundColor3 = UI.accent,
+	TextColor3 = UI.ink,
+	CornerRadius = 10,
+	ZIndex = 17,
+})
+
+-- The FishInstance currently being offered by the comparison prompt.
+local sellStoreTargetFish = nil
+-- Whether the prompt has already been shown or dismissed this session.
+local sellStorePromptShown = false
+-- Carried count on the previous render, used to detect a new catch.
+local lastCarriedCount = 0
+
+local function hideSellStorePrompt()
+	sellStorePrompt.Visible = false
+	sellStoreTargetFish = nil
+end
+
+local function markSellStoreComparisonSeen()
+	if not state or not state.onboarding or state.onboarding.HasSeenSellStoreComparison then
+		return
+	end
+	-- Fire-and-forget: if the server is unreachable, the session flag still
+	-- prevents the prompt from reappearing this session; the flag will persist
+	-- on the next successful save.
+	pcall(function()
+		Remotes.MarkOnboardingFlag:InvokeServer("HasSeenSellStoreComparison")
+	end)
+end
+
+local function showSellStorePrompt(fish)
+	if sellStorePromptShown then
+		return
+	end
+	if not fish then
+		return
+	end
+	sellStorePromptShown = true
+	sellStoreTargetFish = fish
+	sellStoreSellBtn.Text = string.format("SELL $%d", fish.BaseSellValue or 0)
+	sellStoreStoreBtn.Text = string.format("STORE $%.1f/min", fish.IncomePerMinute or 0)
+	sellStorePrompt.Visible = true
+	local scale = sellStorePrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	scale.Parent = sellStorePrompt
+	scale.Scale = 0.92
+	TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
+end
+
+sellStoreClose.Activated:Connect(function()
+	hideSellStorePrompt()
+	markSellStoreComparisonSeen()
+end)
+
+sellStoreSellBtn.Activated:Connect(function()
+	if sellStoreTargetFish then
+		Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
+	end
+	hideSellStorePrompt()
+	markSellStoreComparisonSeen()
+end)
+
+sellStoreStoreBtn.Activated:Connect(function()
+	if sellStoreTargetFish then
+		Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
+	end
+	hideSellStorePrompt()
+	markSellStoreComparisonSeen()
+end)
+
+
+-- ============================================================
 -- Modal framework: dim backdrop + animated panel (desktop card /
 -- mobile bottom sheet)
 -- ============================================================
@@ -1632,6 +1769,27 @@ local function render()
 		currentPromptStage = nil
 		onboardingPrompt.Visible = false
 	end
+
+	-- TASK 9.4 (0jc.4): sell-vs-store comparison prompt on first catch.
+	-- Detect a carried-count increase (new fish caught) and show the
+	-- comparison once, unless the player has already seen/dismissed it.
+	local carriedCount = state.carried or 0
+	if carriedCount > lastCarriedCount
+		and not sellStorePromptShown
+		and not (state.onboarding or {}).HasSeenSellStoreComparison
+		and not sellStorePrompt.Visible then
+		local carriedFish = state.carriedFish or {}
+		local firstFish = carriedFish[1]
+		if firstFish then
+			showSellStorePrompt(firstFish)
+		end
+	elseif carriedCount == 0 and sellStorePrompt.Visible then
+		-- Fish was sold or stored through another path (e.g. the bag panel);
+		-- hide the stale prompt but do NOT mark the comparison as seen, so the
+		-- prompt still appears on the next catch if the player hasn't acted on it.
+		hideSellStorePrompt()
+	end
+	lastCarriedCount = carriedCount
 end
 
 -- ============================================================

@@ -89,6 +89,7 @@ function PlayerProfile.default()
 			HasStoredFirstFish = false,
 			HasClaimedIncome = false,
 			HasSeenRaidExplanation = false,
+			HasSeenSellStoreComparison = false,
 		},
 
 		Stats = {
