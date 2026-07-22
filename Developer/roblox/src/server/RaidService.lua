@@ -694,9 +694,9 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		end
 	end
 	local victimSession = victim and dataManager.get(victim)
-	local function failOutcome(reason, victimNoteSuffix)
+	local function failOutcome(reason)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName) .. (victimNoteSuffix or ""), Color3.fromRGB(255, 200, 100))
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100))
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
