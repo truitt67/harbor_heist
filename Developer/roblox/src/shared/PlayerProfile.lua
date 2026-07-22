@@ -23,7 +23,10 @@ local PlayerProfile = {}
 -- Bump this when the schema changes. Migration framework (TASK 1.4) uses this.
 PlayerProfile.CURRENT_VERSION = 2
 PlayerProfile.MAX_COINS = 999999999
-PlayerProfile.MAX_UNCLAIMED_INCOME = 50000
+-- harborheist-yxly: MAX_UNCLAIMED_INCOME removed — was a duplicate of
+-- GameConfig.Economy.MaxUnclaimedIncome (same value, two sources of truth).
+-- The single canonical source is GameConfig.Economy.MaxUnclaimedIncome,
+-- read by both DataManager.sanitize() and AquariumService.startIncomeLoop().
 
 --[[
 	Returns a fresh profile with all fields initialized to safe defaults.
