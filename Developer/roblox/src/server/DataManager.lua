@@ -48,6 +48,17 @@ local sessions = {}
 -- after the save completes. Keyed by UserId (stable across rejoins) not Player.
 local pendingSaveUserIds = {}
 
+-- R1.1 (egf.1): tracks the ACTIVE session for each UserId (the one the
+-- current player instance is using). Keyed by UserId because Player objects
+-- are destroyed on leave and re-created on rejoin, so sessions[oldPlayer] is
+-- a stale key. When a player rejoins, load() overwrites their entry here
+-- with the new session. save() checks this inside the UpdateAsync merge to
+-- detect whether a deferred leave-save is stale (the player has rejoined
+-- with a fresh session) and skips the write to avoid clobbering the newer
+-- data. This is the WRITE-side counterpart to xsk's pendingSaveUserIds
+-- LOAD gate — together they close both directions of the rejoin race.
+local activeSessionsByUserId = {}
+
 -- ════════════════════════════════════════════════════════════════════════════
 -- DEEP SANITIZE — last line of defense against corrupted/exploited data.
 -- TASK 1.5 expands this; the structure here validates every field from the
@@ -480,6 +491,11 @@ function DataManager.load(player)
 	-- with the always-on steal handler. No replacement; RaidService manages
 	-- its own cooldown when it lands.
 	sessions[player] = session
+	-- R1.1 (egf.1): register this as the active session for the userId. A
+	-- concurrent deferred leave-save from a Previous player instance checks
+	-- this map inside UpdateAsync to detect that the player has rejoined and
+	-- its stale write should be skipped.
+	activeSessionsByUserId[player.UserId] = session
 
 	-- TASK 1.6: persist the migrated profile to v2 immediately (deferred so
 	-- load returns promptly; DataManager.save reads the same session table).
@@ -541,6 +557,16 @@ function DataManager.save(player, isShutdown)
 	-- slow save that gets killed mid-retry when the handler budget expires.
 	local ok, err = withRetries(function()
 		return dataStore:UpdateAsync(keyFor(player), function(oldData)
+			-- R1.1 (egf.1): stale-save guard. If the player has left and
+			-- rejoined since this save was queued (deferred leave-save via
+			-- task.spawn), activeSessionsByUserId[userId] now points to the
+			-- NEW session, not this one. Writing this stale profile would
+			-- clobber the fresher rejoin data. Return oldData unchanged to
+			-- make the stale save a no-op — the new session's own saves
+			-- (autosave + transactional) will persist the correct data.
+			if activeSessionsByUserId[player.UserId] ~= session then
+				return oldData
+			end
 			local existing = sanitize(oldData)
 
 			-- Merge: take the latest profile values (authoritative in-memory state)
@@ -585,7 +611,15 @@ function DataManager.save(player, isShutdown)
 end
 
 function DataManager.remove(player)
+	local session = sessions[player]
 	sessions[player] = nil
+	-- R1.1 (egf.1): only clear the active-session entry if it still points
+	-- to this session (the player may have already rejoined with a new one
+	-- that replaced it via load()). Captured before the nil so we compare
+	-- against the actual session object, not the now-nil sessions[player].
+	if session and activeSessionsByUserId[player.UserId] == session then
+		activeSessionsByUserId[player.UserId] = nil
+	end
 end
 
 function DataManager.allSessions()
