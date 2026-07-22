@@ -1027,6 +1027,302 @@ local function toggleInventoryPanel()
 end
 
 -- ============================================================
+-- Collection book panel (TASK 7.3 / it3.3)
+--   - RequestCollection remote returns the COLL-04-safe book payload.
+--   - Discovered species show name, rarity, value, income.
+--   - Undiscovered species show a silhouette and '???' with only a rarity hint.
+-- ============================================================
+local collectionPanel, collectionContent, collectionClose = makePanel("COLLECTION", UI.warn, UDim2.new(0, 520, 0, 560))
+
+local collectionProgress = makeLabel(collectionContent, {
+	Size = UDim2.new(1, 0, 0, 18),
+	Position = UDim2.new(0, 0, 0, 0),
+	Text = "",
+	Font = FONT_MED,
+	TextSize = IS_MOBILE and 14 or 13,
+	TextColor3 = UI.textDim,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local collectionProgressBar = Instance.new("Frame")
+collectionProgressBar.Name = "ProgressBar"
+collectionProgressBar.Size = UDim2.new(1, 0, 0, 10)
+collectionProgressBar.Position = UDim2.new(0, 0, 0, 24)
+collectionProgressBar.BackgroundColor3 = UI.surfaceHi
+collectionProgressBar.ZIndex = 26
+collectionProgressBar.Parent = collectionContent
+corner(collectionProgressBar, 5)
+stroke(collectionProgressBar, 0.9)
+
+local collectionProgressFill = Instance.new("Frame")
+collectionProgressFill.Name = "ProgressFill"
+collectionProgressFill.Size = UDim2.new(0, 0, 1, 0)
+collectionProgressFill.BackgroundColor3 = UI.warn
+collectionProgressFill.ZIndex = 27
+collectionProgressFill.Parent = collectionProgressBar
+corner(collectionProgressFill, 5)
+vGradient(collectionProgressFill, Color3.fromRGB(255, 205, 92), UI.warn)
+
+local collectionList = Instance.new("ScrollingFrame")
+collectionList.Name = "CollectionList"
+collectionList.Size = UDim2.new(1, 0, 1, -(IS_MOBILE and 82 or 76))
+collectionList.Position = UDim2.new(0, 0, 0, 44)
+collectionList.BackgroundTransparency = 1
+collectionList.ScrollBarThickness = 4
+collectionList.ScrollBarImageColor3 = UI.textFaint
+collectionList.CanvasSize = UDim2.new(0, 0, 0, 0)
+collectionList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+collectionList.ZIndex = 26
+collectionList.Parent = collectionContent
+
+local collectionListLayout = Instance.new("UIListLayout")
+collectionListLayout.Padding = UDim.new(0, 14)
+collectionListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+collectionListLayout.Parent = collectionList
+
+local collectionBookData = nil
+local lastCollectionSignature = nil
+
+local function clearCollectionList()
+	for _, child in ipairs(collectionList:GetChildren()) do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+end
+
+local function makeCollectionCard(parent, order, data, discovered)
+	local card = Instance.new("Frame")
+	card.Size = UDim2.new(0, IS_MOBILE and 138 or 146, 0, IS_MOBILE and 130 or 126)
+	card.BackgroundColor3 = discovered and UI.surface or Color3.fromRGB(16, 24, 36)
+	card.BackgroundTransparency = 0.1
+	card.LayoutOrder = order
+	card.ZIndex = 26
+	card.Parent = parent
+	corner(card, 12)
+	stroke(card, 0.9)
+
+	local rarityColor = RARITY_COLORS[data.rarity] or UI.textDim
+	if discovered then
+		local topBar = Instance.new("Frame")
+		topBar.Size = UDim2.new(1, 0, 0, 6)
+		topBar.BackgroundColor3 = rarityColor
+		topBar.ZIndex = 27
+		topBar.Parent = card
+		corner(topBar, 6)
+
+		local icon = Instance.new("Frame")
+		icon.Size = UDim2.new(0, 48, 0, 48)
+		icon.Position = UDim2.new(0.5, -24, 0, 18)
+		icon.BackgroundColor3 = UI.surfaceHi
+		icon.ZIndex = 27
+		icon.Parent = card
+		corner(icon, 999)
+		makeLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = "F", Font = FONT_HEAD, TextSize = 26, TextColor3 = rarityColor, ZIndex = 28 })
+
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = FONT_BOLD, TextSize = 14, TextColor3 = UI.text, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = FONT_BODY, TextSize = 11, TextColor3 = UI.textDim, ZIndex = 27 })
+
+		local tag = Instance.new("Frame")
+		tag.Size = UDim2.new(0, 74, 0, 18)
+		tag.Position = UDim2.new(0, 6, 0, 88)
+		tag.BackgroundColor3 = rarityColor
+		tag.BackgroundTransparency = 0.78
+		tag.ZIndex = 27
+		tag.Parent = card
+		corner(tag, 5)
+		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = FONT_BOLD, TextSize = 10, TextColor3 = rarityColor, ZIndex = 28 })
+	else
+		local icon = Instance.new("Frame")
+		icon.Size = UDim2.new(0, 48, 0, 48)
+		icon.Position = UDim2.new(0.5, -24, 0, 26)
+		icon.BackgroundColor3 = UI.surfaceHi
+		icon.BackgroundTransparency = 0.6
+		icon.ZIndex = 27
+		icon.Parent = card
+		corner(icon, 999)
+		makeLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = "?", Font = FONT_HEAD, TextSize = 28, TextColor3 = UI.textFaint, ZIndex = 28 })
+
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = FONT_BOLD, TextSize = 16, TextColor3 = UI.textFaint, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = FONT_BODY, TextSize = 11, TextColor3 = rarityColor, ZIndex = 27 })
+	end
+	return card
+end
+
+local function makeMilestoneRow(parent, order, milestone)
+	local row = Instance.new("Frame")
+	row.Size = UDim2.new(1, 0, 0, 48)
+	row.BackgroundColor3 = UI.surface
+	row.BackgroundTransparency = 0.1
+	row.LayoutOrder = order
+	row.ZIndex = 26
+	row.Parent = parent
+	corner(row, 10)
+	stroke(row, 0.9)
+
+	makeLabel(row, {
+		Size = UDim2.new(1, -100, 0, 20),
+		Position = UDim2.new(0, 10, 0, 6),
+		Text = milestone.label,
+		Font = FONT_BOLD,
+		TextSize = 14,
+		TextColor3 = UI.text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+
+	makeLabel(row, {
+		Size = UDim2.new(1, -100, 0, 16),
+		Position = UDim2.new(0, 10, 0, 26),
+		Text = string.format("%d / %d", milestone.have or 0, milestone.need or 0),
+		Font = FONT_BODY,
+		TextSize = 12,
+		TextColor3 = UI.textDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 27,
+	})
+
+	if milestone.claimed then
+		makeLabel(row, {
+			Size = UDim2.new(0, 80, 0, 28),
+			Position = UDim2.new(1, -90, 0.5, -14),
+			Text = "CLAIMED",
+			Font = FONT_BOLD,
+			TextSize = 12,
+			TextColor3 = UI.good,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 27,
+		})
+	elseif milestone.complete then
+		local claimBtn = makeButton(row, {
+			Size = UDim2.new(0, 80, 0, 32),
+			Position = UDim2.new(1, -90, 0.5, -16),
+			Text = "CLAIM",
+			Font = FONT_BOLD,
+			TextSize = 12,
+			BackgroundColor3 = UI.warn,
+			ZIndex = 27,
+		})
+		claimBtn.Activated:Connect(function()
+			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
+			if result and result.ok then
+				showNotification(("Collection reward: +%d coins"):format(result.coinsGranted or 0), UI.warn)
+				milestone.claimed = true
+				renderCollection()
+			elseif result and result.reason then
+				showNotification("Could not claim: " .. tostring(result.reason), UI.bad)
+			end
+		end)
+	else
+		makeLabel(row, {
+			Size = UDim2.new(0, 80, 0, 28),
+			Position = UDim2.new(1, -90, 0.5, -14),
+			Text = "LOCKED",
+			Font = FONT_BOLD,
+			TextSize = 12,
+			TextColor3 = UI.textFaint,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			ZIndex = 27,
+		})
+	end
+
+	return row
+end
+
+local function renderCollection()
+	if not collectionBookData then
+		return
+	end
+	local book = collectionBookData
+	local signature = (book.discoveredCount or 0) .. "/" .. (book.totalSpecies or 0)
+	if signature == lastCollectionSignature then
+		return
+	end
+	lastCollectionSignature = signature
+	clearCollectionList()
+
+	collectionProgress.Text = string.format("%d / %d species discovered", book.discoveredCount or 0, book.totalSpecies or 0)
+	local progress = (book.totalSpecies or 0) > 0 and (book.discoveredCount or 0) / (book.totalSpecies or 0) or 0
+	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
+
+	if not book.ordered or #book.ordered == 0 then
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
+		return
+	end
+
+	local currentRarity = nil
+	local rarityGrid = nil
+	local order = 1
+
+	for i, speciesId in ipairs(book.ordered) do
+		local data = book.discovered[speciesId] or book.undiscovered[speciesId]
+		if data then
+			if data.rarity ~= currentRarity then
+				currentRarity = data.rarity
+				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = FONT_BOLD, TextSize = 12, TextColor3 = RARITY_COLORS[currentRarity] or UI.textDim, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+				order += 1
+
+				rarityGrid = Instance.new("Frame")
+				rarityGrid.Name = currentRarity .. "Grid"
+				rarityGrid.Size = UDim2.new(1, 0, 0, 0)
+				rarityGrid.AutomaticSize = Enum.AutomaticSize.Y
+				rarityGrid.BackgroundTransparency = 1
+				rarityGrid.LayoutOrder = order
+				rarityGrid.ZIndex = 26
+				rarityGrid.Parent = collectionList
+				order += 1
+
+				local gridLayout = Instance.new("UIGridLayout")
+				gridLayout.CellSize = UDim2.new(0, IS_MOBILE and 138 or 146, 0, IS_MOBILE and 130 or 126)
+				gridLayout.CellPadding = UDim2.new(0, 8, 0, 8)
+				gridLayout.FillDirection = Enum.FillDirection.Horizontal
+				gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+				gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+				gridLayout.Parent = rarityGrid
+			end
+			makeCollectionCard(rarityGrid, i, data, book.discovered[speciesId] ~= nil)
+		end
+	end
+
+	-- Milestones section
+	order += 1
+	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = FONT_BOLD, TextSize = 12, TextColor3 = UI.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+	order += 1
+
+	if book.milestones and #book.milestones > 0 then
+		for _, milestone in ipairs(book.milestones) do
+			makeMilestoneRow(collectionList, order, milestone)
+			order += 1
+		end
+	else
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = order, ZIndex = 26 })
+	end
+end
+
+local function toggleCollectionPanel()
+	if activePanel == collectionPanel then
+		hidePanels()
+		return
+	end
+	showPanel(collectionPanel)
+	local book = Remotes.RequestCollection:InvokeServer()
+	if book and book.ok then
+		collectionBookData = book
+		renderCollection()
+	elseif book and book.reason == "rate_limited" then
+		if collectionBookData then
+			renderCollection()
+		else
+			showNotification("Collection book loading too fast — try again.", UI.warn)
+		end
+	else
+		showNotification("Collection book unavailable: " .. tostring(book and book.reason or "unknown"), UI.bad)
+	end
+end
+
+-- ============================================================
 -- Shop panel
 -- ============================================================
 local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", UI.warn, UDim2.new(0, 420, 0, 520))
@@ -1389,8 +1685,8 @@ local raidOptInPanelButton = makeButton(raidContent, {
 })
 
 makeLabel(raidContent, {
-	Size = UDim2.new(1, 0, 0, 16),
-	Position = UDim2.new(0, 0, 0, 122),
+	Size = UDim2.new(1, -100, 0, 16),
+	Position = UDim2.new(0, 0, 0, 116),
 	Text = "TARGETS",
 	Font = FONT_BOLD,
 	TextSize = 10,
@@ -1401,7 +1697,7 @@ makeLabel(raidContent, {
 
 local raidTargetList = Instance.new("ScrollingFrame")
 raidTargetList.Size = UDim2.new(1, 0, 1, -146)
-raidTargetList.Position = UDim2.new(0, 0, 0, 142)
+raidTargetList.Position = UDim2.new(0, 0, 0, 144)
 raidTargetList.BackgroundTransparency = 1
 raidTargetList.ScrollBarThickness = 4
 raidTargetList.ScrollBarImageColor3 = UI.textFaint
@@ -1417,9 +1713,10 @@ raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
 	Size = UDim2.new(0, 90, 0, 28),
-	Position = UDim2.new(1, -94, 0, 116),
+	Position = UDim2.new(1, -94, 0, 112),
 	Text = "REFRESH",
 	BackgroundColor3 = UI.surfaceHi,
+	TextColor3 = UI.text,
 	TextSize = 11,
 	ZIndex = 26,
 })
@@ -1549,7 +1846,7 @@ local function renderRaidTargets(data)
 	end
 end
 
-local function refreshRaidPanel()
+local function updateRaidPanelStatic()
 	if not state then
 		return
 	end
@@ -1579,7 +1876,11 @@ local function refreshRaidPanel()
 			raidOptInPanelButton.TextColor3 = UI.text
 		end
 	end
-	-- Fetch targets from server asynchronously.
+end
+
+local function refreshRaidPanel()
+	updateRaidPanelStatic()
+	-- Fetch targets from server asynchronously (window open/close or manual refresh).
 	task.spawn(function()
 		local ok, data = pcall(function()
 			return Remotes.GetRaidTargets:InvokeServer()
@@ -1768,9 +2069,10 @@ end
 -- ============================================================
 local raidBanner = Instance.new("Frame")
 raidBanner.Name = "RaidBanner"
-raidBanner.AnchorPoint = Vector2.new(0.5, 0)
-raidBanner.Size = UDim2.new(0, IS_MOBILE and 280 or 340, 0, 36)
-raidBanner.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+-- Desktop: top-center banner. Mobile: top-right to avoid overlapping the HUD.
+raidBanner.AnchorPoint = IS_MOBILE and Vector2.new(1, 0) or Vector2.new(0.5, 0)
+raidBanner.Size = UDim2.new(0, IS_MOBILE and 180 or 340, 0, 36)
+raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
 raidBanner.BackgroundColor3 = UI.bg
 raidBanner.BackgroundTransparency = 0.12
 raidBanner.Visible = false
@@ -1790,7 +2092,7 @@ corner(raidBannerIcon, 999)
 local raidBannerLabel = makeLabel(raidBanner, {
 	Size = UDim2.new(1, -34, 1, 0),
 	Position = UDim2.new(0, 28, 0, 0),
-	Text = "RAID WATERS OPEN 0:00",
+	Text = IS_MOBILE and "RAID OPEN 0:00" or "RAID WATERS OPEN 0:00",
 	Font = FONT_BOLD,
 	TextSize = 13,
 	TextColor3 = UI.bad,
@@ -1805,11 +2107,16 @@ local raidBannerLabel = makeLabel(raidBanner, {
 local ACTIONS = {
 	{ id = "fish", label = "FISH", short = "FISH", key = "F", color = UI.good },
 	{ id = "store", label = "BAG", short = "BAG", key = "G", color = UI.accent },
+	{ id = "collection", label = "BOOK", short = "BOOK", key = "C", color = UI.warn },
 	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = UI.purple },
 	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = UI.quest },
 	{ id = "raid", label = "RAID", short = "RAID", key = "R", color = UI.bad },
 	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
 }
+
+-- The onboarding prompt sits above the mobile action stack; keep it in sync
+-- as the button count changes so it never overlaps the top button.
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -(#ACTIONS * 70 + 102) or -84)
 
 local actionButtons = {}
 
@@ -1868,7 +2175,7 @@ else
 	local bar = Instance.new("Frame")
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.Position = UDim2.new(0.5, 0, 1, -18)
-	bar.Size = UDim2.new(0, 720, 0, 58)
+	bar.Size = UDim2.new(0, 760, 0, 58)
 	bar.BackgroundColor3 = UI.bg
 	bar.BackgroundTransparency = 0.2
 	bar.Parent = screenGui
@@ -1885,7 +2192,7 @@ else
 
 	for i, action in ipairs(ACTIONS) do
 		local btn = makeButton(bar, {
-			Size = UDim2.new(0, 112, 0, 42),
+			Size = UDim2.new(0, 100, 0, 42),
 			Text = "",
 			BackgroundColor3 = UI.surface,
 			LayoutOrder = i,
@@ -2426,9 +2733,12 @@ inventoryClose.Activated:Connect(hidePanels)
 shopClose.Activated:Connect(hidePanels)
 questClose.Activated:Connect(hidePanels)
 raidClose.Activated:Connect(hidePanels)
+collectionClose.Activated:Connect(hidePanels)
 -- TASK 4.4 (0cw.4 / wqw.18): BAG button opens the per-fish inventory panel
 -- (bulk store-all remains available via the panel's STORE ALL button).
 actionButtons.store.Activated:Connect(toggleInventoryPanel)
+-- TASK 7.3 (it3.3): BOOK button opens the collection book panel.
+actionButtons.collection.Activated:Connect(toggleCollectionPanel)
 -- TASK 8.12 (gdj.12): RAID button opens the raid panel.
 actionButtons.raid.Activated:Connect(toggleRaidPanel)
 -- TASK 8.12 (gdj.12): refresh + opt-in inside the raid panel.
@@ -2501,6 +2811,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		doFish()
 	elseif input.KeyCode == Enum.KeyCode.G then
 		toggleInventoryPanel()
+	elseif input.KeyCode == Enum.KeyCode.C then
+		toggleCollectionPanel()
 	elseif input.KeyCode == Enum.KeyCode.T then
 		showPanel(aquariumPanel)
 	elseif input.KeyCode == Enum.KeyCode.Q then
@@ -2522,7 +2834,7 @@ Remotes.StateChanged.OnClientEvent:Connect(function(snapshot)
 	render()
 	refreshShop()
 	if activePanel == raidPanel then
-		refreshRaidPanel()
+		updateRaidPanelStatic()
 	end
 end)
 
@@ -2549,14 +2861,12 @@ end
 local function updateRaidCountdown()
 	if raidWindow.open then
 		raidBanner.Visible = true
-		raidBannerLabel.Text = "RAID WATERS OPEN " .. formatRaidTime(raidWindow.remainingSeconds)
+		local bannerPrefix = IS_MOBILE and "RAID OPEN " or "RAID WATERS OPEN "
+		raidBannerLabel.Text = bannerPrefix .. formatRaidTime(raidWindow.remainingSeconds)
 		raidCountdownLabel.Text = "Closes in " .. formatRaidTime(raidWindow.remainingSeconds)
 	else
 		raidBanner.Visible = false
 		raidCountdownLabel.Text = "Next window in " .. formatRaidTime(raidWindow.nextWindowInSeconds)
-	end
-	if activePanel == raidPanel then
-		refreshRaidPanel()
 	end
 end
 
@@ -2566,6 +2876,9 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 	raidWindow.remainingSeconds = remainingSeconds or 0
 	raidWindow.nextWindowInSeconds = nextWindowInSeconds or 0
 	updateRaidCountdown()
+	if activePanel == raidPanel then
+		refreshRaidPanel()
+	end
 	if raidWindow.open and not wasOpen then
 		showNotification(
 			string.format("RAID WATERS OPEN for %d minutes! Steal fish from other docks while the window lasts.", math.floor(raidWindow.remainingSeconds / 60)),

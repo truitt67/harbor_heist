@@ -118,6 +118,7 @@ function CollectionService.buildBook(session)
 		ordered = ordered,
 		totalSpecies = #ordered,
 		discoveredCount = discoveredCount,
+		milestones = CollectionService.getMilestones(session),
 	}
 end
 
