@@ -222,8 +222,13 @@ function FishingService.init(deps)
 	-- The luckBonus is then consumed by the species roll in SubmitCatchInput.
 	remotes.CastResult.OnServerEvent:Connect(function(player, accuracy)
 		if antiExploit then
-			local ok = antiExploit.checkRate(player, "cast_result")
-			if not ok then return end
+			local ok, reason = antiExploit.checkRate(player, "cast_result")
+			if not ok then
+				if reason == "rate_limited" then
+					remotes.notify(player, "Slow down! You're casting too fast.", Color3.fromRGB(255, 170, 80))
+				end
+				return
+			end
 		end
 		local session = dataManager.get(player)
 		if not session or not player.Parent then
