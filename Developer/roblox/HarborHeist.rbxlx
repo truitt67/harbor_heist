@@ -8373,6 +8373,85 @@ function WorldBuilder.buildDecorations(parent)
 			Parent = parent,
 		})
 	end
+
+	-- TASK 13.4 (mxl.4): Cozy harbor aesthetic — nautical props per PRD
+	-- visual direction: "lanterns, simple nautical props." Adds variety
+	-- without blocking player paths (all props sit between lamp posts
+	-- at radius ~22-28, clear of the plaza center and dock walkways).
+
+	-- Barrels — weathered fishing-line barrels near the plaza edge
+	for i = 1, 4 do
+		local angle = math.rad(i * 90 + 15)
+		local r = 22
+		makePart({
+			Name = "Barrel",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(3, 2.2, 2.2),
+			CFrame = CFrame.new(math.cos(angle) * r, 1.6, math.sin(angle) * r)
+				* CFrame.Angles(0, 0, math.rad(90)),
+			Color = Color3.fromRGB(110, 80, 50),
+			Material = Enum.Material.Wood,
+			Parent = parent,
+		})
+	end
+
+	-- Rope coils — coiled fishing rope on the plaza near barrels
+	for i = 1, 3 do
+		local angle = math.rad(i * 120 + 45)
+		local r = 25
+		makePart({
+			Name = "RopeCoil",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.8, 2, 2),
+			CFrame = CFrame.new(math.cos(angle) * r, 0.9, math.sin(angle) * r)
+				* CFrame.Angles(0, 0, math.rad(90)),
+			Color = Color3.fromRGB(180, 155, 110),
+			Material = Enum.Material.Fabric,
+			Parent = parent,
+		})
+	end
+
+	-- Potted plants — greenery for a cozy harbor feel ("plants, rocks")
+	for i = 1, 5 do
+		local angle = math.rad(i * 72 + 10)
+		local r = 28
+		makePart({
+			Name = "PlantPot",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(2, 1.5, 1.5),
+			CFrame = CFrame.new(math.cos(angle) * r, 1.25, math.sin(angle) * r)
+				* CFrame.Angles(0, 0, math.rad(90)),
+			Color = Color3.fromRGB(120, 90, 60),
+			Material = Enum.Material.Wood,
+			Parent = parent,
+		})
+		makePart({
+			Name = "PlantBush",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(2, 2.4, 2),
+			CFrame = CFrame.new(math.cos(angle) * r, 3, math.sin(angle) * r),
+			Color = Color3.fromRGB(60, 130, 65),
+			Material = Enum.Material.Grass,
+			Parent = parent,
+		})
+	end
+
+	-- Harbor rocks — partially submerged boulders at the harbor edge
+	-- for visual interest and a natural coastline feel
+	for i = 1, 8 do
+		local angle = math.rad(i * 45 + 22.5)
+		local r = rng:NextNumber(42, 48)
+		local size = rng:NextNumber(3, 6)
+		makePart({
+			Name = "HarborRock",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(size, size * 0.8, size),
+			CFrame = CFrame.new(math.cos(angle) * r, rng:NextNumber(-1, 1.5), math.sin(angle) * r),
+			Color = Color3.fromRGB(90, 88, 85),
+			Material = Enum.Material.Slate,
+			Parent = parent,
+		})
+	end
 end
 
 return WorldBuilder
