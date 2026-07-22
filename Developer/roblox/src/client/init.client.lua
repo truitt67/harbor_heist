@@ -900,7 +900,9 @@ local function renderInventory()
 	local carried = state.carriedFish or {}
 	local signatureParts = { tostring(state.maxCarried or 0) }
 	for _, fish in ipairs(carried) do
-		table.insert(signatureParts, tostring(fish.InstanceId))
+		if fish then
+			table.insert(signatureParts, tostring(fish.InstanceId))
+		end
 	end
 	local signature = table.concat(signatureParts, "|")
 	if signature == lastInventorySignature then
@@ -910,9 +912,11 @@ local function renderInventory()
 	clearInventoryList()
 	local totalValue = 0
 	for _, fish in ipairs(carried) do
-		totalValue += fish.BaseSellValue or 0
+		if fish then
+			totalValue += fish.BaseSellValue or 0
+		end
 	end
-	inventoryStats.Text = string.format("%d / %d fish  •  total value $%s", #carried, state.maxCarried or 0, formatCash(totalValue))
+	inventoryStats.Text = string.format("%d / %d fish  •  total value $%s", state.carried or 0, state.maxCarried or 0, formatCash(totalValue))
 
 	if #carried == 0 then
 		makeLabel(inventoryList, {
@@ -930,6 +934,9 @@ local function renderInventory()
 	local actionH = IS_MOBILE and 44 or 38
 	local rowH = IS_MOBILE and 66 or 58
 	for i, fish in ipairs(carried) do
+		if not fish then
+			continue
+		end
 		local rarityColor = RARITY_COLORS[fish.Rarity] or UI.textDim
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -6, 0, rowH)
@@ -1502,11 +1509,12 @@ function refreshShop()
 		return
 	end
 	for _, entry in pairs(shopRows) do
+	for _, entry in pairs(shopRows) do
 		local currentLevel
 		if entry.kind == "rod" then
-			currentLevel = state.rodLevel
+			currentLevel = state.rodLevel or 1
 		elseif entry.kind == "bait" then
-			currentLevel = state.baitLevel
+			currentLevel = state.baitLevel or 1
 		elseif entry.kind == "aquarium" then
 			-- N9: capacity tier maps to Aquarium.UpgradeLevel. The state field
 			-- is upgradeLevel (1-4). The shop catalog is 1-indexed per tier,
@@ -2554,7 +2562,7 @@ local function render()
 	if sellStorePrompt.Visible and sellStoreTargetFish then
 		local targetStillPresent = false
 		for _, fish in ipairs(carriedFish) do
-			if fish.InstanceId == sellStoreTargetFish.InstanceId then
+			if fish and fish.InstanceId == sellStoreTargetFish.InstanceId then
 				targetStillPresent = true
 				break
 			end
@@ -2623,7 +2631,7 @@ corner(marker, 2)
 
 local minigameActive = false
 local minigameStartTime = 0
-local minigameWindow = 3.0
+local function runMinigame(windowSeconds)
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -2987,15 +2995,13 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 				Remotes.CastResult:FireServer(accuracy)
 			end
 		end)
-	else
-		stopCastOverlay()
 	end
 	render()
 end)
 
-Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
+Remotes.BiteEvent.OnClientEvent:Connect(function(windowSeconds)
 	-- Start the timing minigame when the server says a fish is biting
-	runMinigame(zoneId, windowSeconds)
+	runMinigame(windowSeconds)
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
