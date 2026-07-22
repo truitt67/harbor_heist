@@ -276,10 +276,12 @@ PlayerProfile = {
     TotalCoinsEarned = 0,
 
     Equipment = {
-        EquippedRodId = "StarterRod",
-        OwnedRodIds = {"StarterRod"},
+        EquippedRodLevel = 1,
+        EquippedBaitLevel = 1,
+        OwnedRodLevels = { 1 },
         BaitInventory = {
-            StarterBait = 10
+            level = 1, -- equipped bait tier
+            quantity = -1 -- -1 means unlimited/reusable bait (DEC-5)
         }
     },
 

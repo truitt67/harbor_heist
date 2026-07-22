@@ -1509,7 +1509,6 @@ function refreshShop()
 		return
 	end
 	for _, entry in pairs(shopRows) do
-	for _, entry in pairs(shopRows) do
 		local currentLevel
 		if entry.kind == "rod" then
 			currentLevel = state.rodLevel or 1
@@ -2631,7 +2630,7 @@ corner(marker, 2)
 
 local minigameActive = false
 local minigameStartTime = 0
-local function runMinigame(windowSeconds)
+local minigameWindow = 3.0
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -2639,7 +2638,7 @@ local function runMinigame(windowSeconds)
 local minigameZoneHalfWidth = 0.15
 
 -- Animate the marker sweeping back and forth
-local function runMinigame(zoneId, windowSeconds)
+local function runMinigame(windowSeconds)
 	if minigameActive then return end
 	minigameActive = true
 	minigameWindow = windowSeconds
@@ -2995,6 +2994,8 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 				Remotes.CastResult:FireServer(accuracy)
 			end
 		end)
+	else
+		stopCastOverlay()
 	end
 	render()
 end)
