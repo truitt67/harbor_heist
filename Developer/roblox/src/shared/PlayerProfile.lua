@@ -110,6 +110,14 @@ function PlayerProfile.clampCoins(value)
 	if type(value) ~= "number" then
 		return 0
 	end
+	-- R1.2 (egf.2): NaN passes Lua's type() guard (type(NaN) == "number")
+	-- but propagates through math.min/max/floor, reaching DataStore and
+	-- purchase gates. (NaN < cost) is always false, so a NaN-coined player
+	-- can buy everything for free. Reject NaN (the only number not equal to
+	-- itself) before the clamp. ±Inf are already handled by math.min/max.
+	if value ~= value then
+		return 0
+	end
 	return math.floor(math.max(0, math.min(PlayerProfile.MAX_COINS, value)))
 end
 
