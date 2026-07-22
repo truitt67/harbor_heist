@@ -219,12 +219,15 @@ function GameConfig.rollRarity(luck, rng)
 end
 
 -- ════════════════════════════════════════════════════════════════════════════
--- R2.3 (dt9.3): Boot-time config assertion — prevents income definition
--- divergence from being reintroduced silently after R2.2 unification.
--- Pattern: hard-fail (error) in Studio for fast feedback, non-fatal warn
--- in production (availability over strictness). O(#species) cost — negligible.
--- Extensible: R2.4 config-validation harness can add more named checks here.
--- Call from init.server.lua after services load.
+-- R2.3 (dt9.3) + R2.4 (dt9.4): Boot-time config-validation harness.
+-- Prevents silent misconfiguration of income definitions AND minigame math
+-- invariants. Pattern: hard-fail (error) in Studio for fast feedback,
+-- non-fatal warn in production (availability over strictness). O(#species +
+-- #rods) cost — negligible.
+-- CONVENTION: new config invariants (any assertion about values that the
+-- game's math silently assumes) should be added as named checks here, not
+-- as inline asserts next to the consuming code (inline asserts rot when
+-- the code moves). Call from init.server.lua after services load.
 -- ════════════════════════════════════════════════════════════════════════════
 function GameConfig.validate()
 	local RunService = game:GetService("RunService")
@@ -259,8 +262,73 @@ function GameConfig.validate()
 		table.insert(violations, "GameConfig.Economy.IncomeToValueRatio present — should be removed (R2.2 deleted it as dead config)")
 	end
 
+	-- R2.4.1 (dt9.4.1): biteZoneCeiling >= every rod minigameZoneSize.
+	-- FishingService computes effectiveZone = clamp(baseZone + luck bonus,
+	-- baseZone, ceiling). If ceiling < baseZone for any rod, the clamp
+	-- inverts the luck incentive: perfect casts give ZERO bonus and the
+	-- effective zone is always the ceiling, not the rod's base.
+	local ceiling = GameConfig.MiniGame.biteZoneCeiling
+	for _, rod in ipairs(GameConfig.RodDefinitions) do
+		if rod.minigameZoneSize > ceiling then
+			table.insert(violations, string.format(
+				"RodDefinitions.%s: minigameZoneSize (%.2f) > MiniGame.biteZoneCeiling (%.2f) — perfect casts get zero luck bonus (incentive inversion). Fix: raise biteZoneCeiling or lower this rod's zone size.",
+				rod.name, rod.minigameZoneSize, ceiling
+			))
+		end
+	end
+
+	-- R2.4.2 (dt9.4.2): perfect zone nested inside good zone.
+	-- The tier classifier checks perfect-first, then good. If a rod's
+	-- minigameZoneSize (used as the perfect zone) exceeds goodZoneWidth,
+	-- the nesting assumption breaks and perfect catches can be
+	-- misclassified. Also assert goodZoneWidth < 1.0 so the centering
+	-- margins in FishingService (center drawn from [halfGood, 1-halfGood])
+	-- stay valid.
+	local goodWidth = GameConfig.MiniGame.goodZoneWidth
+	if goodWidth >= 1.0 then
+		table.insert(violations, string.format(
+			"MiniGame.goodZoneWidth (%.2f) >= 1.0 — zone centering math in FishingService breaks (center range would be empty). Fix: reduce goodZoneWidth below 1.0.",
+			goodWidth
+		))
+	end
+	for _, rod in ipairs(GameConfig.RodDefinitions) do
+		if rod.minigameZoneSize > goodWidth then
+			table.insert(violations, string.format(
+				"RodDefinitions.%s: minigameZoneSize (%.2f) > MiniGame.goodZoneWidth (%.2f) — perfect zone not nested inside good zone (tier classifier breaks). Fix: increase goodZoneWidth or lower this rod's zone size.",
+				rod.name, rod.minigameZoneSize, goodWidth
+			))
+		end
+	end
+
+	-- R2.4.3 (dt9.4.3): rarity weight/order monotonicity.
+	-- Two independent code paths scale luck by rarity ordinal: rollRarity
+	-- uses the array index i, FishDefinitions.getRandomInZone uses
+	-- RARITY_ORDER[name]. Building the ordinal map from the array order and
+	-- comparing to RARITY_ORDER catches a reorder/rename that silently
+	-- desyncs species weighting from rarity rolling. Also asserts weights
+	-- are non-increasing (Common heaviest) — an inverted weight flips the
+	-- economy and is exactly the kind of typo a balance edit produces.
+	for i, rarity in ipairs(GameConfig.Rarities) do
+		local expectedOrder = FishDefinitions.RARITY_ORDER[rarity.name]
+		if expectedOrder ~= i then
+			table.insert(violations, string.format(
+				"Rarities[%d] (%s): FishDefinitions.RARITY_ORDER maps it to %s — ordinal desync between array index and RARITY_ORDER. Luck scaling would buff the wrong rarity bucket. Fix: reorder GameConfig.Rarities or update RARITY_ORDER to match.",
+				i, tostring(rarity.name), tostring(expectedOrder)
+			))
+		end
+		if i > 1 then
+			local prev = GameConfig.Rarities[i - 1]
+			if prev and rarity.weight > prev.weight then
+				table.insert(violations, string.format(
+					"Rarities[%d] (%s): weight (%d) > previous rarity %s weight (%d) — rarity weights must be non-increasing (Common heaviest). An inverted weight flips the catch economy.",
+					i, tostring(rarity.name), rarity.weight, tostring(prev.name), prev.weight
+				))
+			end
+		end
+	end
+
 	if #violations > 0 then
-		local msg = "[GameConfig.validate] Income invariant violations:\n" .. table.concat(violations, "\n")
+		local msg = "[GameConfig.validate] Config validation violations:\n" .. table.concat(violations, "\n")
 		if RunService:IsStudio() then
 			error(msg, 0)
 		else
