@@ -39,6 +39,25 @@ pcall(function()
 	dataStoreV1 = DataStoreService:GetDataStore(STORE_NAME_V1)
 end)
 
+-- egf.5: Local health-tracking helpers. save() and load() are the SOLE owners
+-- of health transitions — no public API to invite double-counting from
+-- external services. A successful WRITE resets the counter and flips healthy;
+-- a successful READ does not reset (read-success doesn't prove write-health).
+-- Both save and load failures increment the counter.
+local function recordSuccess()
+	consecutiveFailures = 0
+	isDataStoreHealthy = true
+end
+
+local function recordFailure()
+	consecutiveFailures += 1
+	lastFailureTime = os.time()
+	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
+		isDataStoreHealthy = false
+		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
+	end
+end
+
 local sessions = {}
 
 -- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
@@ -410,6 +429,8 @@ function DataManager.load(player)
 			saved = result
 		else
 			warn("[HarborHeist] Failed to load data for " .. player.Name .. ": " .. tostring(result))
+			-- egf.5: load failures participate in the health counter.
+			recordFailure()
 		end
 	end
 
@@ -621,15 +642,9 @@ function DataManager.save(player, isShutdown)
 
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
-		consecutiveFailures += 1
-		lastFailureTime = os.time()
-		if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
-			isDataStoreHealthy = false
-			warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures.")
-		end
+		recordFailure()
 	else
-		consecutiveFailures = 0
-		isDataStoreHealthy = true
+		recordSuccess()
 	end
 end
 
@@ -653,6 +668,10 @@ function DataManager.startAutosave()
 	task.spawn(function()
 		while true do
 			task.wait(60)
+			-- egf.5: attempt recovery after a cooldown if the DataStore was
+			-- marked unhealthy. This is the only scheduled caller — without it
+			-- the server stays unhealthy until a save happens to succeed.
+			DataManager.tryRecover()
 			-- RELIABILITY: save() yields, and players joining mid-loop would add
 			-- new keys to `sessions` during pairs() traversal (undefined behavior
 			-- that can error and kill this loop). Snapshot the list first.
@@ -697,24 +716,6 @@ end
 
 function DataManager.isHealthy()
 	return isDataStoreHealthy
-end
-
-function DataManager.getFailureCount()
-	return consecutiveFailures
-end
-
-function DataManager.recordSuccess()
-	consecutiveFailures = 0
-	isDataStoreHealthy = true
-end
-
-function DataManager.recordFailure()
-	consecutiveFailures += 1
-	lastFailureTime = os.time()
-	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
-		isDataStoreHealthy = false
-		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
-	end
 end
 
 function DataManager.tryRecover()
