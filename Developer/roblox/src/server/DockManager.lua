@@ -383,14 +383,14 @@ function DockManager.release(player)
 					prompt.Enabled = false
 				end
 			end
-		-- TASK 12.3: release fish display models back to the global pool instead
-		-- of destroying them, so the next aquarium update can reuse them.
-		local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
-		if fishDisplay then
-			for _, child in ipairs(fishDisplay:GetChildren()) do
-				releaseModel(child)
+			-- TASK 12.3: release fish display models back to the global pool instead
+			-- of destroying them, so the next aquarium update can reuse them.
+			local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
+			if fishDisplay then
+				for _, child in ipairs(fishDisplay:GetChildren()) do
+					releaseModel(child)
+				end
 			end
-		end
 			-- TASK 6.4: clear cosmetic dock décor so a re-claimed dock resets
 			-- to the next owner's tier (rebuilt on their join/store refresh).
 			local dockDecor = dock.model and dock.model:FindFirstChild("DockDecor")
