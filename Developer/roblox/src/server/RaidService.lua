@@ -557,6 +557,18 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 	-- wqw.21: wire PvP win/loss stats for successful raids
 	attackerSession.profile.PvP.RaidsWon = (attackerSession.profile.PvP.RaidsWon or 0) + 1
 	victimSession.profile.PvP.RaidsLost = (victimSession.profile.PvP.RaidsLost or 0) + 1
+	-- harborheist-umqk: wire the purchasable Alarm upgrade. A successful theft
+	-- against an alarmed victim stuns the thief for the tier's stunDuration,
+	-- activating the existing stunUntil gates (no re-raid, no boat escape,
+	-- client WalkSpeed slow via stunRemaining). The failure path stays
+	-- stun-free: "stun thief" applies when a theft actually occurred.
+	local alarmLevel = victimSession.profile.Aquarium.AlarmLevel or 0
+	local alarmTier = GameConfig.Upgrades.Alarm[alarmLevel]
+	local alarmNote = ""
+	if alarmTier and (alarmTier.stunDuration or 0) > 0 then
+		attackerSession.stunUntil = os.clock() + alarmTier.stunDuration
+		alarmNote = string.format(" Your alarm stunned them for %ds.", alarmTier.stunDuration)
+	end
 	-- gdj.10 trigger: clear defender notification with what was taken (PVP-09).
 	remotes.notify(
 		victim,
@@ -564,7 +576,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			"RAID! %s stole your %s %s (value $%d). You are immune for %ds — lock your aquarium to stay safe.",
 			attacker.DisplayName, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue,
 			GameConfig.Raid.defenderProtectionSeconds
-		),
+		) .. alarmNote,
 		Color3.fromRGB(255, 100, 100)
 	)
 	if fenced then
