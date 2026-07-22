@@ -82,6 +82,10 @@ end
 	Picks a random species matching that rarity tier (TASK 14.12: randomized so v1->v2 migration preserves species variety instead of collapsing to the first species in each bucket).
 ]]
 function FishInstance.fromRarityIndex(rarityIndex)
+	-- Deliberately hardcoded, NOT derived from GameConfig.Rarities: v1 records
+	-- were stamped with the v1 ordinal semantics (1=Common..5=Legendary) and
+	-- stay that way forever. Deriving this from live config would silently
+	-- mis-map un-migrated v1 fish after any future rarity reorder/rename.
 	local rarityNames = { "Common", "Uncommon", "Rare", "Epic", "Legendary" }
 	local rarityName = rarityNames[rarityIndex]
 	if not rarityName then
