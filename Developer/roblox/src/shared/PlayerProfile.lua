@@ -104,13 +104,9 @@ function PlayerProfile.default()
 			LockFreeUsesMax = GameConfig.Defense.LockFreeUsesMax,
 		},
 		-- harborheist-qtp8: persisted quest pools (sanitized by DataManager so
-		-- rewards can't be re-claimed on rejoin; runtime-mutable on the session,
-		-- written back at save). The KEY fields (dailyQuestKey/weeklyQuestKey)
-		-- stay nil until QuestService assigns them, but the LIST fields MUST
-		-- default to {} so callers can safely take #session.dailyQuests even for
-		-- a brand-new player — sanitize(nil) returns early BEFORE its
-		-- quest-patching block, so without these defaults initializeQuests
-		-- relies on the `or` short-circuit to avoid a #nil crash (fragile).
+		-- rewards can't be re-claimed on rejoin). dailyQuestKey/weeklyQuestKey
+		-- stay nil until QuestService assigns them; the LIST fields default to
+		-- {} because sanitize(nil) returns before its quest-patching block.
 		dailyQuests = {},
 		weeklyQuests = {},
 	}
