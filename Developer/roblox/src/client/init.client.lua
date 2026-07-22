@@ -1503,7 +1503,8 @@ local function render()
 		-- reading the dead GameConfig.Rarities[].incomePerSec field which
 		-- disagreed with the actual income (from FishDefinitions per-species
 		-- IncomePerMinute) by 12-18x. Total income/sec from StateSync.snapshot
-		-- (the authoritative, multiplier-aware value) is shown at line 1148.
+		-- (the authoritative, multiplier-aware value) is shown via the
+		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
 			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each</font>',
 			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
