@@ -532,6 +532,9 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 	local _, losses = getWindowLosses(victimSession)
 	losses.count += 1
 	losses.value += stolenFish.BaseSellValue
+	-- wqw.21: wire PvP win/loss stats for successful raids
+	attackerSession.profile.PvP.RaidsWon = (attackerSession.profile.PvP.RaidsWon or 0) + 1
+	victimSession.profile.PvP.RaidsLost = (victimSession.profile.PvP.RaidsLost or 0) + 1
 	-- gdj.10 trigger: clear defender notification with what was taken (PVP-09).
 	remotes.notify(
 		victim,
@@ -640,6 +643,20 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		if questService then
 			questService.onStealAttempt(session, false)
 		end
+		-- wqw.21: wire PvP win/loss stats for failed raids
+		-- (attacker lost; defender successfully defended if present)
+		session.profile.PvP.RaidsLost = (session.profile.PvP.RaidsLost or 0) + 1
+		if victimSession then
+			victimSession.profile.PvP.RaidsWon = (victimSession.profile.PvP.RaidsWon or 0) + 1
+		end
+		-- Persist: resolveRaidSuccess saves on success; the failure path
+		-- needs its own save so stat changes don't wait for autosave.
+		task.spawn(function()
+			dataManager.save(player)
+			if victim then
+				dataManager.save(victim)
+			end
+		end)
 		return { ok = true, success = false, tier = tier, reason = reason }
 	end
 	if not victimSession then
