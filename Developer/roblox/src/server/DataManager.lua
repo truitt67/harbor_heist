@@ -446,17 +446,41 @@ function DataManager.load(player)
 		if okV1 and resultV1 ~= nil then
 			saved = resultV1
 			migratedFromV1 = true
-			-- print (not warn): this is a routine, expected one-time-per-player
-			-- migration, not an error. warn() would spam the console and
-			-- drown out real errors once the closed test onboards legacy players.
-			print(("[HarborHeist] MIGRATION v1->v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s}"):format(
-				player.Name, player.UserId,
-				tostring(saved.cash), tostring(saved.rodLevel), tostring(saved.baitLevel),
-				type(saved.liveWell) == "table" and (#saved.liveWell .. " fish") or tostring(saved.liveWell)))
 		end
 	end
 
 	local profile = sanitize(saved)
+
+	-- R1.6 (egf.6): log the result of the v1->v2 migration so support can
+	-- reconstruct what happened if a player reports missing fish/coins.
+	-- print (not warn): this is a routine, expected one-time-per-player
+	-- migration, not an error. warn() would spam the console and
+	-- drown out real errors once the closed test onboards legacy players.
+	if migratedFromV1 then
+		local function formatSpeciesList(storedFish)
+			local counts = {}
+			for _, fish in ipairs(storedFish or {}) do
+				if type(fish) == "table" and type(fish.SpeciesId) == "string" then
+					counts[fish.SpeciesId] = (counts[fish.SpeciesId] or 0) + 1
+				end
+			end
+			local parts = {}
+			for speciesId, count in pairs(counts) do
+				table.insert(parts, speciesId .. " x" .. count)
+			end
+			if #parts == 0 then
+				return "none"
+			end
+			table.sort(parts)
+			return table.concat(parts, ", ")
+		end
+
+		print(("[HarborHeist] MIGRATION v1->v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s} | result{%s}"):format(
+			player.Name, player.UserId,
+			tostring(saved.cash), tostring(saved.rodLevel), tostring(saved.baitLevel),
+			type(saved.liveWell) == "table" and (#saved.liveWell .. " fish") or tostring(saved.liveWell),
+			formatSpeciesList(profile.Aquarium.StoredFish)))
+	end
 
 	-- TASK 1.6: if this profile came from the v1 store, persist it to v2
 	-- immediately so the next load reads v2 directly (and so the player's
@@ -666,6 +690,12 @@ function DataManager.save(player, isShutdown)
 		recordFailure()
 	else
 		recordSuccess()
+		-- R1.6 (egf.6): log successful saves so support can reconstruct a
+		-- "I lost progress" timeline from the server output. One line per save
+		-- (low volume; autosave + checkpoints), no full profile dump.
+		print(("[HarborHeist] SAVE OK: user=%s(%d) | time=%d | shutdown=%s | coins=%s | storedFish=%d"):format(
+			player.Name, player.UserId, os.time(), tostring(isShutdown == true),
+			tostring(profile.Coins), #profile.Aquarium.StoredFish))
 	end
 
 	-- TASK 14.26 (5gr): Dirty-flag coalescing trailing write. If save() was
