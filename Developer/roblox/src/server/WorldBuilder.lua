@@ -300,6 +300,7 @@ function WorldBuilder.buildSafeHarbor(parent)
 			CFrame = CFrame.new(math.cos(angle) * 28, 1.2, math.sin(angle) * 28),
 			Color = Color3.fromRGB(60, 200, 120),
 			Material = Enum.Material.Neon,
+			CanCollide = false,
 			Parent = safeHarbor,
 		})
 	end

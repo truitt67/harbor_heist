@@ -817,7 +817,7 @@ local raidOptInButton = makeButton(aquariumContent, {
 -- Lists every carried fish from the snapshot's carriedFish array; each row
 -- shows species/rarity/value with per-fish SELL (SellFish) and STORE
 -- (StoreSingleFish) buttons, plus a bulk STORE ALL shortcut.
--- NOTE: no SELL ALL here — the server's SellAll liquidates the AQUARIUM
+-- NOTE: no SELL ALL here — the server's RequestSellFish liquidates the AQUARIUM
 -- (stored fish) as well as carried fish, which would be dangerously
 -- misleading in a panel scoped to the carried bag. Bulk sell lives in
 -- the aquarium panel, where that behavior matches player expectations.
@@ -1066,7 +1066,9 @@ vGradient(collectionProgressFill, Color3.fromRGB(255, 205, 92), UI.warn)
 
 local collectionList = Instance.new("ScrollingFrame")
 collectionList.Name = "CollectionList"
-collectionList.Size = UDim2.new(1, 0, 1, -(IS_MOBILE and 82 or 76))
+-- Fill the rest of the content below the progress bar (y=44) with a small
+-- bottom margin. Unlike the inventory panel, there is no bottom button.
+collectionList.Size = UDim2.new(1, 0, 1, -56)
 collectionList.Position = UDim2.new(0, 0, 0, 44)
 collectionList.BackgroundTransparency = 1
 collectionList.ScrollBarThickness = 4
@@ -1121,7 +1123,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		corner(icon, 999)
 		makeLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = "F", Font = FONT_HEAD, TextSize = 26, TextColor3 = rarityColor, ZIndex = 28 })
 
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = FONT_BOLD, TextSize = 14, TextColor3 = UI.text, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = FONT_BOLD, TextSize = 14, TextColor3 = UI.text, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
 		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = FONT_BODY, TextSize = 11, TextColor3 = UI.textDim, ZIndex = 27 })
 
 		local tag = Instance.new("Frame")
@@ -1208,8 +1210,12 @@ local function makeMilestoneRow(parent, order, milestone)
 		claimBtn.Activated:Connect(function()
 			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
 			if result and result.ok then
-				showNotification(("Collection reward: +%d coins"):format(result.coinsGranted or 0), UI.warn)
 				milestone.claimed = true
+				-- The signature is based on discovered/total counts, which don't
+				-- change when claiming, so invalidate it to force a re-render.
+				-- Server fires its own notification via remotes.notify, so no
+				-- duplicate client-side showNotification here.
+				lastCollectionSignature = nil
 				renderCollection()
 			elseif result and result.reason then
 				showNotification("Could not claim: " .. tostring(result.reason), UI.bad)
@@ -1355,7 +1361,7 @@ addCatalog("bait", GameConfig.Baits, 10)
 -- N10: the capacity shop must use the SAME catalog the server sells from
 -- (AquariumUpgradeTiers) and the SAME kind string the server dispatches on
 -- ("aquarium"). Previously this used GameConfig.Upgrades.Capacity with kind
--- "capacity", but the BuyItem handler rejects "capacity" (bad_kind) — so
+-- "capacity", but the RequestPurchaseUpgrade handler rejects "capacity" (bad_kind) — so
 -- every capacity purchase silently failed, and the displayed prices/tiers
 -- didn't match what the server would have charged.
 addCatalog("aquarium", GameConfig.AquariumUpgradeTiers, 20)
