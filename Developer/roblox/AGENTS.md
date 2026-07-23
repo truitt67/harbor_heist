@@ -78,7 +78,7 @@ and handles project-key resolution for you. Do NOT use the legacy
 | Fact | Value |
 | --- | --- |
 | Server URL | `http://127.0.0.1:8765/mcp/` (override: `AGENT_MAIL_URL`) |
-| Canonical project key | `home-ubuntu-developer-roblox-games` (CLI default; override: `AGENT_MAIL_PROJECT`) |
+| Canonical project key | `home-ubuntu-developer-roblox` (CLI default; override: `AGENT_MAIL_PROJECT`) |
 | Your agent name | ASSIGNED BY THE SERVER at registration (e.g. `PinkDog`) — it may differ from the name you requested. Always use the returned name. |
 | Your token | The `registration_token` returned at registration. Required for `inbox`, `send`, `reserve`, and `release`. Save it for the whole session. |
 
@@ -143,7 +143,7 @@ python3 agent_mail_cli.py send "$AGENT_NAME" "OtherAgent1,OtherAgent2" \
 1. **No broadcast.** `send ... "All" ...` is rejected. List explicit recipient names.
 2. **Contact approval.** FIRST message may fail with `Contact approval required`. Wait 15s and retry once. Do not loop.
 3. **Token required.** `send` needs `registration_token` (as 5th arg or exported).
-4. **Project key.** If `Project not found`, use `home-ubuntu-developer-renewal-radar`.
+4. **Project key.** The canonical key for this repo is `home-ubuntu-developer-roblox` (the CLI default). `home-ubuntu-developer-roblox-games` does NOT exist — if you see it referenced anywhere, it's stale. Only use another key (e.g. `home-ubuntu-developer-renewal-radar`) when you are deliberately coordinating in that project's repo.
 5. **Assigned name.** Use server-assigned name, not hint.
 
 #### Full command reference

@@ -18,7 +18,8 @@ Usage:
 
 Environment Variables:
     AGENT_MAIL_URL      - MCP server URL (default: http://127.0.0.1:8765/mcp/)
-    AGENT_MAIL_PROJECT  - Default project key (default: home-ubuntu-developer-renewal-radar)
+    AGENT_MAIL_PROJECT  - Default project key (default: home-ubuntu-developer-roblox)
+    PROJECT_KEY         - Accepted as a fallback when AGENT_MAIL_PROJECT is unset
 """
 
 import argparse
@@ -29,10 +30,14 @@ import urllib.error
 import urllib.request
 
 AGENT_MAIL_URL = os.getenv("AGENT_MAIL_URL", "http://127.0.0.1:8765/mcp/")
-PROJECT_KEY = os.getenv("AGENT_MAIL_PROJECT", "home-ubuntu-developer-renewal-radar")
+PROJECT_KEY = (
+    os.getenv("AGENT_MAIL_PROJECT")
+    or os.getenv("PROJECT_KEY")
+    or "home-ubuntu-developer-roblox"
+)
 # Ensure we never accidentally use a filesystem path as the project key.
 if PROJECT_KEY.startswith("/home/") or PROJECT_KEY.startswith("/"):
-    PROJECT_KEY = "home-ubuntu-developer-renewal-radar"
+    PROJECT_KEY = "home-ubuntu-developer-roblox"
 # When agents register, the server may return a different project_key.
 # We track the authoritative key per-agent to avoid mismatch errors.
 _REGISTERED_PROJECT_KEY: str | None = None
@@ -148,7 +153,7 @@ def cmd_register(args):
         "export_commands": [
             f"export AGENT_NAME='{name}'",
             f"export REGISTRATION_TOKEN='{token}'",
-            f"export PROJECT_KEY='{authoritative_project}'",
+            f"export AGENT_MAIL_PROJECT='{authoritative_project}'",
         ],
     }
     print(json.dumps(output, indent=2))
@@ -337,7 +342,7 @@ def cmd_session_start(args):
         "export_commands": [
             f"export AGENT_NAME='{name}'",
             f"export REGISTRATION_TOKEN='{token}'",
-            f"export PROJECT_KEY='{project}'",
+            f"export AGENT_MAIL_PROJECT='{project}'",
         ],
         "next_steps": [
             "Claim a bead: br update <id> --status=in_progress",
