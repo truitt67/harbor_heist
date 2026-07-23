@@ -479,6 +479,13 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 	if RaidService.isLossCapped(targetSession) then
 		return { ok = false, reason = "loss_capped" }
 	end
+	-- harborheist-514d: enforce Safe Harbor in the attempt path (PRD
+	-- PVP-11). getRaidTargets (hvfh.6.1.1) shows these targets greyed, but
+	-- PVP-10 requires the attempt path to re-validate independently — a
+	-- stale or forged client must never bypass the safe zone.
+	if RaidService.isInSafeHarbor(targetPlayer) then
+		return { ok = false, reason = "safe_harbor" }
+	end
 	-- xqd.4 (TASK 10.4): build the server-authoritative challenge BEFORE
 	-- burning cooldowns, so a throw in challenge math doesn't leave the
 	-- attacker with burned cooldowns and no raid to play.

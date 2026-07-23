@@ -104,6 +104,12 @@ function StateSync.snapshot(session)
 		maxCarried = GameConfig.MaxCarried,
 		liveWellCount = #aquarium.StoredFish,
 		liveWellCounts = liveWellCounts,
+		-- TASK 25.1 (hvfh.5.1): per-fish stored records so the client can
+		-- compute an exact SELL ALL payout preview (respecting lock state)
+		-- before the player confirms. Same pattern as carriedFish above —
+		-- FishInstance fields are plain data, safe to replicate. Up to
+		-- capacity entries (~20-50), ~100 bytes each.
+		storedFish = aquarium.StoredFish,
 		capacity = StateSync.getCapacity(session),
 		incomePerSec = StateSync.incomePerSec(session),
 		-- Local track: income pool + lock/steal timers

@@ -213,7 +213,15 @@ local incomeLabel = makeLabel(hud, {
 local displayedCash = 0
 local cashTweenConn = nil
 local lastCash = nil
+local hasRenderedCash = false
 local function animateCashTo(target)
+	if not hasRenderedCash then
+		hasRenderedCash = true
+		displayedCash = target
+		lastCash = target
+		cashLabel.Text = "$" .. formatCash(target)
+		return
+	end
 	if lastCash and target > lastCash then
 		local gain = makeLabel(hud, {
 			Size = UDim2.new(0, 100, 0, 20),
@@ -603,6 +611,10 @@ backdrop.ZIndex = 20
 backdrop.Parent = screenGui
 
 local activePanel = nil
+-- TASK 25.1 (hvfh.5.1): forward-declared so hidePanels can disarm the
+-- SELL ALL confirm when the aquarium panel closes. Defined at the
+-- sellButton.Activated handler below.
+local disarmSellButton: any = nil
 
 local function makePanel(title, titleColor, desktopSize)
 	local panel = Instance.new("Frame")
@@ -673,6 +685,10 @@ end
 
 local function hidePanels()
 	if activePanel then
+		-- TASK 25.1 (hvfh.5.1): disarm SELL ALL confirm on panel close.
+		if disarmSellButton then
+			disarmSellButton()
+		end
 		local panel = activePanel
 		activePanel = nil
 		if IS_MOBILE then
@@ -1859,6 +1875,7 @@ local function renderRaidTargets(data)
 					target_unavailable = "Target left the harbor.",
 					target_no_longer_eligible = "Target is no longer eligible.",
 					no_stealable_fish = "No fish left to steal.",
+					safe_harbor = "Target is in the Safe Harbor zone.",
 					raid_in_progress = "You already have a raid in progress.",
 				}[result and result.reason] or "Could not start raid."
 				showNotification(failReason, UI.bad)
@@ -2453,6 +2470,13 @@ local function render()
 		lockButton.TextColor3 = UI.ink
 	end
 
+	-- TASK 25.1 (hvfh.5.1): disarm the SELL ALL confirm if the payout
+	-- changed since arming (new catch/store/sell/lock toggle) so the
+	-- confirmed number is never stale.
+	if sellArmed and computeSellPayout() ~= sellArmPayout then
+		disarmSellButton()
+	end
+
 	-- TASK 8.2/8.3: Raid opt-in toggle button state.
 	if state.raidOptIn then
 		raidOptInButton.Text = "RAID OPT-IN: ON (can be targeted)"
@@ -2640,6 +2664,10 @@ local minigameZoneHalfWidth = 0.15
 -- Animate the marker sweeping back and forth
 local function runMinigame(windowSeconds)
 	if minigameActive then return end
+	if type(windowSeconds) ~= "number" or windowSeconds <= 0 then
+		showNotification("Fishing sync hiccup — try casting again.", UI.warn)
+		return
+	end
 	minigameActive = true
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
@@ -2759,8 +2787,73 @@ raidOptInPanelButton.Activated:Connect(function()
 	dismissOnboardingPrompt("raidExplain")
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
+-- TASK 25.1 (hvfh.5.1): SELL ALL two-step confirmation guard.
+-- First tap arms the button with the exact payout + lock-scope; a 3s
+-- window gives the player a chance to back out. Second tap fires. Any
+-- state push that changes the payout disarms so the number is never stale.
+local sellArmed = false
+local sellArmPayout = 0
+local sellArmTask: any = nil
+
+local function computeSellPayout(): number
+	if not state then
+		return 0
+	end
+	local locked = (state.lockedUntil or 0) > 0
+	local payout = 0
+	for _, fish in ipairs(state.carriedFish or {}) do
+		payout += fish.BaseSellValue or 0
+	end
+	if not locked then
+		for _, fish in ipairs(state.storedFish or {}) do
+			payout += fish.BaseSellValue or 0
+		end
+	end
+	return payout
+end
+
+disarmSellButton = function()
+	sellArmed = false
+	sellArmPayout = 0
+	if sellArmTask then
+		local t = sellArmTask
+		sellArmTask = nil
+		pcall(task.cancel, t)
+	end
+	sellButton.Text = "SELL ALL"
+	sellButton.BackgroundColor3 = UI.good
+	sellButton.TextColor3 = UI.ink
+end
+
 sellButton.Activated:Connect(function()
-	Remotes.RequestSellFish:InvokeServer()
+	if sellArmed then
+		disarmSellButton()
+		Remotes.RequestSellFish:InvokeServer()
+	else
+		local payout = computeSellPayout()
+		if payout <= 0 then
+			local locked = (state.lockedUntil or 0) > 0
+			if locked and (state.liveWellCount or 0) > 0 then
+				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+			else
+				showNotification("No fish to sell!", Color3.fromRGB(255, 170, 80))
+			end
+			return
+		end
+		sellArmed = true
+		sellArmPayout = payout
+		local locked = (state.lockedUntil or 0) > 0
+		if locked then
+			sellButton.Text = string.format("SELL BAG $%d? TAP", payout)
+		else
+			sellButton.Text = string.format("SELL ALL $%d? TAP", payout)
+		end
+		sellButton.BackgroundColor3 = UI.bad
+		sellButton.TextColor3 = UI.ink
+		sellArmTask = task.delay(3, function()
+			disarmSellButton()
+		end)
+	end
 end)
 lockButton.Activated:Connect(function()
 	Remotes.RequestActivateLock:InvokeServer()
@@ -3005,11 +3098,6 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 	-- The server fires FireClient(player, zoneId, BITE_WINDOW_SECONDS)
 	-- (FishingService.lua), so the handler MUST take two params: zoneId
 	-- (the triggering fishing zone) and windowSeconds (the authoritative
-	-- bite-window). zoneId is unused today but kept NAMED (not discarded
-	-- to _) to document the wire contract and leave a hook for future
-	-- zone-specific presentation. A 1-arg handler silently binds
-	-- windowSeconds to zoneId (a string) and kills the sweep loop with a
-	-- "number > string" compare — the P0 regression in TASK 21.1.
 	runMinigame(windowSeconds)
 end)
 
