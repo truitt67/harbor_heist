@@ -333,11 +333,11 @@ function AquariumService.init(deps)
 		local pvpCatches = (session.profile.PvP and session.profile.PvP.TotalCatches) or 0
 		local totalCatches = math.max(statsCatches, pvpCatches)
 		local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
-		local hasEnoughCatches = totalCatches >= 10
+		local hasEnoughCatches = totalCatches >= GameConfig.Raid.unlockTotalCatches
 		if not hasUpgrade and not hasEnoughCatches then
 			remotes.notify(
 				player,
-				string.format("You need an aquarium upgrade or 10 catches to enable raids. (%d/10 catches)", totalCatches),
+				string.format("You need an aquarium upgrade or %d catches to enable raids. (%d/%d catches)", GameConfig.Raid.unlockTotalCatches, totalCatches, GameConfig.Raid.unlockTotalCatches),
 				Color3.fromRGB(255, 170, 80)
 			)
 			return { ok = false, reason = "new_player_protected", catches = totalCatches }
@@ -389,7 +389,7 @@ function AquariumService.isNewPlayerProtected(session)
 	local pvpCatches = (session.profile.PvP and session.profile.PvP.TotalCatches) or 0
 	local totalCatches = math.max(statsCatches, pvpCatches)
 	local hasUpgrade = (session.profile.Aquarium.UpgradeLevel or 1) > 1
-	local hasEnoughCatches = totalCatches >= 10
+	local hasEnoughCatches = totalCatches >= GameConfig.Raid.unlockTotalCatches
 	return not hasUpgrade and not hasEnoughCatches
 end
 

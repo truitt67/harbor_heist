@@ -98,6 +98,14 @@ GameConfig.Raid = {
 	-- optInDefault must stay false: a player should never lose fish because
 	-- they joined for the first time (PRD "opt-in or time-bounded").
 	optInDefault = false,
+	-- TASK 25.3 (hvfh.5.3): DEC-4 progression gate — a player is raid-eligible
+	-- once they reach this many total catches OR buy their first aquarium
+	-- upgrade. Single-sourced here so AquariumService.isNewPlayerProtected,
+	-- StateSync.snapshot, and the client locked-state copy all read one value
+	-- instead of three independent hardcoded "10"s that would drift. The
+	-- upgrade-or semantic is applied at the call sites (hasUpgrade OR
+	-- hasEnoughCatches); this constant covers the catches half only.
+	unlockTotalCatches = 10,
 	-- TASK 8.8 (gdj.8): Legendary fish raid protection (PVP-08).
 	-- PRD: "Legendary fish either non-stealable or much lower raid probability."
 	-- V1: Legendary fish are non-stealable (IsRaidProtected=true on FishInstance).

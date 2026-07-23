@@ -68,6 +68,9 @@ function StateSync.snapshot(session)
 		local key = fish.Rarity
 		liveWellCounts[key] = (liveWellCounts[key] or 0) + 1
 	end
+	-- TASK 25.3 (hvfh.5.3): compute totalCatches once; drives the DEC-4 raid
+	-- eligibility gate AND is exposed in the snapshot for client progress text.
+	local totalCatches = math.max((profile.Stats and profile.Stats.TotalCatches) or 0, (profile.PvP and profile.PvP.TotalCatches) or 0)
 	return {
 		-- Local track fields (profile-backed)
 		cash = math.floor(profile.Coins),
@@ -119,7 +122,17 @@ function StateSync.snapshot(session)
 		-- TASK 8.2/8.3 (gdj.2/gdj.3): raid dock-flag + eligibility for client HUD.
 		-- totalCatches drives the "10 catches" half of DEC-4; raidOptIn is the opt-in flag.
 		raidOptIn = aquarium.RaidOptIn == true,
-		totalCatches = math.max((profile.Stats and profile.Stats.TotalCatches) or 0, (profile.PvP and profile.PvP.TotalCatches) or 0),
+		totalCatches = totalCatches,
+		-- TASK 25.3 (hvfh.5.3): single-sourced raid eligibility so the client
+		-- never re-derives the DEC-4 gate. raidEligible mirrors the exact
+		-- predicate AquariumService.isNewPlayerProtected inverts (upgrade OR
+		-- unlockTotalCatches); raidUnlockCatches lets the client render
+		-- progress text ("7/10") without hardcoding the threshold. The client
+		-- currently has TWO hardcoded mirrors of this rule (init.client.lua
+		-- raid panel + aquarium panel); step 4 of the bead removes them by
+		-- reading these fields instead.
+		raidEligible = (aquarium.UpgradeLevel or 1) > 1 or totalCatches >= GameConfig.Raid.unlockTotalCatches,
+		raidUnlockCatches = GameConfig.Raid.unlockTotalCatches,
 		-- TASK 8.4 (gdj.4): expose lock free-use counts for client UI.
 		lockFreeUsesRemaining = (profile.Defense and profile.Defense.LockFreeUsesRemaining) or 0,
 		lockFreeUsesMax = (profile.Defense and profile.Defense.LockFreeUsesMax) or GameConfig.Defense.LockFreeUsesMax,
