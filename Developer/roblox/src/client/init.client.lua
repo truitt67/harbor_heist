@@ -2218,10 +2218,24 @@ if IS_MOBILE then
 		actionButtons[action.id .. "_label"] = mobileLabel
 	end
 else
+	-- TASK 28.1 (hvfh.8.1): bar width is derived from the content so an
+	-- extra action can never silently overflow; on narrow windows the buttons
+	-- + font shrink and the short labels kick in below ~700px (no clipping).
+	local BAR_BTN_W = 100
+	local BAR_BTN_H = 42
+	local BAR_BTN_W_MIN = 76
+	local BAR_GAP = 8
+	local BAR_SIDE_MARGIN = 36
+	local BAR_SHORT_VIEWPORT = 700
+
+	local function barWidthFor(btnW)
+		return #ACTIONS * btnW + (#ACTIONS - 1) * BAR_GAP
+	end
+
 	local bar = Instance.new("Frame")
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.Position = UDim2.new(0.5, 0, 1, -18)
-	bar.Size = UDim2.new(0, 760, 0, 58)
+	bar.Size = UDim2.new(0, barWidthFor(BAR_BTN_W), 0, 58)
 	bar.BackgroundColor3 = UI.bg
 	bar.BackgroundTransparency = 0.2
 	bar.Parent = screenGui
@@ -2232,13 +2246,14 @@ else
 	barLayout.FillDirection = Enum.FillDirection.Horizontal
 	barLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	barLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-	barLayout.Padding = UDim.new(0, 8)
+	barLayout.Padding = UDim.new(0, BAR_GAP)
 	barLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	barLayout.Parent = bar
 
+	local desktopBtns = {}
 	for i, action in ipairs(ACTIONS) do
 		local btn = makeButton(bar, {
-			Size = UDim2.new(0, 100, 0, 42),
+			Size = UDim2.new(0, BAR_BTN_W, 0, BAR_BTN_H),
 			Text = "",
 			BackgroundColor3 = UI.surface,
 			LayoutOrder = i,
@@ -2273,7 +2288,46 @@ else
 
 		actionButtons[action.id] = btn
 		actionButtons[action.id .. "_label"] = textLabel
+		desktopBtns[i] = { btn = btn, label = textLabel, action = action }
 	end
+
+	-- Fit the bar to the current viewport: below full+2*margin (~820px) shrink
+	-- button width (floor 76) and font; below 700px use the short labels.
+	local function layoutDesktopBar(viewportW)
+		local cam = workspace.CurrentCamera
+		viewportW = viewportW or (cam and cam.ViewportSize.X) or 1920
+		local btnW = BAR_BTN_W
+		local fullW = barWidthFor(BAR_BTN_W)
+		if viewportW < fullW + 2 * BAR_SIDE_MARGIN then
+			btnW = math.floor((viewportW - 2 * BAR_SIDE_MARGIN - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
+			btnW = math.max(BAR_BTN_W_MIN, math.min(BAR_BTN_W, btnW))
+		end
+		local useShort = viewportW < BAR_SHORT_VIEWPORT
+		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)
+		local textSize = 12 + math.floor(2 * fontScale + 0.5)
+		bar.Size = UDim2.new(0, barWidthFor(btnW), 0, 58)
+		for _, entry in ipairs(desktopBtns) do
+			entry.btn.Size = UDim2.new(0, btnW, 0, BAR_BTN_H)
+			entry.label.Text = useShort and entry.action.short or entry.action.label
+			entry.label.TextSize = textSize
+		end
+	end
+
+	layoutDesktopBar()
+
+	local viewportConn
+	local function bindViewport(cam)
+		if not cam then return end
+		if viewportConn then viewportConn:Disconnect() end
+		viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			layoutDesktopBar(cam.ViewportSize.X)
+		end)
+	end
+	bindViewport(workspace.CurrentCamera)
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindViewport(workspace.CurrentCamera)
+		layoutDesktopBar()
+	end)
 end
 
 -- ============================================================
