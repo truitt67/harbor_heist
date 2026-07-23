@@ -277,23 +277,37 @@ function RaidService.getRaidTargets(player: Player)
 	for _, targetSession in pairs(snapshot) do
 		local targetPlayer = targetSession and targetSession.player
 		if targetPlayer and targetPlayer.Parent and targetPlayer ~= player then
-			-- PVP-07: skip defenders this attacker is still on per-victim
-			-- cooldown for, before the (slightly heavier) eligibility check.
-			local onVictimCd = RaidService.isVictimOnCooldown(session, targetPlayer.UserId)
-			if not onVictimCd and aquariumService then
-				local eligible = aquariumService.isEligibleRaidTarget(targetSession)
-				-- PVP-12 (gdj.9): skip defenders who already hit the
-				-- per-window loss cap, so the UI never offers a target the
-				-- resolution would reject.
+			-- TASK 26.1.1 (hvfh.6.1.1): report unavailable targets with status
+			-- metadata instead of dropping them. Victim cooldown is checked
+			-- first (PVP-07) — it is attacker-specific and takes priority as
+			-- the displayed unavailability reason for THIS attacker.
+			local onVictimCd, victimCdRemaining = RaidService.isVictimOnCooldown(session, targetPlayer.UserId)
+			if onVictimCd then
+				table.insert(targets, {
+					userId = targetPlayer.UserId,
+					name = targetPlayer.Name,
+					displayName = targetPlayer.DisplayName,
+					dockIndex = targetSession.dockIndex or 0,
+					available = false,
+					unavailableReason = "victim_cooldown",
+					unavailableSeconds = victimCdRemaining,
+				})
+			elseif aquariumService then
+				local eligible, eligReason = aquariumService.isEligibleRaidTarget(targetSession)
+				-- PVP-12 (gdj.9): defenders who already hit the per-window
+				-- loss cap are shown greyed with "loss_capped" (0s — resets
+				-- next window) so the UI never offers a target the resolution
+				-- would reject.
 				if eligible and RaidService.isLossCapped(targetSession) then
 					eligible = false
+					eligReason = "loss_capped"
 				end
-				-- TASK 8.11 (gdj.11): skip defenders standing in the Safe Harbor
-				-- zone (PRD PVP-11). The safe harbor overrides opt-in — even if
-				-- the defender toggled RaidOptIn, they are not targetable while
-				-- physically in the plaza safe zone.
+				-- TASK 8.11 (gdj.11): Safe Harbor overrides opt-in (PRD
+				-- PVP-11). Shown greyed with "safe_harbor" (0s — clears when
+				-- the defender leaves the plaza safe zone).
 				if eligible and RaidService.isInSafeHarbor(targetPlayer) then
 					eligible = false
+					eligReason = "safe_harbor"
 				end
 				if eligible then
 					local stealable = aquariumService.getStealableFish(targetSession)
@@ -303,6 +317,28 @@ function RaidService.getRaidTargets(player: Player)
 						displayName = targetPlayer.DisplayName,
 						dockIndex = targetSession.dockIndex or 0,
 						stealableCount = #stealable,
+						available = true,
+					})
+				elseif eligReason == "locked" or eligReason == "raid_protection" or eligReason == "no_stealable_fish" or eligReason == "loss_capped" or eligReason == "safe_harbor" then
+					-- SHOW greyed with reason + remaining seconds. Hides non-
+					-- participants (not_opted_in, new_player_protected)
+					-- entirely — showing them leaks nothing useful and clutters
+					-- the list (PRD PVP-04 fairness transparency).
+					local remaining = 0
+					if eligReason == "locked" then
+						remaining = math.max(0, math.ceil((targetSession.lockedUntil or 0) - os.clock()))
+					elseif eligReason == "raid_protection" then
+						local protUntil = (targetSession.profile and targetSession.profile.Aquarium and targetSession.profile.Aquarium.RaidProtectionUntilTimestamp) or 0
+						remaining = math.max(0, math.ceil(protUntil - os.time()))
+					end
+					table.insert(targets, {
+						userId = targetPlayer.UserId,
+						name = targetPlayer.Name,
+						displayName = targetPlayer.DisplayName,
+						dockIndex = targetSession.dockIndex or 0,
+						available = false,
+						unavailableReason = eligReason,
+						unavailableSeconds = remaining,
 					})
 				end
 			end
@@ -310,8 +346,17 @@ function RaidService.getRaidTargets(player: Player)
 	end
 	response.targets = targets
 	if analytics then
+		local availableCount = 0
+		for _, t in ipairs(targets) do
+			if t.available then
+				availableCount += 1
+			end
+		end
 		pcall(function()
-			analytics.track(player, "raid_targets_requested", { targetCount = #targets })
+			analytics.track(player, "raid_targets_requested", {
+				targetCount = #targets,
+				availableCount = availableCount,
+			})
 		end)
 	end
 	return response
