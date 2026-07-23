@@ -202,12 +202,67 @@ local cashLabel = makeLabel(hud, {
 local incomeLabel = makeLabel(hud, {
 	Size = UDim2.new(1, -24, 0, 16),
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
-	Text = "+$0.0 / sec",
+	Text = "+$0.0/sec",
 	Font = FONT_MED,
 	TextSize = IS_MOBILE and 12 or 13,
 	TextColor3 = UI.textDim,
 	TextXAlignment = Enum.TextXAlignment.Left,
+	-- TASK 24.1 (hvfh.4.1): RichText so the claimable "ready" segment can be
+	-- tinted claim-green (and pulsed) without a second label or layout change.
+	RichText = true,
 })
+
+-- TASK 24.1 (hvfh.4.1): the whole HUD card opens the aquarium panel. Labels
+-- don't sink input, so this transparent button gets the click even under the
+-- labels; ZIndex keeps it below the +$ gain floaters (ZIndex 5). The
+-- Activated handler is wired near the bottom with the other panel openers
+-- (showPanel/aquariumPanel are not defined yet at this point in the file).
+local hudClick = Instance.new("TextButton")
+hudClick.Name = "HUDClick"
+hudClick.Size = UDim2.new(1, 0, 1, 0)
+hudClick.BackgroundTransparency = 1
+hudClick.Text = ""
+hudClick.AutoButtonColor = false
+hudClick.ZIndex = 4
+hudClick.Parent = hud
+
+-- TASK 24.1 (hvfh.4.1): dual-purpose income line — rate always shown, plus a
+-- claim-green "$N ready" segment while unclaimed income exists. One line: no
+-- HUD height change, no carryPill shift. #32A050 == Color3.fromRGB(50,160,80),
+-- the claimButton green used in render().
+local CLAIM_GREEN_HEX = "32A050"
+local function updateIncomeLine(readyTransparency)
+	local ready = state and state.unclaimedIncome or 0
+	if ready > 0 then
+		-- One notch smaller on the 178px mobile card so rate + ready fit on
+		-- one line (the no-layout-shift path; 6+ digit ready values may still
+		-- clip on mobile — accepted tradeoff, recorded in the bead).
+		incomeLabel.TextSize = IS_MOBILE and 11 or 13
+		incomeLabel.Text = string.format(
+			'+$%.1f/sec  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
+			state.incomePerSec, CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
+		)
+	else
+		incomeLabel.TextSize = IS_MOBILE and 12 or 13
+		incomeLabel.Text = string.format("+$%.1f/sec", state and state.incomePerSec or 0)
+	end
+end
+
+-- Slow pulse on the "ready" segment only (font transparency attribute), ~5Hz
+-- updates on a 2.4s cycle; sleeps cheaply when there is nothing to claim.
+-- render() owns the plain-rate line whenever ready == 0.
+task.spawn(function()
+	while true do
+		if state and (state.unclaimedIncome or 0) > 0 then
+			local phase = (os.clock() % 2.4) / 2.4
+			local alpha = 0.05 + 0.5 * (1 - math.abs(phase * 2 - 1))
+			updateIncomeLine(alpha)
+			task.wait(0.2)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
 
 -- Animated cash counting
 local displayedCash = 0
@@ -2456,7 +2511,9 @@ local function render()
 		showNotification("Saving restored!", Color3.fromRGB(100, 255, 100))
 	end
 	animateCashTo(state.cash)
-	incomeLabel.Text = string.format("+$%.1f / sec", state.incomePerSec)
+	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
+	-- pulse loop re-asserts it while ready > 0; this covers every state push).
+	updateIncomeLine()
 	carryLabel.Text = string.format("On line: %d / %d fish", state.carried, state.maxCarried)
 	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
 	-- state push (catch, per-fish sell/store, bulk actions) while it is open.
@@ -3167,6 +3224,12 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
+	showPanel(aquariumPanel)
+end)
+
+-- TASK 24.1 (hvfh.4.1): clicking/tapping the HUD cash card opens the
+-- aquarium panel (same toggle semantics as every other panel opener).
+hudClick.Activated:Connect(function()
 	showPanel(aquariumPanel)
 end)
 
