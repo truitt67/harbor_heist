@@ -5,6 +5,9 @@
 .bv/
 .sagebrook_env
 
+# Agent Mail session credentials (contains live registration token)
+.agent_mail_env
+
 # python caches from scripts/
 __pycache__/
 
