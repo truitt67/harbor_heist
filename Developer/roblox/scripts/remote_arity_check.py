@@ -19,7 +19,7 @@ WHAT IT CHECKS
      function-reference handlers (e.g. `:Connect(showNotification)`) are both
      resolved.
   3. For each remote that the server fires AND the client handles, the check
-     FAILS if the client handler declares fewer params than the server's max
+     FAILS if ANY client handler declares fewer params than the server's max
      payload (more params is safe — they bind nil).
 
 Directionality falls out naturally: client->server remotes (FireServer /
@@ -100,7 +100,7 @@ def compute_normal_mask(text: str) -> list[bool]:
             normal[i + 1] = False
             i = j
             continue
-        if c == "[" and nxt == "[" or (c == "[" and nxt == "="):
+        if c == "[" and (nxt == "[" or nxt == "="):
             # long string [[...]] or [=[ ... ]=]
             eq = 0
             k = i + 1
@@ -212,10 +212,10 @@ def resolve_ref_params(text: str, mask: list[bool], name: str) -> int | None:
         rf"\b{re.escape(name)}\s*=\s*function\s*\(",
     ]
     for pat in patterns:
-        m = re.search(pat, text)
-        if m and mask[m.start()]:
-            paren = m.end() - 1
-            return count_call_args(text, mask, paren)
+        for m in re.finditer(pat, text):
+            if mask[m.start()]:
+                paren = m.end() - 1
+                return count_call_args(text, mask, paren)
     return None
 
 
@@ -287,15 +287,16 @@ def main() -> int:
 
     checked = sorted(set(max_payload) & set(handler_params))
     fails = []
-    print(f"{'remote':<22} {'server max payload':>18} {'client params':>14}  result")
+    print(f"{'remote':<22} {'server max payload':>18} {'client min params':>16}  result")
     print("-" * 70)
     for remote in checked:
         sp = max_payload[remote]
-        hp = max(h.params for h in handler_params[remote])
+        hp = min(h.params for h in handler_params[remote])
         status = "OK" if hp >= sp else "FAIL"
-        print(f"{remote:<22} {sp:>18} {hp:>14}  {status}")
+        hp_display = str(hp) if hp >= 0 else "?"
+        print(f"{remote:<22} {sp:>18} {hp_display:>16}  {status}")
         if hp < sp:
-            fails.append((remote, sp, hp, handler_params[remote]))
+            fails.append((remote, sp, handler_params[remote]))
 
     # informational: client handlers with no server fire (could be dead, or
     # purely client->server wiring we don't model) -- not a failure.
@@ -315,9 +316,13 @@ def main() -> int:
     print()
     if fails:
         print("FAIL — client handler arity below server payload contract:")
-        for remote, sp, hp, hsites in fails:
-            loc = ", ".join(f"{rel(h.path, root)}:{h.line}" for h in hsites)
-            print(f"  {remote}: client handler(s) declare {hp} param(s) but server sends up to {sp} payload arg(s) -> {loc}")
+        for remote, sp, hsites in fails:
+            for h in hsites:
+                loc = f"{rel(h.path, root)}:{h.line}"
+                if h.params < 0:
+                    print(f"  {remote}: unresolved handler reference (could not determine param count) -> {loc}")
+                else:
+                    print(f"  {remote}: handler declares {h.params} param(s) but server sends up to {sp} payload arg(s) -> {loc}")
         return 1
     print(f"OK — {len(checked)} remote(s) checked, arity contract holds.")
     return 0
