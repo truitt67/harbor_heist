@@ -46,6 +46,7 @@ local deps = {
 
 AntiExploitService.init(deps) -- EPIC 10: must init first so rate limiting is available
 AuditLogService.init(deps) -- EPIC 10 / TASK 10.3
+DockManager.init(deps) -- TASK 24.1 (hvfh.4.1): dock sign income-rate readout
 local fishingCleanup = FishingService.init(deps).onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)

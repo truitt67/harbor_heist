@@ -13,6 +13,14 @@ end
 
 local DockManager = {}
 
+-- TASK 24.1 (hvfh.4.1): injected via init(deps) — used to show the live
+-- income RATE on the dock InfoSign so it always matches the HUD snapshot.
+local stateSync = nil
+
+function DockManager.init(deps)
+	stateSync = deps.stateSync
+end
+
 local PLAZA_RADIUS = 40
 local DOCK_LENGTH = 26
 local DOCK_WIDTH = 6
@@ -676,12 +684,19 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	end
 	
 	local statusLabel = sign.StatusLabel
+	-- TASK 24.1 (hvfh.4.1): append the income RATE (per-minute, matching the
+	-- multiplier-aware StateSync snapshot value) so earning is advertised in
+	-- the world. Rate only, NOT the live claimable number: this function runs
+	-- on store/sell/lock/raid events rather than per-second, so a claimable
+	-- figure would go stale — the rate changes only on those same events
+	-- (+upgrades), so it is always fresh.
+	local incomePerMin = (stateSync and stateSync.incomePerSec(session) or 0) * 60
 	local locked = session.lockedUntil > os.clock()
 	if locked then
-		statusLabel.Text = string.format("%d/%d fish  •  $%d  |  LOCKED", #stored, capacity, totalValue)
+		statusLabel.Text = string.format("%d/%d fish  •  $%d  •  $%.1f/min  |  LOCKED", #stored, capacity, totalValue, incomePerMin)
 		statusLabel.TextColor3 = Color3.fromRGB(255, 120, 120)
 	else
-		statusLabel.Text = string.format("%d/%d fish  •  $%d", #stored, capacity, totalValue)
+		statusLabel.Text = string.format("%d/%d fish  •  $%d  •  $%.1f/min", #stored, capacity, totalValue, incomePerMin)
 		statusLabel.TextColor3 = Color3.fromRGB(180, 220, 255)
 	end
 
