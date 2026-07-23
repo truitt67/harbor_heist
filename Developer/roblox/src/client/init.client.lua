@@ -3000,8 +3000,16 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	render()
 end)
 
-Remotes.BiteEvent.OnClientEvent:Connect(function(windowSeconds)
-	-- Start the timing minigame when the server says a fish is biting
+Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
+	-- Start the timing minigame when the server says a fish is biting.
+	-- The server fires FireClient(player, zoneId, BITE_WINDOW_SECONDS)
+	-- (FishingService.lua), so the handler MUST take two params: zoneId
+	-- (the triggering fishing zone) and windowSeconds (the authoritative
+	-- bite-window). zoneId is unused today but kept NAMED (not discarded
+	-- to _) to document the wire contract and leave a hook for future
+	-- zone-specific presentation. A 1-arg handler silently binds
+	-- windowSeconds to zoneId (a string) and kills the sweep loop with a
+	-- "number > string" compare — the P0 regression in TASK 21.1.
 	runMinigame(windowSeconds)
 end)
 
