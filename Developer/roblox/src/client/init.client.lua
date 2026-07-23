@@ -215,6 +215,7 @@ local cashTweenConn = nil
 local lastCash = nil
 local hasRenderedCash = false
 local function animateCashTo(target)
+	target = type(target) == "number" and target or 0
 	if not hasRenderedCash then
 		hasRenderedCash = true
 		displayedCash = target
@@ -611,10 +612,15 @@ backdrop.ZIndex = 20
 backdrop.Parent = screenGui
 
 local activePanel = nil
--- TASK 25.1 (hvfh.5.1): forward-declared so hidePanels can disarm the
--- SELL ALL confirm when the aquarium panel closes. Defined at the
--- sellButton.Activated handler below.
+-- TASK 25.1 (hvfh.5.1): forward-declared so hidePanels + render can
+-- reference them before the sellButton handler section assigns them.
+-- Lua closures capture upvalues lexically at definition time — a local
+-- declared AFTER render()/hidePanels would be invisible to them (they'd
+-- see globals instead). All four are assigned at the handler section below.
 local disarmSellButton: any = nil
+local sellArmed = false
+local sellArmPayout = 0
+local computeSellPayout: any = nil
 
 local function makePanel(title, titleColor, desktopSize)
 	local panel = Instance.new("Frame")
@@ -2791,11 +2797,13 @@ end)
 -- First tap arms the button with the exact payout + lock-scope; a 3s
 -- window gives the player a chance to back out. Second tap fires. Any
 -- state push that changes the payout disarms so the number is never stale.
-local sellArmed = false
-local sellArmPayout = 0
+-- sellArmed/sellArmPayout/computeSellPayout are forward-declared above
+-- (before render/hidePanels) so those closures see the SAME variables.
+sellArmed = false
+sellArmPayout = 0
 local sellArmTask: any = nil
 
-local function computeSellPayout(): number
+computeSellPayout = function(): number
 	if not state then
 		return 0
 	end
@@ -2826,6 +2834,9 @@ disarmSellButton = function()
 end
 
 sellButton.Activated:Connect(function()
+	if not state then
+		return
+	end
 	if sellArmed then
 		disarmSellButton()
 		Remotes.RequestSellFish:InvokeServer()
