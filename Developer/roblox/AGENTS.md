@@ -139,23 +139,12 @@ python3 agent_mail_cli.py send "$AGENT_NAME" "OtherAgent1,OtherAgent2" \
   "Introduction: $AGENT_NAME joining" "Who you are, what you plan to work on."
 ```
 
-#### Known gotchas (each of these WILL bite you otherwise)
-
-1. **No broadcast.** `send ... "All" ...` is rejected by the server. Always
-   list explicit recipient agent names (comma-separated).
-2. **Contact approval.** Your FIRST message to an agent may fail with
-   `Contact approval required`; the server auto-creates a pending contact
-   request. Wait ~15 seconds and retry the same `send` once — auto-approval
-   usually clears it. If it still fails, proceed with your work and retry
-   later; do not loop.
-3. **Token required to send.** `send` needs your registration token: pass it
-   as the optional 5th positional argument, or have `REGISTRATION_TOKEN`
-   exported in the same shell invocation.
-4. **Project key errors.** If a command fails with `Project ... not found`,
-   the server will suggest valid keys. Use
-   `home-ubuntu-developer-renewal-radar` — never a filesystem path.
-5. **Assigned name.** All subsequent commands must use the server-assigned
-   agent name, not your requested name hint.
+#### Known gotchas
+1. **No broadcast.** `send ... "All" ...` is rejected. List explicit recipient names.
+2. **Contact approval.** FIRST message may fail with `Contact approval required`. Wait 15s and retry once. Do not loop.
+3. **Token required.** `send` needs `registration_token` (as 5th arg or exported).
+4. **Project key.** If `Project not found`, use `home-ubuntu-developer-renewal-radar`.
+5. **Assigned name.** Use server-assigned name, not hint.
 
 #### Full command reference
 
@@ -215,25 +204,8 @@ Common skill preferences:
 | Planning-heavy work | `autoplan` |
 
 #### Native skill precedence
-
-Agents in the Hermes runtime have a native skills system (`skill_view` /
-`skills_list`) that uses different names than this shared repo — e.g.
-shared `investigate` ↔ native `systematic-debugging`; shared `qa` ↔ native
-`code-quality-security-audit`. The two systems do not overlap by name.
-
-When a task matches a skill in **both** systems, prefer the native Hermes
-skill (wired into the runtime, always current). Fall back to the shared-repo
-`SKILL.md` only when no native equivalent exists. Never load both versions
-of the same skill — pick one. The shared library is a snapshot (index
-generated 2026-04-27) and may lag; native skills are the source of truth.
-
-Unless this file explicitly overrides a rule, follow the shared routing policy in:
-
-```text
-/home/ubuntu/SKILLS/AGENTS.md
-```
-
-If `SKILLS.md` exists in the project root, read it too.
+Hermes runtime native skills (`skill_view`) take precedence over shared repo skills. If a skill exists in both, use the native one. Fall back to shared `SKILL.md` only if no native equivalent exists. Shared library (snapshot 2026-04-27) may lag.
+Follow routing in `/home/ubuntu/SKILLS/AGENTS.md`. Read root `SKILLS.md` if present.
 
 ---
 
