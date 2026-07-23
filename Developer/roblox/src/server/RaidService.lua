@@ -1062,4 +1062,10 @@ function RaidService.init(deps)
 	task.spawn(runScheduler)
 end
 
+-- Test exports (k5wz.9.3): expose module-local state for unit tests.
+-- NOT used by production code; allow the outcome-resolution spec to inject
+-- active raid entries and seed/replacement the RNG for deterministic tests.
+RaidService._activeRaids = activeRaids
+RaidService._setRng = function(newRng) rng = newRng end
+
 return RaidService
