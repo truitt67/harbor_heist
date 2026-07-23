@@ -1,0 +1,49 @@
+# Coverage Exceptions — TASK 18.13 (k5wz.13)
+#
+# Lists exported functions that are intentionally NOT covered by unit tests,
+# with a one-line reason. The coverage gate reads this file and exempts
+# listed functions from the threshold calculation.
+#
+# Format (one per line):
+#   ModuleName.functionName: reason text
+#
+# A function listed here is REMOVED from both the numerator and denominator
+# when computing the coverage percentage for its module. This means:
+#   - If 8/10 functions are covered and 2 are exempted, coverage = 8/8 = 100%.
+#   - The report still shows the exempted functions with their reason.
+#
+# ONLY list functions that genuinely cannot be unit-tested without mocks or
+# that are covered exclusively by EPIC 19 (E2E runtime execution). Every
+# exemption must have a real reason — not "TODO".
+
+# DataManager: all public functions require a live Roblox DataStore (DataStoreService).
+# The unit specs test sanitize/migrate pure logic via the _sanitize test export.
+# load/get/save/remove/allSessions/startAutosave/bindToClose/isHealthy/tryRecover
+# all call DataStoreService:GetDataStore() internally and cannot run headless.
+# EPIC 19.6 (persistence round-trip) covers these at runtime.
+DataManager.load: requires live DataStoreService (EPIC 19.6 covers at runtime)
+DataManager.get: requires live session table (EPIC 19.2 lifecycle covers at runtime)
+DataManager.save: requires live DataStoreService (EPIC 19.6 covers at runtime)
+DataManager.remove: requires live session table (EPIC 19.2 lifecycle covers at runtime)
+DataManager.allSessions: requires live session table (EPIC 19.2 lifecycle covers at runtime)
+DataManager.startAutosave: starts an infinite task.wait loop (EPIC 19.2 covers at runtime)
+DataManager.bindToClose: wires game:BindToClose (EPIC 19.2 covers at runtime)
+DataManager.isHealthy: reads DataStoreService state (EPIC 19.6 covers at runtime)
+DataManager.tryRecover: requires live DataStoreService retry path (EPIC 19.6 covers at runtime)
+
+# AntiExploitService.init: wires RemoteEvent.OnServerEvent handlers — needs DataModel
+AntiExploitService.init: wires RemoteEvent handlers (EPIC 19.9 abuse/rate-limit covers at runtime)
+
+# AquariumService.startIncomeLoop: infinite task.wait loop, cannot be unit-tested
+AquariumService.startIncomeLoop: infinite income-accrual loop (EPIC 19.4 covers at runtime)
+
+# RaidService functions requiring a live multi-player game session
+RaidService.validateAttacker: composes window+zone+cooldown+new-player gates (EPIC 19.8 raid e2e covers at runtime)
+RaidService.getRaidTargets: enumerates live sessions via dataManager.allSessions (EPIC 19.8 covers at runtime)
+RaidService.requestRaidAttempt: full raid-attempt flow requiring Players:GetPlayers (EPIC 19.8 covers at runtime)
+
+# OnboardingService.init: wires RemoteEvent handlers
+OnboardingService.init: wires collection-book remote handler (EPIC 19 covers at runtime)
+
+# AuditLogService.init: captures deps only, no testable logic beyond init
+AuditLogService.init: captures deps reference only (no logic to test)

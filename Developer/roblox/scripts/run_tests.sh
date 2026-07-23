@@ -75,8 +75,27 @@ if [[ "$BUCKET" == "pure" ]]; then
 
 	cd "$PROJECT_ROOT"
 	lune run test/pure_runner
-	exit_code=$?
-	exit $exit_code
+	test_exit=$?
+
+	# TASK 18.13 (k5wz.13): coverage gate. Runs the static export-reference
+	# analyzer. Exits 1 if any in-scope module drops below its threshold.
+	# The report is always generated (testlogs/coverage.txt); the gate only
+	# fails the script in --gate mode (CI) or when run_tests is called with
+	# the COVERAGE_GATE=1 env var. Pure-test failures take precedence.
+	if [[ $test_exit -ne 0 ]]; then
+		exit $test_exit
+	fi
+
+	if [[ "${COVERAGE_GATE:-1}" == "1" ]]; then
+		echo ""
+		echo "=== Coverage gate (TASK 18.13) ==="
+		if ! python3 "$PROJECT_ROOT/scripts/coverage_report.py" --gate; then
+			echo "Coverage gate FAILED — see testlogs/coverage.txt for details"
+			exit 1
+		fi
+	fi
+
+	exit 0
 fi
 
 # ---------------------------------------------------------------------------
