@@ -2498,6 +2498,113 @@ local dataStoreWarningShown = false
 -- prompt. The actual OnClientEvent handler is wired at line ~1851 below.
 local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
 
+-- ============================================================
+-- TASK 22.1 (hvfh.2.1): FISH button state machine.
+-- Replaces the binary `casting`-flag label with three visually
+-- distinct states driven by server events (never per-frame churn):
+--   idle        "FISH"            green,  static
+--   waiting     "WAITING..."/"..." muted,  slow stroke pulse
+--   bite-ready  "FISH ON!"/"FISH!" warn,   fast stroke pulse
+-- Transition edges (verified against server event order):
+--   idle      -> waiting     on CastState(true)
+--   waiting   -> idle        on CastState(false) with no bite
+--   *         -> bite-ready  on BiteEvent, REGARDLESS of flag state
+--   (CastState(false) fires at FishingService:187 BEFORE BiteEvent at
+--    :213, so the transient idle is immediately overridden — bite-ready
+--    survives that ordering rather than being lost to the early false.)
+--   bite-ready -> idle       when the LOCAL minigame closes (tap or
+--   timeout via onMinigameTap / runMinigame expiry) — NOT on any
+--   CastState event; none is coming.
+-- `casting` stays for the doFish + cast-input guards; it no longer
+-- drives the label. The pulse tween is mode-tracked so re-rendering on
+-- state pushes never restarts it (renderFishButton is idempotent).
+-- ============================================================
+local fishState = "idle" -- "idle" | "waiting" | "bite-ready"
+local fishPulseTween = nil
+local fishPulseMode = "none" -- "none" | "slow" | "fast"
+local fishStrokeDefaultColor = nil
+local fishStrokeDefaultTrans = nil
+
+local function fishStroke()
+	local btn = actionButtons.fish
+	return btn and btn:FindFirstChildOfClass("UIStroke")
+end
+
+local function stopFishPulse()
+	if fishPulseTween then
+		fishPulseTween:Cancel()
+		fishPulseTween = nil
+	end
+	fishPulseMode = "none"
+end
+
+local function ensureFishPulse(mode, baseTrans, amp)
+	if fishPulseMode == mode and fishPulseTween then
+		return
+	end
+	stopFishPulse()
+	if mode == "none" then
+		return
+	end
+	local s = fishStroke()
+	if not s then
+		return
+	end
+	local dur = mode == "fast" and 0.32 or 0.85
+	fishPulseTween = TweenService:Create(
+		s,
+		TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+		{ Transparency = math.max(0, baseTrans - amp) }
+	)
+	fishPulseTween:Play()
+	fishPulseMode = mode
+end
+
+local function renderFishButton()
+	local btn = actionButtons.fish
+	if not btn then
+		return
+	end
+	local lbl = actionButtons.fish_label or btn
+	local s = fishStroke()
+	if s and not fishStrokeDefaultColor then
+		fishStrokeDefaultColor = s.Color
+		fishStrokeDefaultTrans = s.Transparency
+	end
+	local labelText, labelColor, strokeColor, baseTrans, pulseMode
+	if fishState == "bite-ready" then
+		labelText = IS_MOBILE and "FISH!" or "FISH ON!"
+		labelColor = UI.warn
+		strokeColor = UI.warn
+		baseTrans = fishStrokeDefaultTrans or 0.5
+		pulseMode = "fast"
+	elseif fishState == "waiting" then
+		labelText = IS_MOBILE and "..." or "WAITING..."
+		labelColor = UI.textFaint
+		strokeColor = UI.textFaint
+		baseTrans = fishStrokeDefaultTrans or 0.6
+		pulseMode = "slow"
+	else
+		labelText = "FISH"
+		labelColor = UI.good
+		strokeColor = fishStrokeDefaultColor or UI.good
+		baseTrans = fishStrokeDefaultTrans or 0.6
+		pulseMode = "none"
+	end
+	lbl.Text = labelText
+	lbl.TextColor3 = labelColor
+	if s then
+		s.Color = strokeColor
+		s.Transparency = baseTrans
+	end
+	ensureFishPulse(pulseMode, baseTrans, pulseMode == "fast" and 0.4 or 0.3)
+end
+
+local function setFishState(newState)
+	fishState = newState
+	renderFishButton()
+end
+
 local function render()
 	if not state then
 		return
@@ -2521,15 +2628,7 @@ local function render()
 		renderInventory()
 	end
 
-	local fishBtn = actionButtons.fish
-	local fishLbl = actionButtons.fish_label or fishBtn
-	if casting then
-		fishLbl.Text = IS_MOBILE and "..." or "CASTING"
-		fishLbl.TextColor3 = UI.textFaint
-	else
-		fishLbl.Text = "FISH"
-		fishLbl.TextColor3 = UI.good
-	end
+	renderFishButton()
 
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
 	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
@@ -2789,6 +2888,10 @@ local function runMinigame(windowSeconds)
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
+	-- BiteEvent -> runMinigame reached here, so a bite is really happening:
+	-- enter bite-ready now (after the windowSeconds guard, so a bad payload
+	-- never sticks the button in bite-ready with no minigame to close it).
+	setFishState("bite-ready")
 
 	-- ROUND-3 FIX (fellow-agent review): the minigame zone was hardcoded to
 	-- 30% ([0.35, 0.65]) in BOTH the visual frame and the tap hit-test, but
@@ -2818,6 +2921,7 @@ local function runMinigame(windowSeconds)
 				-- Time expired
 				minigameActive = false
 				minigameFrame.Visible = false
+				setFishState("idle")
 				Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
 				break
 			end
@@ -2850,6 +2954,7 @@ local function onMinigameTap()
 	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
 	minigameActive = false
 	minigameFrame.Visible = false
+	setFishState("idle")
 	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
 	-- so an on-zone tap can still be rejected — surface that honestly.
@@ -3131,6 +3236,7 @@ end)
 Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
 	if isCasting then
+		fishState = "waiting"
 		-- N16: read the server-authoritative hit-zone bounds (3rd arg).
 		-- hitZoneStart/hitZoneEnd = outer "good" zone; goodStart/goodEnd =
 		-- inner "perfect" zone. Falls back to hardcoded defaults if absent
@@ -3210,6 +3316,13 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			end
 		end)
 	else
+		-- CastState(false) with no bite: the cast resolved/cancelled. Only
+		-- clear the waiting state — never bite-ready (a BiteEvent may be
+		-- arriving in this same deferred callback right after this; clearing
+		-- bite-ready here would lose the bite). render() below re-renders.
+		if fishState == "waiting" then
+			fishState = "idle"
+		end
 		stopCastOverlay()
 	end
 	render()
