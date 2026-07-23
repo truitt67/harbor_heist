@@ -52,6 +52,22 @@ done
 BUCKET="${BUCKET:-pure}"
 
 # ---------------------------------------------------------------------------
+# TASK 21.2: Remote arity contract gate (static; runs for all buckets).
+# Fails fast if any client OnClientEvent handler declares fewer params than
+# the server sends via FireClient/FireAllClients — the class of bug that
+# silently broke the bite minigame in TASK 21.1. No game instance required.
+# Bypass with REMOTE_ARITY_GATE=0 (mirrors the COVERAGE_GATE pattern).
+# ---------------------------------------------------------------------------
+if [[ "${REMOTE_ARITY_GATE:-1}" == "1" ]]; then
+	echo "=== Remote arity contract check (TASK 21.2) ==="
+	if ! python3 "$PROJECT_ROOT/scripts/remote_arity_check.py"; then
+		echo "Remote arity contract gate FAILED — see output above." >&2
+		exit 1
+	fi
+	echo ""
+fi
+
+# ---------------------------------------------------------------------------
 # --pure bucket: lune
 # ---------------------------------------------------------------------------
 if [[ "$BUCKET" == "pure" ]]; then
