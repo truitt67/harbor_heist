@@ -18,8 +18,6 @@ Project-local instructions in this file take precedence over shared skill-librar
   hardening, and mobile UI, currently in closed V1 test phase with recent critical bug fixes (analytics API, quest hooks, stun exploit) and ready for launch pending final
   balance/decision finalization.
 
-**Primary audience:** Autonomous coding agents and humans coordinating with those agents.
-
 ---
 
 ## Absolute Safety Rules
@@ -28,30 +26,14 @@ Project-local instructions in this file take precedence over shared skill-librar
 
 You may **NOT delete any file or directory** unless the user explicitly gives the exact deletion command **in the current session**.
 
-This includes:
-
-- Files you just created
-- Temporary files
-- Test files
-- Scripts
-- Generated files
-- Directories that appear safe to remove
+This includes files you just created, temporary/test/generated files,
+scripts, and directories that merely appear safe to remove.
 
 If you think something should be removed, stop and ask. You must receive clear written approval before any deletion command is proposed or executed.
 
-Forbidden without explicit approval:
-
-```bash
-git reset --hard
-git clean -fd
-rm -rf
-```
-
-Also forbidden without explicit approval:
-
-- Any command that can delete code or data
-- Any command that can overwrite important code or data
-- Any destructive git operation
+Forbidden without explicit approval: `git reset --hard`, `git clean -fd`,
+`rm -rf`, and ANY command that can delete or overwrite code or data, or
+perform a destructive git operation.
 
 If unsure, ask first. Prefer safe inspection and preservation commands such as:
 
@@ -79,8 +61,8 @@ and handles project-key resolution for you. Do NOT use the legacy
 | --- | --- |
 | Server URL | `http://127.0.0.1:8765/mcp/` (override: `AGENT_MAIL_URL`) |
 | Canonical project key | `home-ubuntu-developer-roblox` (CLI default; override: `AGENT_MAIL_PROJECT`) |
-| Your agent name | ASSIGNED BY THE SERVER at registration (e.g. `PinkDog`) — it may differ from the name you requested. Always use the returned name. |
-| Your token | The `registration_token` returned at registration. Required for `inbox`, `send`, `reserve`, and `release`. Save it for the whole session. |
+|| Your agent name | ASSIGNED BY THE SERVER at registration — it may differ from the hint you requested. Always use the returned name. |
+|| Your token | The `registration_token` returned ONCE at registration. Required for `inbox`, `send`, `reserve`, `release`. It cannot be recovered — persist it (Step 1). |
 
 #### Step 0 — Verify the server is up
 
@@ -101,27 +83,48 @@ cd - && sleep 8 && python3 agent_mail_cli.py health
 Never run `mcp-agent-mail` or `agent-mail` directly as CLI tools — they are
 launchers only and will just print a usage banner.
 
-#### Step 1 — Register
+#### Step 1 — Resume or register your identity
+
+FIRST check for saved credentials — the repo-root `.agent_mail_env` persists
+an identity across sessions:
 
 ```bash
-python3 agent_mail_cli.py register "YourNameHint" "abacusai"
+cat .agent_mail_env
 ```
 
-The JSON response contains your ASSIGNED `agent_name` and your
-`registration_token`. Export both immediately (each bash call is a fresh
-session, so re-export or inline them in later commands):
-
-```bash
-export AGENT_NAME='<assigned-name-from-response>'
-export REGISTRATION_TOKEN='<token-from-response>'
-```
-
-Alternatively, `session-start` performs register + list agents + inbox check
-in one shot:
+- If it names an agent that is still ACTIVE (non-retired in the `agents`
+  list), source and verify it:
+  ```bash
+  source .agent_mail_env
+  python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN" 10 false true
+  ```
+  A JSON inbox = identity resumed, skip registration. An auth error = stale
+  creds; re-register below. The file may also hold a DIFFERENT, retired
+  agent's creds — never assume it is yours.
+- Otherwise register fresh (`session-start` = register + list agents + inbox
+  check in one shot):
 
 ```bash
 python3 agent_mail_cli.py session-start "YourNameHint" "abacusai"
 ```
+
+The JSON response contains your ASSIGNED `agent_name` and your
+`registration_token`. Persist both IMMEDIATELY by overwriting
+`.agent_mail_env` with these three lines, then `source .agent_mail_env` at
+the start of later commands (each bash call is a fresh shell):
+
+```bash
+export AGENT_MAIL_PROJECT='home-ubuntu-developer-roblox'
+export AGENT_NAME='<assigned-name>'
+export REGISTRATION_TOKEN='<token>'
+```
+
+**Name-taken recovery (common):** re-using a hint whose identity already
+exists fails with `register_agent for an existing identity requires
+registration_token`. You cannot reclaim that identity without its token —
+do NOT loop. Register with a fresh unique hint (e.g. `RainyLynx-Jul24`),
+save the new creds, and move on. The old identity's inbox is unreachable
+and its file reservations expire by TTL.
 
 #### Step 2 — Discover active agents and check your inbox
 
@@ -141,16 +144,16 @@ python3 agent_mail_cli.py send "$AGENT_NAME" "OtherAgent1,OtherAgent2" \
 
 #### Known gotchas
 1. **No broadcast.** `send ... "All" ...` is rejected. List explicit recipient names.
-2. **Contact approval.** FIRST message may fail with `Contact approval required`. Wait 15s and retry once. Do not loop.
-3. **Token required.** `send` needs `registration_token` (as 5th arg or exported).
+2. **Contact approval.** The first message to a never-contacted agent fails with `Contact approval required` — but the failed send AUTO-CREATES pending contact requests, so no extra step is needed: wait ~15s and retry once; the retry succeeds. Do not loop.
+3. **Token required.** `inbox`/`send`/`reserve`/`release` need the `registration_token` (as an arg or exported). Keep it in `.agent_mail_env` (Step 1).
 4. **Project key.** The canonical key for this repo is `home-ubuntu-developer-roblox` (the CLI default). `home-ubuntu-developer-roblox-games` does NOT exist — if you see it referenced anywhere, it's stale. Only use another key (e.g. `home-ubuntu-developer-renewal-radar`) when you are deliberately coordinating in that project's repo.
-5. **Assigned name.** Use server-assigned name, not hint.
+5. **Assigned name.** Use the server-assigned name, not your hint. Re-registering an existing name without its token fails — pick a fresh unique hint (Step 1).
+6. **No list-reservations command.** The CLI cannot show current reservations; conflicts surface only in the `conflicts` array of a `reserve` response. Reserve before editing and read that array.
 
 #### Full command reference
 
 ```bash
 python3 agent_mail_cli.py health
-python3 agent_mail_cli.py register "NameHint" "abacusai" [project_key]
 python3 agent_mail_cli.py session-start "NameHint" "abacusai" [project_key]
 python3 agent_mail_cli.py agents [project_key]
 python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN" [limit] [urgent_only] [include_bodies]
@@ -160,16 +163,14 @@ python3 agent_mail_cli.py release "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/**,te
 ```
 
 Reservation notes: TTL is in seconds (minimum 60; default 3600). Reserve the
-narrowest paths that cover your edit (e.g. `src/api/routes/alerts.py`, not
-`src/**`). Reservations on code paths are advisory — check the `conflicts`
-array in the response and coordinate via mail if it is non-empty.
+narrowest paths that cover your edit (e.g. `src/server/FishingService.lua`,
+not `src/**`).
 
 ### 2. Gather Context and Priorities
 
 ```bash
 ~/cm-context-prompt.sh "your task description"
 bv --robot-triage | jq '.recommendations[0:3]'
-br ready --json
 ```
 
 ### 3. Use the Shared Skills Library for Non-Trivial Tasks
@@ -180,17 +181,12 @@ Agents have access to a shared skills library at `/home/ubuntu/SKILLS`:
 - Registry metadata: `/home/ubuntu/SKILLS/registry/`
 - Shared routing policy: `/home/ubuntu/SKILLS/AGENTS.md`
 
-Before starting any non-trivial task:
-
-1. Classify the task into one primary category.
-2. Consult `/home/ubuntu/SKILLS/registry/skills-index.json`.
-3. Optionally consult `skills-by-trigger.json` / `skills-by-category.json`.
-4. Select one primary skill and up to two supporting skills.
-5. Read the selected primary skill’s `SKILL.md`.
-6. Read supporting skill files only when directly relevant.
-7. Execute using the chosen skill set.
-
-Skill loading discipline: minimize context — read the primary skill's `SKILL.md`, avoid scanning the full tree, prefer lightweight skills.
+Before starting any non-trivial task: classify it into one primary category,
+consult `/home/ubuntu/SKILLS/registry/skills-index.json` (optionally
+`skills-by-trigger.json` / `skills-by-category.json`), select one primary
+skill plus up to two supporting ones, and read the primary skill's
+`SKILL.md` (supporting files only when directly relevant). Minimize context:
+never scan the full tree; prefer lightweight skills.
 
 Common skill preferences:
 
@@ -213,49 +209,22 @@ Follow routing in `/home/ubuntu/SKILLS/AGENTS.md`. Read root `SKILLS.md` if pres
 
 ### Languages and Runtimes
 
-- Bun for JavaScript and TypeScript
-- Python via `uv`
-- Rust, if needed
+- Luau (Roblox) for all game code; Python via `uv` for tooling and scripts.
 
-### Frontend Build Toolchain
+### Build, Test, and Verification (Luau / Roblox)
 
-The frontend dashboard at `src/frontend/` uses **Create React App (react-scripts@5)**.
+- Source layout: `src/server/`, `src/client/`, `src/shared/`, mapped by `default.project.json` (Rojo).
+- Rebuild the place file after script edits: `rojo build -o HarborHeist.rbxlx` (or `rojo serve` + the Studio plugin for live sync).
+- Pure-Luau specs (headless, Linux-safe): `scripts/run_tests.sh --pure` — runs `pure_specs/` under lune with an integrated coverage gate. All-pass is required before committing.
+- TestEZ specs in `specs/` need Roblox Studio (unavailable on this Linux box); record them as NOT-verified-on-Linux rather than claiming a run.
+- Static checks: `luau-analyze` / `selene` — compare error counts before vs after your edit; never add NEW errors (a known set pre-exists on the client).
+- UBS has no Lua scanner, so it is N/A for `.lua`-only changes; the pure-spec suite + coverage gate is the quality bar here.
 
-**Working directory for all frontend commands:** `src/frontend/`
+### Git Repo Layout — read before staging
 
-**Install:**
-```bash
-cd src/frontend && npm install
-```
-
-**Run tests (CI-safe, non-interactive):**
-```bash
-cd src/frontend && npm test
-```
-
-**Run tests (interactive watch mode):**
-```bash
-cd src/frontend && npm run test:watch
-```
-
-**Run tests with coverage (CI pipeline):**
-```bash
-cd src/frontend && npm run test:ci
-```
-
-**Build production bundle:**
-```bash
-cd src/frontend && npm run build
-```
-
-**Start dev server:**
-```bash
-cd src/frontend && npm start
-```
-
-**Bun compatibility note:** The runtime environment is Bun, which has a compatibility issue with jest-runtime's Module property assignment. A postinstall script (`scripts/patch-jest-runtime.js`) and explicit test-script preamble automatically apply the needed patch. Tests will not run without it.
-
-**Test discovery:** CRA discovers tests via `src/**/*.{test,spec}.{js,jsx,ts,tsx}` and `src/**/__tests__/**/*.{js,jsx,ts,tsx}`. The `types/data-contracts.test.js` test is duplicated at `src/data-contracts.test.js` for CRA discovery. Both must be kept in sync.
+- The git repo ROOT is `/home/ubuntu`; this project lives at `Developer/roblox/`. From the project dir, `git status` shows `../../` home-directory noise — that is expected.
+- NEVER `git add -A`, `git add .`, or `git commit -a` from the repo root: you would sweep in unrelated home files and other agents' uncommitted WIP. Stage explicit paths only (`git add Developer/roblox/src/...`).
+- Landing work inside a shared file that contains ANOTHER agent's uncommitted changes? Use partial staging (`git apply --cached` with only your hunks) and leave their hunks unstaged — see the 20d962a / hvfh.4.3 mail thread for why.
 
 ### Core Tools
 
@@ -296,12 +265,9 @@ repo root.
 ```bash
 TASK_ID="br-123"
 br update $TASK_ID --status in_progress
-python3 agent_mail_cli.py reserve "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/api/routes/alerts.py,tests/test_alerts.py" 3600 true --reason "$TASK_ID"
-python3 agent_mail_cli.py send "$AGENT_NAME" "ActiveAgent1,ActiveAgent2" "[br-123] Start: Fix widget" "Starting work on br-123. Editing src/api/routes/alerts.py and tests/test_alerts.py."
+python3 agent_mail_cli.py reserve "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/server/FishingService.lua" 3600 true --reason "$TASK_ID"
+python3 agent_mail_cli.py send "$AGENT_NAME" "ActiveAgent1,ActiveAgent2" "[br-123] Start: Fix widget" "Starting work on br-123. Editing src/server/FishingService.lua."
 ```
-
-(Recipients must be explicit active agent names from
-`python3 agent_mail_cli.py agents` — the server rejects `"All"`.)
 
 During work:
 
@@ -318,7 +284,7 @@ br create "New subtask discovered" --deps discovered-from:$TASK_ID
 When done:
 
 ```bash
-python3 agent_mail_cli.py release "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/api/routes/alerts.py,tests/test_alerts.py"
+python3 agent_mail_cli.py release "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/server/FishingService.lua"
 br close $TASK_ID --reason "Completed: [what you did]"
 python3 agent_mail_cli.py send "$AGENT_NAME" "ActiveAgent1,ActiveAgent2" "[br-123] Completed" "Task complete. Changed files: [list]."
 ```
@@ -357,13 +323,7 @@ br sync --flush-only
 - Types: `task`, `bug`, `feature`, `epic`, `question`, `docs`.
 - Add dependencies with `br dep add <issue> <depends-on>`.
 - `br` is non-invasive and does not execute git commands automatically.
-- After `br sync --flush-only`, manually stage and commit `.beads/` changes.
-
-```bash
-br sync --flush-only
-git add .beads/
-git commit -m "[br-123] sync beads"
-```
+- After `br sync --flush-only`, manually stage and commit `.beads/` changes (`git add .beads/ && git commit -m "[br-123] sync beads"`).
 
 ### Automation Rules
 
@@ -397,15 +357,7 @@ Rules:
 
 - Use `--robot-*` modes for automation.
 - Do not use interactive TUI output in automated sessions.
-- Useful output fields include `recommendations`, `quick_ref`, `quick_wins`, `blockers_to_clear`, and `commands`.
-
-Example:
-
-```bash
-bv --robot-triage | jq '.recommendations[0]'
-```
-
-Robot JSON may include `data_hash`, `status`, `as_of`, and `as_of_commit`.
+- Useful output fields: `recommendations`, `quick_wins`, `blockers_to_clear`, `commands`.
 
 ---
 
@@ -433,12 +385,7 @@ ubs file.ts file2.py
 ubs $(git diff --name-only --cached)
 ubs --only=js,python src/
 ubs --ci --fail-on-warning .
-ubs --help
-ubs sessions --entries 1
-ubs .
 ```
-
-Scope UBS to changed files whenever possible. Use full-project scans sparingly.
 
 ### Fix Workflow
 
@@ -455,11 +402,7 @@ Scope UBS to changed files whenever possible. Use full-project scans sparingly.
 - Important: fix production-impacting type narrowing issues, division-by-zero, unwrap panics, and unclosed resources.
 - Contextual: use judgment for TODOs, FIXMEs, debug prints, and console logs.
 
-Anti-patterns:
-
-- Ignoring UBS findings.
-- Running a full project scan for small edits.
-- Fixing symptoms instead of root causes.
+Anti-patterns: ignoring UBS findings; full-project scans for small edits; fixing symptoms instead of root causes.
 
 ---
 
@@ -474,12 +417,11 @@ Use the right tool for the question.
 | Structural matching or safe rewrites | `ast-grep` |
 | Exploratory architecture questions | `mcp__morph-mcp__warp_grep` |
 
-Examples:
+Examples (Luau):
 
 ```bash
-ast-grep run -l Rust -p '$EXPR.unwrap()'
-rg -n 'println!' -t rust
-rg -l -t rust 'unwrap\(' | xargs ast-grep run -l Rust -p '$X.unwrap()' --json
+rg -n 'FireClient' src/server
+ast-grep run -l lua -p '$REMOTE:FireServer($$$)' src/client
 ```
 
 Do not use `warp_grep` for exact symbol lookup. Do not use plain text search for deep architecture understanding when exploratory AI search is available.
@@ -508,41 +450,18 @@ When ending a work session, complete all applicable steps below. Work is not com
 
 ### Mandatory Checklist
 
-1. File `br` issues for remaining work.
-2. Run quality gates if code changed:
-   - Tests
-   - Linters
-   - Builds
-   - UBS on changed files
-3. Update issue status:
-   - Close finished issues.
-   - Update in-progress items.
-4. Release file reservations.
-5. Sync Beads metadata.
-6. Commit all intended changes.
-7. Push to remote when responsible for landing the work.
-8. Verify the working tree and remote state.
-9. Hand off clear context for the next session.
+1. File `br` issues for remaining work; close finished issues; update in-progress items.
+2. Run quality gates if code changed: tests, linters, builds, UBS on changed files.
+3. Release file reservations.
+4. Sync Beads metadata and commit it: `br sync --flush-only && git add .beads/`.
+5. Commit all intended changes (bead ID in the message), then `git pull --rebase && git push`.
+6. Verify `git status` shows a clean tree, up to date with origin.
+7. Hand off clear context for the next session.
 
-Recommended command flow:
-
-```bash
-git status
-git add <files>
-br sync --flush-only
-git add .beads/
-git commit -m "[br-123] ..."
-git pull --rebase
-git push
-git status
-```
-
-Critical rules:
-
-- Do not say “ready to push when you are” if you are responsible for landing the work.
-- If push fails, resolve the issue and retry unless blocked by user instructions or permissions.
-- Local-only completed work is considered stranded.
-- Clear stashes and prune remote branches only when safe and explicitly appropriate.
+Critical rules: never say "ready to push when you are" if you are responsible
+for landing the work — push it yourself; if push fails, resolve and retry;
+local-only completed work is stranded; clear stashes and prune remote
+branches only when safe and explicitly appropriate.
 
 ---
 
