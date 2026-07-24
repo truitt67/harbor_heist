@@ -102,11 +102,11 @@ return function()
 		it("should preserve Defense state", function()
 			local input = defaultProfile()
 			input.Defense.LockFreeUsesRemaining = 2
-			input.Defense.LockFreeUsesMax = 5
+			input.Defense.LockFreeUsesMax = 3
 
 			local result = sanitize(input)
 			expect(result.Defense.LockFreeUsesRemaining).to.equal(2)
-			expect(result.Defense.LockFreeUsesMax).to.equal(5)
+			expect(result.Defense.LockFreeUsesMax).to.equal(3)
 		end)
 
 		it("should preserve Dock state", function()
