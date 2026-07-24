@@ -1972,10 +1972,11 @@ local function updateRaidPanelStatic()
 		raidOptInPanelButton.BackgroundColor3 = UI.bad
 		raidOptInPanelButton.TextColor3 = UI.ink
 	else
-		local catches = state.totalCatches or 0
-		local hasUpgrade = (state.upgradeLevel or 1) > 1
-		if not hasUpgrade and catches < 10 then
-			raidOptInPanelButton.Text = string.format("RAID OPT-IN: LOCKED (%d/10 catches or upgrade)", catches)
+		-- TASK 25.3 (hvfh.5.3): the DEC-4 gate is single-sourced server-side
+		-- (GameConfig.Raid.unlockTotalCatches via StateSync raidEligible);
+		-- the client renders snapshot fields only — no local eligibility logic.
+		if not state.raidEligible then
+			raidOptInPanelButton.Text = string.format("RAID OPT-IN: LOCKED (%d/%d catches or upgrade)", state.totalCatches or 0, state.raidUnlockCatches or GameConfig.Raid.unlockTotalCatches)
 			raidOptInPanelButton.BackgroundColor3 = UI.surfaceHi
 			raidOptInPanelButton.TextColor3 = UI.textFaint
 		else
@@ -2706,10 +2707,11 @@ local function render()
 		raidOptInButton.BackgroundColor3 = UI.bad
 		raidOptInButton.TextColor3 = UI.ink
 	else
-		local catches = state.totalCatches or 0
-		local hasUpgrade = (state.upgradeLevel or 1) > 1
-		if not hasUpgrade and catches < 10 then
-			raidOptInButton.Text = string.format("RAID OPT-IN: LOCKED (%d/10 catches or upgrade needed)", catches)
+		-- TASK 25.3 (hvfh.5.3): the DEC-4 gate is single-sourced server-side
+		-- (GameConfig.Raid.unlockTotalCatches via StateSync raidEligible);
+		-- the client renders snapshot fields only — no local eligibility logic.
+		if not state.raidEligible then
+			raidOptInButton.Text = string.format("RAID OPT-IN: LOCKED (%d/%d catches or upgrade needed)", state.totalCatches or 0, state.raidUnlockCatches or GameConfig.Raid.unlockTotalCatches)
 			raidOptInButton.BackgroundColor3 = UI.surfaceHi
 			raidOptInButton.TextColor3 = UI.textFaint
 		else
