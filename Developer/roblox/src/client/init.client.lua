@@ -2510,7 +2510,7 @@ local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0
 -- Replaces the binary `casting`-flag label with three visually
 -- distinct states driven by server events (never per-frame churn):
 --   idle        "FISH"            green,  static
---   waiting     "WAITING..."/"..." muted,  slow stroke pulse
+--   waiting     "WAITING"/"..."   muted,  slow stroke pulse
 --   bite-ready  "FISH ON!"/"FISH!" warn,   fast stroke pulse
 -- Transition edges (verified against server event order):
 --   idle      -> waiting     on CastState(true)
@@ -2586,7 +2586,7 @@ local function renderFishButton()
 		baseTrans = fishStrokeDefaultTrans or 0.5
 		pulseMode = "fast"
 	elseif fishState == "waiting" then
-		labelText = IS_MOBILE and "..." or "WAITING..."
+		labelText = IS_MOBILE and "..." or "WAITING"
 		labelColor = UI.textFaint
 		strokeColor = UI.textFaint
 		baseTrans = fishStrokeDefaultTrans or 0.6
