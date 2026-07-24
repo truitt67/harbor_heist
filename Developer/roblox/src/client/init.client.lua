@@ -57,7 +57,39 @@ local state = nil
 local casting = false
 local castHitZone = { perfectStart_ = 0.35, perfectEnd_ = 0.65, goodStart_ = 0.15, goodEnd_ = 0.85 }
 local castDeadline = 0
-local castInputConn = nil
+local castDeadline = 0
+-- TASK 23.1 (hvfh.3.1): duration of the currently-open cast overlay. The
+-- old per-cast InputBegan closure captured this by upvalue; the single
+-- overlay router (see CastState handler below) needs it as file scope.
+local castOverlayDuration = 0
+-- TASK 23.1 (hvfh.3.1): central minigame/overlay manager. ONE owner for
+-- "which timed-input overlay is active", replacing four independent global
+-- InputBegan listeners (cast overlay, raid minigame, bite minigame x2).
+-- Model: initiation gating, NOT preemption (see bead; preemption eats
+-- in-flight catches or races the server raid deadline). The single
+-- UserInputService.InputBegan router connection is wired at the BOTTOM of
+-- this file (after every overlayInputHandlers.<name> assignment), because
+-- Lua locals are lexically scoped and the handlers don't exist yet here.
+local activeOverlay = nil -- nil | "cast" | "bite" | "raid"
+local overlayInputHandlers = {} -- name -> handler(input, gameProcessed)
+
+local function requestOverlay(name)
+	if activeOverlay ~= nil then
+		return false
+	end
+	activeOverlay = name
+	return true
+end
+
+local function releaseOverlay(name)
+	if activeOverlay == name then
+		activeOverlay = nil
+	end
+end
+
+local function isOverlayActive(name)
+	return activeOverlay == name
+end
 local questData = nil
 
 local screenGui = Instance.new("ScreenGui")
@@ -2083,6 +2115,13 @@ local function renderRaidTargets(data)
 			if raidInProgress then
 				return
 			end
+			-- TASK 23.1 (hvfh.3.1) gate 2: never start a raid while a
+			-- cast/bite minigame holds the overlay slot. Refused BEFORE
+			-- RequestRaidAttempt fires — no server deadline starts.
+			if isOverlayActive("cast") or isOverlayActive("bite") then
+				showNotification("Reeling in a fish — one moment!", UI.warn)
+				return
+			end
 			raidInProgress = true
 			local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
 			if not result or not result.ok then
@@ -2250,22 +2289,25 @@ raidMarkerGlow.Parent = raidMarker
 corner(raidMarkerGlow, 8)
 
 local raidMinigameTween = nil
-local raidMinigameInputConn = nil
 local raidMinigameDuration = 0
 
 local function stopRaidMinigame()
 	raidMinigameFrame.Visible = false
+	releaseOverlay("raid")
 	if raidMinigameTween then
 		raidMinigameTween:Cancel()
 		raidMinigameTween = nil
 	end
-	if raidMinigameInputConn then
-		raidMinigameInputConn:Disconnect()
-		raidMinigameInputConn = nil
-	end
 end
 
 local function startRaidMinigame(challenge)
+	-- TASK 23.1 (hvfh.3.1): take the overlay slot. Gate 2 (the RAID
+	-- button handler) already refuses when a cast/bite is active, so this
+	-- is the defensive backstop; bailing here leaves the raid challenge
+	-- unresolved server-side (the server deadline simply expires).
+	if not requestOverlay("raid") then
+		return
+	end
 	raidInProgress = true
 	local goodStart = challenge.goodStart or 0.35
 	local goodEnd = challenge.goodEnd or 0.65
@@ -2300,7 +2342,10 @@ local function startRaidMinigame(challenge)
 		end
 	end)
 
-	raidMinigameInputConn = UserInputService.InputBegan:Connect(function(input, gp)
+	-- TASK 23.1 (hvfh.3.1): single registration with the overlay router,
+	-- replacing the per-raid UserInputService.InputBegan connection (which
+	-- the old stopRaidMinigame had to disconnect). Identical semantics.
+	overlayInputHandlers.raid = function(input, gp)
 		if gp then
 			return
 		end
@@ -2681,13 +2726,30 @@ local markTween = nil
 
 local function stopCastOverlay()
 	castOverlay.Visible = false
+	releaseOverlay("cast")
 	if markTween then
 		markTween:Cancel()
 		markTween = nil
 	end
-	if castInputConn then
-		castInputConn:Disconnect()
-		castInputConn = nil
+end
+
+-- TASK 23.1 (hvfh.3.1): single registration with the overlay router,
+-- replacing the per-cast UserInputService.InputBegan connection (which
+-- the old stopCastOverlay had to disconnect). Identical semantics: skip
+-- game-processed input, require the local casting flag, resolve accuracy
+-- from the same castDeadline/castOverlayDuration pair, fire CastResult.
+overlayInputHandlers.cast = function(input, gp)
+	if gp then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if not casting then
+			return
+		end
+		local elapsed = os.clock() - (castDeadline - castOverlayDuration)
+		local accuracy = math.clamp(elapsed / castOverlayDuration, 0, 1)
+		stopCastOverlay()
+		Remotes.CastResult:FireServer(accuracy)
 	end
 end
 
@@ -3092,6 +3154,13 @@ local function runMinigame(windowSeconds)
 		showNotification("Fishing sync hiccup — try casting again.", UI.warn)
 		return
 	end
+	-- TASK 23.1 (hvfh.3.1): take the overlay slot. The BiteEvent handler
+	-- already gates on an active raid (rule 3); this is the defensive
+	-- backstop for any other occupied-slot path. Bail BEFORE mutating any
+	-- state so fishState/minigameActive can never wedge.
+	if not requestOverlay("bite") then
+		return
+	end
 	minigameActive = true
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
@@ -3128,6 +3197,7 @@ local function runMinigame(windowSeconds)
 			if elapsed > minigameWindow then
 				-- Time expired
 				minigameActive = false
+				releaseOverlay("bite")
 				minigameFrame.Visible = false
 				setFishState("idle")
 				Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
@@ -3161,6 +3231,7 @@ local function onMinigameTap()
 	local halfWidth = minigameZoneHalfWidth or 0.15
 	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
 	minigameActive = false
+	releaseOverlay("bite")
 	minigameFrame.Visible = false
 	setFishState("idle")
 	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
@@ -3171,22 +3242,25 @@ local function onMinigameTap()
 	end
 end
 
-minigameFrame.InputBegan:Connect(function(input)
+-- TASK 23.1 (hvfh.3.1): both former bite-input listeners (the GuiObject
+-- minigameFrame.InputBegan and the tap-anywhere UserInputService one) are
+-- replaced by this single registration with the overlay router. Behavior
+-- is preserved exactly: minigameFrame is not Active, so taps over it never
+-- set gameProcessed and reach this handler just like the old
+-- tap-anywhere listener; taps on real buttons still set gameProcessed and
+-- are skipped (no accidental catch submits while opening a panel).
+overlayInputHandlers.bite = function(input, gameProcessed)
+	if gameProcessed then
+		return
+	end
+	if not minigameActive then
+		return
+	end
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		onMinigameTap()
 	end
-end)
-
--- Also allow tapping anywhere on screen during minigame
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if not minigameActive then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1
-		or input.UserInputType == Enum.UserInputType.Touch then
-		onMinigameTap()
-	end
-end)
+end
 
 -- ============================================================
 -- Actions
@@ -3220,6 +3294,13 @@ local function shakeFishButton()
 end
 
 local function doFish()
+	-- TASK 23.1 (hvfh.3.1) gate 1: never start a cast while the raid
+	-- minigame holds the overlay slot. Refused BEFORE RequestCast fires —
+	-- nothing is committed server-side, zero server calls.
+	if isOverlayActive("raid") then
+		showNotification("Finish the raid first!", UI.warn)
+		return
+	end
 	if casting then
 		-- TASK 22.2 (hvfh.2.2): visible "still waiting" feedback, not a dead button.
 		shakeFishButton()
@@ -3527,38 +3608,31 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			perfectZoneFrame.Visible = false
 		end
 
-		castOverlay.Visible = true
-		marker.Position = UDim2.new(0, 0, 0, -3)
-
-		local overlayScale = castOverlay:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
-		overlayScale.Parent = castOverlay
-		overlayScale.Scale = 0.9
-		TweenService:Create(overlayScale, EASE_POP, { Scale = 1 }):Play()
-
 		local duration = castTime or 4
-		castDeadline = os.clock() + duration
+		-- TASK 23.1 (hvfh.3.1): take the single overlay slot. If a raid
+		-- minigame started in the sub-second between RequestCast and this
+		-- CastState, the request fails and the cast overlay simply never
+		-- opens; the cast resolves server-side with no CastResult input
+		-- (same accepted-race philosophy as rule 3, see BiteEvent handler).
+		if requestOverlay("cast") then
+			castOverlayDuration = duration
+			castOverlay.Visible = true
+			marker.Position = UDim2.new(0, 0, 0, -3)
 
-		markTween = TweenService:Create(
-			marker,
-			TweenInfo.new(duration, Enum.EasingStyle.Linear),
-			{ Position = UDim2.new(1, -5, 0, -3) }
-		)
-		markTween:Play()
+			local overlayScale = castOverlay:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+			overlayScale.Parent = castOverlay
+			overlayScale.Scale = 0.9
+			TweenService:Create(overlayScale, EASE_POP, { Scale = 1 }):Play()
 
-		castInputConn = UserInputService.InputBegan:Connect(function(input, gp)
-			if gp then
-				return
-			end
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				if not casting then
-					return
-				end
-				local elapsed = os.clock() - (castDeadline - duration)
-				local accuracy = math.clamp(elapsed / duration, 0, 1)
-				stopCastOverlay()
-				Remotes.CastResult:FireServer(accuracy)
-			end
-		end)
+			castDeadline = os.clock() + duration
+
+			markTween = TweenService:Create(
+				marker,
+				TweenInfo.new(duration, Enum.EasingStyle.Linear),
+				{ Position = UDim2.new(1, -5, 0, -3) }
+			)
+			markTween:Play()
+		end
 	else
 		-- CastState(false) with no bite: the cast resolved/cancelled. Only
 		-- clear the waiting state — never bite-ready (a BiteEvent may be
@@ -3577,6 +3651,18 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 	-- The server fires FireClient(player, zoneId, BITE_WINDOW_SECONDS)
 	-- (FishingService.lua), so the handler MUST take two params: zoneId
 	-- (the triggering fishing zone) and windowSeconds (the authoritative
+	-- TASK 23.1 (hvfh.3.1) rule 3: a BiteEvent landing mid-raid-minigame
+	-- is the one unavoidable race (a cast was legally in flight when a
+	-- LEGAL raid started — both initiations passed their gates). Do NOT
+	-- open the bite overlay on top of the raid overlay; let the bite
+	-- expire server-side. The server sends its own "Too slow! The fish
+	-- got away..." timeout toast (FishingService.lua), which already
+	-- explains the cost: the player chose to raid with a line in the
+	-- water. (Implementer choice recorded in the bead: no toast
+	-- suppression/replacement — the server message is the explanation.)
+	if isOverlayActive("raid") then
+		return
+	end
 	runMinigame(windowSeconds)
 end)
 
@@ -3612,12 +3698,26 @@ task.spawn(function()
 end)
 
 -- TASK 9.2 (0jc.2): the old hardcoded onboarding toasts (task.delay(4/9))
--- have been replaced by the contextual prompt system above. The prompts
--- are driven by OnboardingService flags in render() — they show the right
--- hint at the right time and auto-advance as the player progresses.
--- A single delayed welcome toast remains for the very first session.
 task.delay(5, function()
 	if not state or not (state.onboarding or {}).HasCaughtFirstFish then
 		showNotification(IS_MOBILE and "Welcome! Tap FISH in the glowing zone to catch your first fish." or "Welcome! Press F in the glowing zone to catch your first fish.", UI.good)
+	end
+end)
+
+-- ============================================================
+-- TASK 23.1 (hvfh.3.1): the ONE UserInputService.InputBegan router.
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
+-- assignment (cast at stopCastOverlay, raid in startRaidMinigame, bite in
+-- the bite-minigame section), because Lua locals are lexically scoped and
+-- those handlers don't exist until their sections run. Every event checks
+-- the CURRENT activeOverlay, so a later registration is picked up even if
+-- an overlay opened before its handler section executed. Exactly one
+-- connection serves all timed overlays; the four former per-overlay
+-- listeners (cast, raid, bite GuiObject, bite tap-anywhere) are gone.
+-- ============================================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	local handler = activeOverlay and overlayInputHandlers[activeOverlay] or nil
+	if handler then
+		handler(input, gameProcessed)
 	end
 end)
