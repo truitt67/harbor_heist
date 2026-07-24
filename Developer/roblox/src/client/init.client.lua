@@ -89,6 +89,10 @@ end
 local function isOverlayActive(name)
 	return activeOverlay == name
 end
+-- TASK 22.4 (hvfh.2.4): local first-catch counter. Incremented on each
+-- ok=true SubmitCatchInput result; counter == 1 triggers the reveal card
+-- regardless of rarity. Local + deterministic — no server-flag race.
+local catchesThisSession = 0
 local questData = nil
 
 local screenGui = Instance.new("ScreenGui")
@@ -3230,6 +3234,158 @@ local function runMinigame(windowSeconds)
 	end)
 end
 
+-- ============================================================
+-- TASK 22.4 (hvfh.2.4): Catch reveal card
+-- Centered card on catch success for Rare/Epic/Legendary (and every
+-- first-session catch). Display-only — does NOT take the overlay slot.
+-- If a minigame overlay is active, offsets to 0.30 vertical to avoid
+-- overlap with the centered minigame. Built from the structured
+-- SubmitCatchInput invoke result, not the server notify string.
+-- Auto-dismiss ~2.5s; tap-to-dismiss; EASE_POP scale-in.
+-- ============================================================
+local revealCard = nil
+local revealDismissToken = 0
+
+local function showRevealCard(speciesId, rarity, value)
+	if revealCard then
+		revealCard:Destroy()
+		revealCard = nil
+	end
+	local token = revealDismissToken + 1
+	revealDismissToken = token
+
+	local rarityColor = RARITY_COLORS[rarity] or UI.textDim
+
+	-- Look up display name + income from FishDefinitions (structured data,
+	-- not string parsing per the bead spec)
+	local displayName = speciesId or "Fish"
+	local incomePerMin = 0
+	local ok, def = pcall(FishDefinitions.get, speciesId)
+	if ok and def then
+		displayName = def.DisplayName or displayName
+		incomePerMin = def.IncomePerMinute or 0
+	end
+
+	-- Offset up if a minigame holds the overlay slot; center otherwise.
+	local slotOccupied = isOverlayActive("cast") or isOverlayActive("bite") or isOverlayActive("raid")
+	local yScale = slotOccupied and 0.30 or 0.5
+
+	local card = Instance.new("Frame")
+	card.Name = "RevealCard"
+	if IS_MOBILE then
+		card.Size = UDim2.new(1, -24, 0, 160)
+		card.Position = UDim2.new(0, 12, yScale, -80)
+	else
+		card.Size = UDim2.new(0, 280, 0, 160)
+		card.Position = UDim2.new(0.5, -140, yScale, -80)
+	end
+	card.BackgroundColor3 = UI.bg
+	card.ZIndex = 55
+	card.Parent = screenGui
+	corner(card, 14)
+	stroke(card, 0.4, rarityColor, 2)
+
+	-- Scale-in (EASE_POP per bead spec)
+	local cardScale = Instance.new("UIScale")
+	cardScale.Scale = 0.5
+	cardScale.Parent = card
+	TweenService:Create(cardScale, EASE_POP, { Scale = 1 }):Play()
+
+	-- Rarity top bar
+	local topBar = Instance.new("Frame")
+	topBar.Size = UDim2.new(1, 0, 0, 6)
+	topBar.BackgroundColor3 = rarityColor
+	topBar.ZIndex = 56
+	topBar.Parent = card
+	corner(topBar, 6)
+
+	-- Rarity tag
+	local tag = Instance.new("Frame")
+	tag.Size = UDim2.new(0, 100, 0, 22)
+	tag.Position = UDim2.new(0.5, -50, 0, 20)
+	tag.BackgroundColor3 = rarityColor
+	tag.BackgroundTransparency = 0.78
+	tag.ZIndex = 56
+	tag.Parent = card
+	corner(tag, 5)
+	makeLabel(tag, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = string.upper(rarity or "?"),
+		Font = FONT_BOLD,
+		TextSize = 11,
+		TextColor3 = rarityColor,
+		ZIndex = 57,
+	})
+
+	-- Species display name (big, centered)
+	makeLabel(card, {
+		Size = UDim2.new(1, -20, 0, 30),
+		Position = UDim2.new(0, 10, 0, 54),
+		Text = displayName,
+		Font = FONT_HEAD,
+		TextSize = 22,
+		TextColor3 = UI.text,
+		ZIndex = 56,
+	})
+
+	-- Sell value + income/min line
+	makeLabel(card, {
+		Size = UDim2.new(1, -20, 0, 20),
+		Position = UDim2.new(0, 10, 0, 92),
+		Text = string.format("$%d  •  $%.1f/min", value or 0, incomePerMin),
+		Font = FONT_BODY,
+		TextSize = 14,
+		TextColor3 = UI.textDim,
+		ZIndex = 56,
+	})
+
+	-- "tap to dismiss" hint
+	makeLabel(card, {
+		Size = UDim2.new(1, 0, 0, 16),
+		Position = UDim2.new(0, 0, 0, 130),
+		Text = "tap to dismiss",
+		Font = FONT_BODY,
+		TextSize = 11,
+		TextColor3 = UI.textFaint,
+		ZIndex = 56,
+	})
+
+	revealCard = card
+
+	-- Token-guarded dismiss: prevents a stale auto-dismiss timer from
+	-- clobbering a newer card (e.g. two Rare catches in quick succession).
+	local function dismiss()
+		if token ~= revealDismissToken then
+			return
+		end
+		revealDismissToken = revealDismissToken + 1
+		if revealCard == card then
+			TweenService:Create(cardScale, EASE_FAST, { Scale = 0.5 }):Play()
+			task.delay(0.15, function()
+				if revealCard == card then
+					card:Destroy()
+					revealCard = nil
+				end
+			end)
+		end
+	end
+
+	-- Tap-to-dismiss: frame InputBegan fires for Mouse/Touch on the card.
+	-- The card is NOT Active, so it does not capture modal input — the
+	-- overlay router still gets gameProcessed=false for taps elsewhere.
+	card.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch then
+			dismiss()
+		end
+	end)
+
+	-- Auto-dismiss after ~2.5s
+	task.delay(2.5, function()
+		dismiss()
+	end)
+end
+
 -- Player taps/ clicks to stop the marker
 local function onMinigameTap()
 	if not minigameActive then return end
@@ -3251,6 +3407,17 @@ local function onMinigameTap()
 	-- so an on-zone tap can still be rejected — surface that honestly.
 	if hit and result and result.ok == false and result.reason == "missed" then
 		showNotification("So close! The fish shook off the hook...", UI.warn)
+	end
+	-- TASK 22.4 (hvfh.2.4): reveal card on catch success for Rare+ and
+	-- first-session catches. Built from the structured invoke result, not
+	-- the server notify string. Card is display-only (no overlay slot).
+	if result and result.ok == true then
+		catchesThisSession += 1
+		local rarity = result.rarity or "Common"
+		if catchesThisSession == 1
+			or rarity == "Rare" or rarity == "Epic" or rarity == "Legendary" then
+			showRevealCard(result.speciesId, rarity, result.value)
+		end
 	end
 end
 
