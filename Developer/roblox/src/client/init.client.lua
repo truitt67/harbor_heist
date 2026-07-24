@@ -412,6 +412,11 @@ local function showToastDirect(message, color, category)
 	toast.Parent = toastHost
 	corner(toast, 12)
 	local tStroke = stroke(toast, 1)
+	-- hvfh.4.3 review fixup: enforce the bead's min height — AutomaticSize
+	-- alone would shrink a degenerate (empty/short) toast below 40/42px.
+	local toastMinSize = Instance.new("UISizeConstraint")
+	toastMinSize.MinSize = Vector2.new(0, MIN_TOAST_H)
+	toastMinSize.Parent = toast
 	local accentBar = Instance.new("Frame")
 	accentBar.Size = UDim2.new(0, 4, 1, -14)
 	accentBar.Position = UDim2.new(0, 8, 0, 7)
@@ -422,7 +427,7 @@ local function showToastDirect(message, color, category)
 	corner(accentBar, 2)
 	local chip = makeLabel(toast, {
 		Size = UDim2.new(0, 80, 0, 16),
-		Position = UDim2.new(0, 18, 0, 5),
+		Position = UDim2.new(0, 18, 0, 4),
 		Text = TOAST_CATEGORIES[category] or "INFO",
 		Font = FONT_BOLD,
 		TextSize = 10,
@@ -443,6 +448,12 @@ local function showToastDirect(message, color, category)
 		ZIndex = 52,
 	})
 	text.AutomaticSize = Enum.AutomaticSize.Y
+	-- hvfh.4.3 review fixup: bottom breathing room via label-internal
+	-- padding. (Padding on the LABEL, not the toast, so the accent bar's
+	-- scale height keeps resolving against the full toast height.)
+	local textBottomPad = Instance.new("UIPadding")
+	textBottomPad.PaddingBottom = UDim.new(0, 8)
+	textBottomPad.Parent = text
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
 	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()
@@ -595,7 +606,10 @@ end
 local sellStorePrompt = Instance.new("Frame")
 sellStorePrompt.Name = "SellStorePrompt"
 sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
-sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 140)
+-- hvfh.4.3 (BronzeLynx plan-space note): anchor below the cap-3 toast
+-- stack (3 toasts ~= 152px from SAFE_TOP+8) so first-catch toasts no
+-- longer render on top of this prompt (toast ZIndex 51 > 16).
+sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
 sellStorePrompt.BackgroundColor3 = UI.surface
 sellStorePrompt.BackgroundTransparency = 0.08
@@ -2751,9 +2765,9 @@ local function render()
 		local freeUses = state.lockFreeUsesRemaining or 0
 		local freeMax = state.lockFreeUsesMax or 3
 		if freeUses > 0 then
-			lockButton.Text = string.format("LOCK (%ds) [%d/%d free]", lockDur, freeUses, freeMax)
+			lockButton.Text = string.format("LOCK %ds — %d quick locks left", lockDur, freeUses)
 		else
-			lockButton.Text = string.format("LOCK (%ds) [no free]", lockDur)
+			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
 		end
 		lockButton.BackgroundColor3 = UI.warn
 		lockButton.TextColor3 = UI.ink
@@ -3187,7 +3201,12 @@ sellButton.Activated:Connect(function()
 		end)
 	end
 end)
+local lockHintShown = false
 lockButton.Activated:Connect(function()
+	if not lockHintShown then
+		lockHintShown = true
+		showNotification("Locks always work; your first 3 each session recharge faster.", UI.accentSoft, "lock")
+	end
 	Remotes.RequestActivateLock:InvokeServer()
 end)
 -- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
