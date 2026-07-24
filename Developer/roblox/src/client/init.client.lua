@@ -2039,13 +2039,17 @@ local function renderRaidTargets(data)
 		return
 	end
 	if not data.canRaid then
-		local reasonText = {
+		-- P0 syntax fix (fresh-eyes review): Luau cannot index a bare table
+		-- constructor — ({...})[key] parses, {...}[key] does not (verified
+		-- against lune, luau-analyze, and selene). The unparsable script
+		-- would kill the ENTIRE client UI on load.
+		local reasonText = ({
 			window_closed = "No raid window is open right now.",
 			not_opted_in = "You must opt in to raids to see targets.",
 			new_player_protected = "New players are protected from raids until 10 catches or an upgrade.",
 			stunned = "You are stunned and cannot raid.",
 			attacker_cooldown = "Raid cooldown active — try again soon.",
-		}[data.reason] or ("Cannot raid: " .. tostring(data.reason))
+		})[data.reason] or ("Cannot raid: " .. tostring(data.reason))
 		makeLabel(raidTargetList, {
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = reasonText,
@@ -2126,7 +2130,9 @@ local function renderRaidTargets(data)
 			local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
 			if not result or not result.ok then
 				raidInProgress = false
-				local failReason = {
+				-- P0 syntax fix: parenthesize constructor before indexing
+				-- (same class as the reasonText fix ~40 lines above).
+				local failReason = ({
 					window_closed = "The raid window closed.",
 					not_opted_in = "You are not opted in.",
 					new_player_protected = "New players cannot raid.",
@@ -2139,7 +2145,7 @@ local function renderRaidTargets(data)
 					no_stealable_fish = "No fish left to steal.",
 					safe_harbor = "Target is in the Safe Harbor zone.",
 					raid_in_progress = "You already have a raid in progress.",
-				}[result and result.reason] or "Could not start raid."
+				})[result and result.reason] or "Could not start raid."
 				showNotification(failReason, UI.bad)
 				return
 			end
