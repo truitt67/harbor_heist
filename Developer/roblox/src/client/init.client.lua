@@ -2398,10 +2398,75 @@ end
 local function toggleRaidPanel()
 	if activePanel == raidPanel then
 		hidePanels()
+		-- Polling stops automatically (activePanel check in pollRaidTargets).
 		return
 	end
 	showPanel(raidPanel)
 	refreshRaidPanel()
+	-- TASK 26.2 (hvfh.6.2): start auto-refresh polling.
+	startRaidPanelPolling()
+end
+
+-- ============================================================
+-- TASK 26.2 (hvfh.6.2): Auto-refresh raid targets while panel is open
+-- Poll every 3s while raid panel is active (0.33/s — safe headroom vs
+-- AntiExploitService RATE_LIMITS.get_raid_targets = 10/10s).
+-- Signature-guarded: rebuild rows ONLY when payload signature changes
+-- (userIds + availability + reasons). Countdown seconds are mutated
+-- in place by the 1Hz loop (raidTargetCountdownLabels), NOT included
+-- in the signature — otherwise every poll would rebuild rows and
+-- destroy mid-tap interactions.
+-- ============================================================
+local lastRaidTargetsSignature = nil
+
+local function computeRaidTargetsSignature(data)
+	if not data or not data.targets then
+		return "empty"
+	end
+	local parts = {}
+	for _, target in ipairs(data.targets) do
+		-- Include: userId, available flag, reason (if unavailable).
+		-- Exclude: unavailableSeconds (countdown) — mutated in place.
+		table.insert(parts, tostring(target.userId))
+		table.insert(parts, tostring(target.available))
+		if target.unavailableReason then
+			table.insert(parts, target.unavailableReason)
+		end
+	end
+	return table.concat(parts, "|")
+end
+
+local function pollRaidTargets()
+	if activePanel ~= raidPanel then
+		-- Panel closed: stop polling.
+		return
+	end
+	-- Fetch new targets.
+	task.spawn(function()
+		local ok, data = pcall(function()
+			return Remotes.GetRaidTargets:InvokeServer()
+		end)
+		if ok and data then
+			local newSig = computeRaidTargetsSignature(data)
+			if newSig ~= lastRaidTargetsSignature then
+				-- Signature changed: rebuild rows.
+				raidTargets = data
+				renderRaidTargets(raidTargets)
+				lastRaidTargetsSignature = newSig
+			end
+			-- If signature unchanged, do nothing — countdown labels
+			-- are already ticking via the 1Hz loop.
+		end
+	end)
+	-- Schedule next poll if panel still open.
+	task.delay(3, pollRaidTargets)
+end
+
+local function startRaidPanelPolling()
+	-- Initialize signature from current data.
+	lastRaidTargetsSignature = computeRaidTargetsSignature(raidTargets)
+	-- Start polling loop.
+	task.delay(3, pollRaidTargets)
 end
 
 -- ============================================================
