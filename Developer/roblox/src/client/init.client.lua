@@ -57,7 +57,6 @@ local state = nil
 local casting = false
 local castHitZone = { perfectStart_ = 0.35, perfectEnd_ = 0.65, goodStart_ = 0.15, goodEnd_ = 0.85 }
 local castDeadline = 0
-local castDeadline = 0
 -- TASK 23.1 (hvfh.3.1): duration of the currently-open cast overlay. The
 -- old per-cast InputBegan closure captured this by upvalue; the single
 -- overlay router (see CastState handler below) needs it as file scope.
@@ -2312,6 +2311,13 @@ function startRaidMinigame(challenge)
 	-- is the defensive backstop; bailing here leaves the raid challenge
 	-- unresolved server-side (the server deadline simply expires).
 	if not requestOverlay("raid") then
+		-- Fresh-eyes fix: a BiteEvent CAN land during the invoke round-trip
+		-- (CastState(false) frees the slot before the server fires the bite,
+		-- so gate 2 passed, then the bite took the slot). The attempt
+		-- handler already set raidInProgress = true — reset it or the RAID
+		-- button is silently dead for the rest of the session.
+		raidInProgress = false
+		showNotification("Reeling in a fish — the raid attempt was cancelled.", UI.warn)
 		return
 	end
 	raidInProgress = true
