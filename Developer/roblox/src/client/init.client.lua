@@ -363,7 +363,22 @@ local carryLabel = makeLabel(carryPill, {
 
 -- ============================================================
 -- Toast notifications (top-center, slide + fade, accent bar)
+-- TASK 24.3 (hvfh.4.3): auto-size height, cap 3 visible,
+-- FIFO queue w/ severity jump, category chip (color + label).
 -- ============================================================
+local MAX_VISIBLE_TOASTS = 3
+local MIN_TOAST_H = IS_MOBILE and 40 or 42
+local TOAST_LIFETIME = 3.6
+local TOAST_FADE = 0.4
+local TOAST_CATEGORIES = {
+	catch = "CATCH", quest = "QUEST", raid = "RAID",
+	["raid-victim"] = "RAID!", ["raid-attacker"] = "RAID",
+	["raid-info"] = "RAID", lock = "LOCK", economy = "ECON",
+	discovery = "NEW!", cast = "CAST", missed = "MISS",
+	datastore = "SAVE", info = "INFO",
+}
+local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
+
 local toastHost = Instance.new("Frame")
 toastHost.Name = "Toasts"
 toastHost.AnchorPoint = Vector2.new(0.5, 0)
@@ -380,19 +395,16 @@ toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
 toastLayout.Parent = toastHost
 
 local toastOrder = 0
-local function showNotification(message, color, category)
-	color = color or UI.accentSoft
-	-- TASK 24.3 (hvfh.4.3): category forwarded from server (catch/quest/raid/
-	-- lock/economy/info). Defaults to "info" when nil so existing 2-arg
-	-- FireClient call sites keep working. The value is accepted here to
-	-- satisfy the arity contract; the toast icon/chip RENDERING that consumes
-	-- it is the client-visual half of 24.3 (separate follow-up). Until that
-	-- lands, the param is forward-only plumbing — harmless dead local.
-	category = category or "info"
-	toastOrder += 1
+local activeToastCount = 0
+local toastQueue = {}
+local drainToastQueue
 
+local function showToastDirect(message, color, category)
+	toastOrder += 1
+	activeToastCount += 1
 	local toast = Instance.new("Frame")
-	toast.Size = UDim2.new(1, 0, 0, IS_MOBILE and 40 or 42)
+	toast.Size = UDim2.new(1, 0, 0, MIN_TOAST_H)
+	toast.AutomaticSize = Enum.AutomaticSize.Y
 	toast.BackgroundColor3 = UI.bg
 	toast.BackgroundTransparency = 1
 	toast.LayoutOrder = toastOrder
@@ -400,7 +412,6 @@ local function showNotification(message, color, category)
 	toast.Parent = toastHost
 	corner(toast, 12)
 	local tStroke = stroke(toast, 1)
-
 	local accentBar = Instance.new("Frame")
 	accentBar.Size = UDim2.new(0, 4, 1, -14)
 	accentBar.Position = UDim2.new(0, 8, 0, 7)
@@ -409,10 +420,20 @@ local function showNotification(message, color, category)
 	accentBar.ZIndex = 52
 	accentBar.Parent = toast
 	corner(accentBar, 2)
-
+	local chip = makeLabel(toast, {
+		Size = UDim2.new(0, 80, 0, 16),
+		Position = UDim2.new(0, 18, 0, 5),
+		Text = TOAST_CATEGORIES[category] or "INFO",
+		Font = FONT_BOLD,
+		TextSize = 10,
+		TextColor3 = color,
+		TextTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 53,
+	})
 	local text = makeLabel(toast, {
-		Size = UDim2.new(1, -32, 1, 0),
-		Position = UDim2.new(0, 22, 0, 0),
+		Size = UDim2.new(1, -32, 0, 0),
+		Position = UDim2.new(0, 22, 0, 20),
 		Text = message,
 		Font = FONT_MED,
 		TextSize = IS_MOBILE and 13 or 14,
@@ -421,25 +442,50 @@ local function showNotification(message, color, category)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 52,
 	})
-
+	text.AutomaticSize = Enum.AutomaticSize.Y
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
 	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()
+	TweenService:Create(chip, EASE_OUT, { TextTransparency = 0 }):Play()
 	TweenService:Create(text, EASE_OUT, { TextTransparency = 0 }):Play()
-
-	task.delay(3.6, function()
+	task.delay(TOAST_LIFETIME, function()
 		if not toast.Parent then
 			return
 		end
-		local fade = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
 		TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
 		TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
 		local t = TweenService:Create(text, fade, { TextTransparency = 1 })
 		t:Play()
 		t.Completed:Wait()
 		toast:Destroy()
+		activeToastCount -= 1
+		drainToastQueue()
 	end)
+end
+
+local function drainToastQueue()
+	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
+		local pending = table.remove(toastQueue, 1)
+		showToastDirect(pending.message, pending.color, pending.category)
+	end
+end
+
+local function showNotification(message, color, category)
+	color = color or UI.accentSoft
+	category = category or "info"
+	if activeToastCount < MAX_VISIBLE_TOASTS then
+		showToastDirect(message, color, category)
+	else
+		local entry = { message = message, color = color, category = category }
+		if SEVERE_CATEGORIES[category] then
+			table.insert(toastQueue, 1, entry)
+		else
+			table.insert(toastQueue, entry)
+		end
+	end
 end
 
 -- ============================================================
