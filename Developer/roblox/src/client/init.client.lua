@@ -3281,6 +3281,7 @@ local function showRevealCard(speciesId, rarity, value)
 	end
 	card.BackgroundColor3 = UI.bg
 	card.ZIndex = 55
+	card.Active = true
 	card.Parent = screenGui
 	corner(card, 14)
 	stroke(card, 0.4, rarityColor, 2)
@@ -3371,8 +3372,9 @@ local function showRevealCard(speciesId, rarity, value)
 	end
 
 	-- Tap-to-dismiss: frame InputBegan fires for Mouse/Touch on the card.
-	-- The card is NOT Active, so it does not capture modal input — the
-	-- overlay router still gets gameProcessed=false for taps elsewhere.
+	-- card.Active = true means taps ON the card set gameProcessed=true in
+	-- UserInputService.InputBegan, so the overlay router skips them — a
+	-- tap to dismiss the card never also triggers a minigame action.
 	card.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch then
