@@ -202,7 +202,7 @@ local cashLabel = makeLabel(hud, {
 local incomeLabel = makeLabel(hud, {
 	Size = UDim2.new(1, -24, 0, 16),
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
-	Text = "+$0.0/sec",
+	Text = "+$0.0/min",
 	Font = FONT_MED,
 	TextSize = IS_MOBILE and 12 or 13,
 	TextColor3 = UI.textDim,
@@ -231,6 +231,25 @@ hudClick.Parent = hud
 -- HUD height change, no carryPill shift. #32A050 == Color3.fromRGB(50,160,80),
 -- the claimButton green used in render().
 local CLAIM_GREEN_HEX = "32A050"
+
+-- TASK 22.3 (hvfh.2.3): adaptive income-rate formatting. Formats the SAME
+-- authoritative snapshot value (state.incomePerSec) — NEVER re-derive income
+-- client-side (R2.2/dt9.2, see note near render()). Sub-0.1/sec rates (a
+-- starter tank of 1-2 Commons) render per-minute so early players see a
+-- non-zero rate; 0.1-10/sec gets 2 decimals; >10/sec keeps the legacy
+-- 1-decimal per-sec form. "/min" and "/sec" suffixes are equal width, so the
+-- HUD card does not jump when the format flips threshold.
+local function formatIncomeRate(ratePerSec)
+	ratePerSec = ratePerSec or 0
+	if ratePerSec < 0.1 then
+		return string.format("+$%.1f/min", ratePerSec * 60)
+	elseif ratePerSec <= 10 then
+		return string.format("+$%.2f/sec", ratePerSec)
+	else
+		return string.format("+$%.1f/sec", ratePerSec)
+	end
+end
+
 local function updateIncomeLine(readyTransparency)
 	local ready = state and state.unclaimedIncome or 0
 	if ready > 0 then
@@ -239,12 +258,12 @@ local function updateIncomeLine(readyTransparency)
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
 		incomeLabel.TextSize = IS_MOBILE and 11 or 13
 		incomeLabel.Text = string.format(
-			'+$%.1f/sec  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
-			state.incomePerSec, CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
+			'%s  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
+			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
 		incomeLabel.TextSize = IS_MOBILE and 12 or 13
-		incomeLabel.Text = string.format("+$%.1f/sec", state and state.incomePerSec or 0)
+		incomeLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	end
 end
 
