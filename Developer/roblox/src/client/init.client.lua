@@ -508,11 +508,12 @@ end
 local onboardingPrompt = Instance.new("Frame")
 onboardingPrompt.Name = "OnboardingPrompt"
 onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
--- Mobile: position above the right-edge action bar stack (7 buttons × 70
--- = 490px tall, bottom at -90 → top at -580; +12px gap → -592).
--- Desktop: just above the bottom action bar (58px at -18 → top at -76;
--- +8px gap → -84).
-onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -592 or -84)
+-- Mobile: above the right-edge action stack; desktop: above the bottom
+-- action bar. The value below is only a startup placeholder (the prompt
+-- is invisible until a stage fires) — the AUTHORITATIVE offset is derived
+-- from the geometry constants above by updateOnboardingPromptOffset()
+-- (defined where ACTIONS is declared) and re-applied on viewport resize.
+onboardingPrompt.Position = UDim2.new(0.5, 0, 1, -(DESKTOP_BAR_BOTTOM + DESKTOP_BAR_H + PROMPT_BAR_GAP))
 onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
 onboardingPrompt.BackgroundColor3 = UI.surface
 onboardingPrompt.BackgroundTransparency = 0.1
@@ -2302,17 +2303,61 @@ local ACTIONS = {
 	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
 }
 
--- The onboarding prompt sits above the mobile action stack; keep it in sync
--- as the button count changes so it never overlaps the top button.
-onboardingPrompt.Position = UDim2.new(0.5, 0, 1, IS_MOBILE and -(#ACTIONS * 70 + 102) or -84)
+-- TASK 28.2 (hvfh.8.2): the prompt offset is DERIVED from the same
+-- constants that build the stack/bar, so adding/removing an ACTION keeps
+-- the prompt clear with zero manual edits. Recomputed on ViewportSize
+-- change (rotation / window resize) — the previous one-shot startup
+-- compute re-introduced the collision on rotation.
+local function updateOnboardingPromptOffset()
+	if IS_MOBILE then
+		-- Stack top = MOBILE_STACK_BOTTOM + #ACTIONS*MOBILE_STACK_PITCH px
+		-- above the screen bottom; the prompt bottom clears it by the gap.
+		local offset = MOBILE_STACK_BOTTOM + #ACTIONS * MOBILE_STACK_PITCH + PROMPT_STACK_GAP
+		-- Short landscape phones: the derived offset would push the prompt
+		-- into the toast host / HUD. Clamp so the prompt's top edge stays
+		-- at or below the toast host's lower edge (+8px margin) — the
+		-- bead's "safe fraction" fallback, anchored to the actual HUD
+		-- geometry instead of an arbitrary ratio. (Prompt height: 48px,
+		-- per onboardingPrompt.Size.) Trade-off accepted per bead: on
+		-- ultra-short screens the prompt may overlap the stack, never
+		-- the HUD/toasts.
+		local cam = workspace.CurrentCamera
+		if cam then
+			local toastHostBottom = SAFE_TOP + 8 + 300 + 8
+			local maxOffset = cam.ViewportSize.Y - toastHostBottom - 48
+			offset = math.min(offset, math.max(maxOffset, 0))
+		end
+		onboardingPrompt.Position = UDim2.new(0.5, 0, 1, -offset)
+	else
+		-- Desktop: bar top = DESKTOP_BAR_BOTTOM + DESKTOP_BAR_H from the
+		-- bottom; the prompt clears it by PROMPT_BAR_GAP.
+		onboardingPrompt.Position = UDim2.new(0.5, 0, 1, -(DESKTOP_BAR_BOTTOM + DESKTOP_BAR_H + PROMPT_BAR_GAP))
+	end
+end
+updateOnboardingPromptOffset()
+
+local promptViewportConn
+local function bindPromptViewport(cam)
+	if not cam then
+		return
+	end
+	if promptViewportConn then
+		promptViewportConn:Disconnect()
+	end
+	promptViewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateOnboardingPromptOffset)
+end
+bindPromptViewport(workspace.CurrentCamera)
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	bindPromptViewport(workspace.CurrentCamera)
+end)
 
 local actionButtons = {}
 
 if IS_MOBILE then
 	local stack = Instance.new("Frame")
 	stack.AnchorPoint = Vector2.new(1, 1)
-	stack.Position = UDim2.new(1, -12, 1, -90)
-	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * 70)
+	stack.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * MOBILE_STACK_PITCH)
 	stack.BackgroundTransparency = 1
 	stack.Parent = screenGui
 
@@ -2376,8 +2421,8 @@ else
 
 	local bar = Instance.new("Frame")
 	bar.AnchorPoint = Vector2.new(0.5, 1)
-	bar.Position = UDim2.new(0.5, 0, 1, -18)
-	bar.Size = UDim2.new(0, barWidthFor(BAR_BTN_W), 0, 58)
+	bar.Position = UDim2.new(0.5, 0, 1, -DESKTOP_BAR_BOTTOM)
+	bar.Size = UDim2.new(0, barWidthFor(BAR_BTN_W), 0, DESKTOP_BAR_H)
 	bar.BackgroundColor3 = UI.bg
 	bar.BackgroundTransparency = 0.2
 	bar.Parent = screenGui
@@ -2447,7 +2492,7 @@ else
 		local useShort = viewportW < BAR_SHORT_VIEWPORT
 		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)
 		local textSize = 12 + math.floor(2 * fontScale + 0.5)
-		bar.Size = UDim2.new(0, barWidthFor(btnW), 0, 58)
+		bar.Size = UDim2.new(0, barWidthFor(btnW), 0, DESKTOP_BAR_H)
 		for _, entry in ipairs(desktopBtns) do
 			entry.btn.Size = UDim2.new(0, btnW, 0, BAR_BTN_H)
 			entry.label.Text = useShort and entry.action.short or entry.action.label
