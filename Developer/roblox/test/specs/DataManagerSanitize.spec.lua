@@ -452,11 +452,11 @@ return function()
 	end)
 
 	describe("sanitize — Defense clamping", function()
-		it("should clamp LockFreeUsesRemaining to [0, 10]", function()
+		it("should clamp LockFreeUsesRemaining to [0, GameConfig.Defense.LockFreeUsesMax]", function()
 			local input = defaultProfile()
 			input.Defense.LockFreeUsesRemaining = 999
 			local result = sanitize(input)
-			expect(result.Defense.LockFreeUsesRemaining).to.equal(10)
+			expect(result.Defense.LockFreeUsesRemaining).to.equal(GameConfig.Defense.LockFreeUsesMax)
 		end)
 
 		it("should clamp LockFreeUsesRemaining negative to 0", function()
@@ -466,11 +466,11 @@ return function()
 			expect(result.Defense.LockFreeUsesRemaining).to.equal(0)
 		end)
 
-		it("should clamp LockFreeUsesMax to [1, 10]", function()
+		it("should clamp LockFreeUsesMax to [1, GameConfig.Defense.LockFreeUsesMax]", function()
 			local input = defaultProfile()
 			input.Defense.LockFreeUsesMax = 999
 			local result = sanitize(input)
-			expect(result.Defense.LockFreeUsesMax).to.equal(10)
+			expect(result.Defense.LockFreeUsesMax).to.equal(GameConfig.Defense.LockFreeUsesMax)
 		end)
 
 		it("should floor fractional Defense values", function()
@@ -478,6 +478,24 @@ return function()
 			input.Defense.LockFreeUsesRemaining = 3.7
 			local result = sanitize(input)
 			expect(result.Defense.LockFreeUsesRemaining).to.equal(3)
+		end)
+
+		it("egf.8: should clamp free-use values in the 4..10 gap to the config max (not survive as-is)", function()
+			local input = defaultProfile()
+			input.Defense.LockFreeUsesRemaining = 7
+			input.Defense.LockFreeUsesMax = 8
+			local result = sanitize(input)
+			expect(result.Defense.LockFreeUsesRemaining).to.equal(GameConfig.Defense.LockFreeUsesMax)
+			expect(result.Defense.LockFreeUsesMax).to.equal(GameConfig.Defense.LockFreeUsesMax)
+		end)
+
+		it("egf.8: should pass through in-range free-use values unchanged", function()
+			local input = defaultProfile()
+			input.Defense.LockFreeUsesRemaining = 2
+			input.Defense.LockFreeUsesMax = 3
+			local result = sanitize(input)
+			expect(result.Defense.LockFreeUsesRemaining).to.equal(2)
+			expect(result.Defense.LockFreeUsesMax).to.equal(3)
 		end)
 	end)
 

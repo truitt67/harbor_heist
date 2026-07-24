@@ -346,12 +346,15 @@ local function sanitize(data)
 	end
 
 	-- Defense (TASK 8.4: lock free uses) — clamp both lower and upper bounds.
+	-- egf.8: upper bound is the config max, NOT a hardcoded magic number —
+	-- sanitize is the last line of defense, so a corrupted free-use count
+	-- above the configured cap must be pulled back down to it.
 	if type(data.Defense) == "table" then
 		if type(data.Defense.LockFreeUsesRemaining) == "number" then
-			clean.Defense.LockFreeUsesRemaining = math.clamp(math.floor(data.Defense.LockFreeUsesRemaining), 0, 10)
+			clean.Defense.LockFreeUsesRemaining = math.clamp(math.floor(data.Defense.LockFreeUsesRemaining), 0, GameConfig.Defense.LockFreeUsesMax)
 		end
 		if type(data.Defense.LockFreeUsesMax) == "number" then
-			clean.Defense.LockFreeUsesMax = math.clamp(math.floor(data.Defense.LockFreeUsesMax), 1, 10)
+			clean.Defense.LockFreeUsesMax = math.clamp(math.floor(data.Defense.LockFreeUsesMax), 1, GameConfig.Defense.LockFreeUsesMax)
 		end
 	end
 
