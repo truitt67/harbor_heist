@@ -2370,7 +2370,7 @@ local function startRaidMinigame(challenge)
 				refreshRaidPanel()
 			end)
 		end
-	end)
+	end
 end
 
 -- ============================================================
