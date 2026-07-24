@@ -3057,8 +3057,39 @@ end)
 -- ============================================================
 -- Actions
 -- ============================================================
+-- TASK 22.2 (hvfh.2.2): cast-while-casting feedback. During the 6-10s bite
+-- wait a repeat F-press used to die silently on the `casting` guard and the
+-- button read as broken; now it gets a short shake. Rotation, not Position —
+-- the desktop bar's UIListLayout owns button Position and would fight the
+-- tween; Rotation is layout-free on both mobile + desktop branches. Steps
+-- are ~3 frames (0.05s) with decaying amplitude, always settling back to 0.
+-- Token guard: spam-pressing restarts the shake instead of stacking tweens.
+local fishShakeToken = 0
+local function shakeFishButton()
+	local btn = actionButtons.fish
+	if not btn then
+		return
+	end
+	fishShakeToken += 1
+	local token = fishShakeToken
+	task.spawn(function()
+		local step = TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+		for _, angle in ipairs({ -3, 3, -2, 0 }) do
+			if token ~= fishShakeToken then
+				return
+			end
+			local tween = TweenService:Create(btn, step, { Rotation = angle })
+			tween:Play()
+			tween.Completed:Wait()
+		end
+	end)
+end
+
 local function doFish()
-	if not casting then
+	if casting then
+		-- TASK 22.2 (hvfh.2.2): visible "still waiting" feedback, not a dead button.
+		shakeFishButton()
+	else
 		Remotes.RequestCast:FireServer()
 	end
 end
