@@ -124,6 +124,9 @@ return function()
 			goodStart = 0.35,
 			goodEnd = 0.65,
 			markerSpeed = GameConfig.Raid.minigame.markerSpeed,
+			startTime = os.clock() - 10, -- long enough ago that immediate submits
+			-- pass the harborheist-yxdh minimum-time check (max position 1.0
+			-- needs 1.25s at speed 0.8; 10s comfortably exceeds that).
 			deadline = os.clock() + 999, -- far in the future
 		}
 	end
@@ -490,22 +493,55 @@ return function()
 	end)
 
 	-- ================================================================
-	-- CASE 6: Duration validation — minimum-time (timing-forgery) check.
-	-- The code has a MAXIMUM-time check (deadline) but NO minimum-time
-	-- check. A client can submit a result impossibly fast. This is a
-	-- documented timing-forgery gap — a follow-up bead should be filed.
+	-- CASE 6: Duration validation — minimum + maximum time checks.
+	-- harborheist-yxdh: the too_fast (minimum-time) guard is now
+	-- enforced. A bot that intercepts zone bounds and reports a perfect
+	-- marker position instantly is rejected — the marker sweeps 0→1 at
+	-- markerSpeed units/sec, so reaching a position requires at least
+	-- position/markerSpeed seconds (minus a small network grace).
 	-- ================================================================
-	describe("Duration validation (timing-forgery gap)", function()
-		it("accepts a result submitted impossibly fast (no minimum-time check)", function()
-			-- The active raid has deadline = os.clock() + 999. We submit
-			-- immediately. There is no minimum elapsed-time guard, so the
-			-- result is accepted (it reaches tier derivation). This documents
-			-- the gap: a bot can submit a perfect marker position instantly.
+	describe("Duration validation (timing-forgery guard)", function()
+		it("rejects an impossibly-fast result with reason='too_fast'", function()
+			-- A fresh raid whose startTime is NOW. The client immediately
+			-- reports position 0.50 (perfect-zone center). The marker would
+			-- need 0.50/0.8 = 0.625s to reach 0.50; even with the 0.5s
+			-- network grace, an instant submit (elapsed ~0) is impossible.
 			local player = makeFakePlayer()
 			sessions[player] = makeSession(player)
-			injectRaid(player)
+			RaidService._activeRaids[player] = {
+				targetUserId = 999999,
+				perfectStart = 0.44,
+				perfectEnd = 0.56,
+				goodStart = 0.35,
+				goodEnd = 0.65,
+				markerSpeed = 0.8,
+				startTime = os.clock(), -- started just now
+				deadline = os.clock() + 999,
+			}
 			local result = RaidService.submitRaidResult(player, 0.50)
-			-- The result is NOT rejected for being too fast — it resolves.
+			expect(result.ok).to.equal(false)
+			expect(result.reason).to.equal("too_fast")
+			player.Parent = nil
+		end)
+
+		it("accepts a result submitted after the minimum plausible time", function()
+			-- startTime = 2s ago. For position 0.50 at speed 0.8, the
+			-- minimum is 0.625s; with 0.5s grace the floor is 0.125s.
+			-- 2s elapsed comfortably clears it, so the submit is accepted
+			-- (it reaches tier derivation → target_unavailable, but ok=true).
+			local player = makeFakePlayer()
+			sessions[player] = makeSession(player)
+			RaidService._activeRaids[player] = {
+				targetUserId = 999999,
+				perfectStart = 0.44,
+				perfectEnd = 0.56,
+				goodStart = 0.35,
+				goodEnd = 0.65,
+				markerSpeed = 0.8,
+				startTime = os.clock() - 2,
+				deadline = os.clock() + 999,
+			}
+			local result = RaidService.submitRaidResult(player, 0.50)
 			expect(result.ok).to.equal(true)
 			expect(result.tier).to.equal("perfect")
 			player.Parent = nil
@@ -522,6 +558,7 @@ return function()
 				goodStart = 0.35,
 				goodEnd = 0.65,
 				markerSpeed = 0.8,
+				startTime = os.clock() - 1,
 				deadline = os.clock() - 1, -- already expired
 			}
 			local result = RaidService.submitRaidResult(player, 0.50)
@@ -530,17 +567,16 @@ return function()
 			player.Parent = nil
 		end)
 
-		it("source has no minimum elapsed-time check (documented gap)", function()
+		it("source has the minimum elapsed-time check (harborheist-yxdh fix)", function()
 			local raidSource = ServerScriptService.HarborHeist.RaidService.Source
 			-- Extract just the submitRaidResult function body.
 			local submitFunc = raidSource:match("function RaidService%.submitRaidResult.-\nfunction")
 			expect(submitFunc).to.be.ok()
 			-- Verify it checks os.clock() > raid.deadline (maximum time).
 			expect(submitFunc:find("os%.clock%(%) > raid%.deadline")).to.be.ok()
-			-- Verify there is NO minimum-time guard (no "submitted too fast"
-			-- or "elapsed" comparison that would reject fast submissions).
-			expect(submitFunc:find("too_fast")).to.equal(nil)
-			expect(submitFunc:find("min_elapsed")).to.equal(nil)
+			-- Verify the minimum-time guard NOW exists (harborheist-yxdh).
+			expect(submitFunc:find("too_fast")).to.be.ok()
+			expect(submitFunc:find("raid%.startTime")).to.be.ok()
 		end)
 	end)
 

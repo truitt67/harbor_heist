@@ -494,6 +494,7 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 	local center = rng:NextNumber(goodHalf, 1 - goodHalf)
 	local perfectHalf = cfg.perfectZoneSize / 2
 	commitAttackerCooldowns(session, targetUserId)
+	local now = os.clock()
 	activeRaids[player] = {
 		targetUserId = targetUserId,
 		goodStart = center - goodHalf,
@@ -501,7 +502,8 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		perfectStart = center - perfectHalf,
 		perfectEnd = center + perfectHalf,
 		markerSpeed = cfg.markerSpeed,
-		deadline = os.clock() + cfg.durationSeconds,
+		startTime = now, -- harborheist-yxdh: minimum-time (timing-forgery) check
+		deadline = now + cfg.durationSeconds,
 	}
 	-- harborheist-umqk: victim's alarm warns at ATTEMPT time (notifyChance).
 	-- This is the alarm's counterplay half: submitRaidResult re-validates
@@ -732,6 +734,27 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	-- Clamp, then re-derive the tier from the SERVER's stored bounds — the
 	-- client can only report a raw position, never claim a tier (PVP-10).
 	local position = math.clamp(markerPosition, 0, 1)
+	-- harborheist-yxdh: minimum-time (timing-forgery) check. The marker
+	-- sweeps linearly from 0 to 1 at markerSpeed units/sec. A submission
+	-- arriving before the marker could physically reach the reported
+	-- position is impossible — a bot intercepted the zone bounds and
+	-- reported a forged perfect position instantly. Reject it.
+	--
+	-- minNeeded = distance / speed. The marker starts at 0, so reaching
+	-- `position` requires at least position/markerSpeed seconds. We allow
+	-- a NETWORK_GRACE (0.5s) for round-trip + client render latency so
+	-- legitimate fast taps on early positions are never falsely rejected.
+	-- Guard markerSpeed > 0 in case a future config sets it to 0.
+	local elapsed = os.clock() - raid.startTime
+	local NETWORK_GRACE = 0.5
+	local speed = raid.markerSpeed or 0
+	if speed > 0 then
+		local minNeeded = position / speed
+		if elapsed < (minNeeded - NETWORK_GRACE) then
+			remotes.notify(player, "Too fast! Play the minigame fairly.", Color3.fromRGB(255, 120, 120), "raid-attacker")
+			return { ok = false, reason = "too_fast" }
+		end
+	end
 	local tier
 	if position >= raid.perfectStart and position <= raid.perfectEnd then
 		tier = "perfect"
