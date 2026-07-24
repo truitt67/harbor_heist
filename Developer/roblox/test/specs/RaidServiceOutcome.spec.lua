@@ -124,9 +124,10 @@ return function()
 			goodStart = 0.35,
 			goodEnd = 0.65,
 			markerSpeed = GameConfig.Raid.minigame.markerSpeed,
-			startTime = os.clock() - 10, -- long enough ago that immediate submits
+			durationSeconds = GameConfig.Raid.minigame.durationSeconds,
+			startTime = os.clock() - 20, -- long enough ago that immediate submits
 			-- pass the harborheist-yxdh minimum-time check (max position 1.0
-			-- needs 1.25s at speed 0.8; 10s comfortably exceeds that).
+			-- at duration 8s needs 8.0s; 20s comfortably exceeds that).
 			deadline = os.clock() + 999, -- far in the future
 		}
 	end
@@ -495,17 +496,17 @@ return function()
 	-- ================================================================
 	-- CASE 6: Duration validation — minimum + maximum time checks.
 	-- harborheist-yxdh: the too_fast (minimum-time) guard is now
-	-- enforced. A bot that intercepts zone bounds and reports a perfect
-	-- marker position instantly is rejected — the marker sweeps 0→1 at
-	-- markerSpeed units/sec, so reaching a position requires at least
-	-- position/markerSpeed seconds (minus a small network grace).
+	-- enforced. The client tweens the marker 0→1 over durationSeconds,
+	-- so reaching a position needs position*durationSeconds seconds
+	-- (minus a 0.5s network grace). A bot that intercepts zone bounds
+	-- and reports a perfect marker position instantly is rejected.
 	-- ================================================================
 	describe("Duration validation (timing-forgery guard)", function()
 		it("rejects an impossibly-fast result with reason='too_fast'", function()
-			-- A fresh raid whose startTime is NOW. The client immediately
-			-- reports position 0.50 (perfect-zone center). The marker would
-			-- need 0.50/0.8 = 0.625s to reach 0.50; even with the 0.5s
-			-- network grace, an instant submit (elapsed ~0) is impossible.
+			-- Fresh raid (startTime = NOW), duration 8s. The client
+			-- immediately reports position 0.50 (perfect-zone center).
+			-- The marker needs 0.50*8 = 4.0s to reach 0.50; even with
+			-- the 0.5s grace, an instant submit (elapsed ~0) is impossible.
 			local player = makeFakePlayer()
 			sessions[player] = makeSession(player)
 			RaidService._activeRaids[player] = {
@@ -514,7 +515,7 @@ return function()
 				perfectEnd = 0.56,
 				goodStart = 0.35,
 				goodEnd = 0.65,
-				markerSpeed = 0.8,
+				durationSeconds = 8,
 				startTime = os.clock(), -- started just now
 				deadline = os.clock() + 999,
 			}
@@ -525,10 +526,10 @@ return function()
 		end)
 
 		it("accepts a result submitted after the minimum plausible time", function()
-			-- startTime = 2s ago. For position 0.50 at speed 0.8, the
-			-- minimum is 0.625s; with 0.5s grace the floor is 0.125s.
-			-- 2s elapsed comfortably clears it, so the submit is accepted
-			-- (it reaches tier derivation → target_unavailable, but ok=true).
+			-- startTime = 5s ago, duration 8s. For position 0.50 the
+			-- minimum is 4.0s; with 0.5s grace the floor is 3.5s.
+			-- 5s elapsed clears it, so the submit is accepted (reaches
+			-- tier derivation → target_unavailable, but ok=true).
 			local player = makeFakePlayer()
 			sessions[player] = makeSession(player)
 			RaidService._activeRaids[player] = {
@@ -537,8 +538,8 @@ return function()
 				perfectEnd = 0.56,
 				goodStart = 0.35,
 				goodEnd = 0.65,
-				markerSpeed = 0.8,
-				startTime = os.clock() - 2,
+				durationSeconds = 8,
+				startTime = os.clock() - 5,
 				deadline = os.clock() + 999,
 			}
 			local result = RaidService.submitRaidResult(player, 0.50)
@@ -557,8 +558,8 @@ return function()
 				perfectEnd = 0.56,
 				goodStart = 0.35,
 				goodEnd = 0.65,
-				markerSpeed = 0.8,
-				startTime = os.clock() - 1,
+				durationSeconds = 8,
+				startTime = os.clock() - 10,
 				deadline = os.clock() - 1, -- already expired
 			}
 			local result = RaidService.submitRaidResult(player, 0.50)

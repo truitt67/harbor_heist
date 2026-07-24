@@ -386,7 +386,8 @@ end
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- In-flight raid attempts. [player] = { targetUserId, perfectStart/End,
--- goodStart/End, markerSpeed, deadline }. Cleared on submit, expiry, leave.
+-- goodStart/End, markerSpeed, durationSeconds, startTime, deadline }.
+-- Cleared on submit, expiry, leave.
 local activeRaids: {[Player]: any} = {}
 
 --- Defender loss-cap bookkeeping (gdj.9). Returns (lossesThisWindow, table)
@@ -502,6 +503,7 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		perfectStart = center - perfectHalf,
 		perfectEnd = center + perfectHalf,
 		markerSpeed = cfg.markerSpeed,
+		durationSeconds = cfg.durationSeconds, -- harborheist-yxdh: minimum-time check
 		startTime = now, -- harborheist-yxdh: minimum-time (timing-forgery) check
 		deadline = now + cfg.durationSeconds,
 	}
@@ -734,22 +736,25 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	-- Clamp, then re-derive the tier from the SERVER's stored bounds — the
 	-- client can only report a raw position, never claim a tier (PVP-10).
 	local position = math.clamp(markerPosition, 0, 1)
-	-- harborheist-yxdh: minimum-time (timing-forgery) check. The marker
-	-- sweeps linearly from 0 to 1 at markerSpeed units/sec. A submission
-	-- arriving before the marker could physically reach the reported
-	-- position is impossible — a bot intercepted the zone bounds and
-	-- reported a forged perfect position instantly. Reject it.
+	-- harborheist-yxdh: minimum-time (timing-forgery) check. The client
+	-- tweens the marker from Scale 0 to 1 over `durationSeconds` linearly
+	-- (init.client.lua startRaidMinigame), so the marker's REAL speed is
+	-- 1/durationSeconds scale-units/sec — NOT markerSpeed (that config is
+	-- sent to the client but never consumed; the client only reads
+	-- durationSeconds). A submission arriving before the marker could
+	-- physically reach the reported position is impossible — a bot
+	-- intercepted the zone bounds and reported a forged perfect position
+	-- instantly. Reject it.
 	--
-	-- minNeeded = distance / speed. The marker starts at 0, so reaching
-	-- `position` requires at least position/markerSpeed seconds. We allow
-	-- a NETWORK_GRACE (0.5s) for round-trip + client render latency so
-	-- legitimate fast taps on early positions are never falsely rejected.
-	-- Guard markerSpeed > 0 in case a future config sets it to 0.
+	-- minNeeded = position * durationSeconds (time for a 0→1 sweep to
+	-- reach `position`). We allow a NETWORK_GRACE (0.5s) for round-trip
+	-- + client render latency so legitimate fast taps on early positions
+	-- are never falsely rejected.
+	local duration = raid.durationSeconds or 0
 	local elapsed = os.clock() - raid.startTime
 	local NETWORK_GRACE = 0.5
-	local speed = raid.markerSpeed or 0
-	if speed > 0 then
-		local minNeeded = position / speed
+	if duration > 0 then
+		local minNeeded = position * duration
 		if elapsed < (minNeeded - NETWORK_GRACE) then
 			remotes.notify(player, "Too fast! Play the minigame fairly.", Color3.fromRGB(255, 120, 120), "raid-attacker")
 			return { ok = false, reason = "too_fast" }
