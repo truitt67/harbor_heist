@@ -1496,6 +1496,50 @@ local function clearCollectionList()
 	end
 end
 
+-- TASK 27.1 (hvfh.7.1): Procedural fish silhouette for collection cards.
+-- Replaces placeholder "F" / "?" text with a recognizable fish shape
+-- composed of UI primitives (ellipse body + rotated tail + eye).
+-- Tinted by rarity for discovered species; greyed out for undiscovered.
+local function buildFishSilhouette(parent, color)
+	-- Body (Ellipse)
+	local body = Instance.new("Frame")
+	body.Name = "FishBody"
+	body.Size = UDim2.new(0.6, 0, 0.4, 0)
+	body.Position = UDim2.new(0.2, 0, 0.3, 0)
+	body.BackgroundColor3 = color
+	body.BorderSizePixel = 0
+	body.Parent = parent
+	local bodyCorner = Instance.new("UICorner")
+	bodyCorner.CornerRadius = UDim.new(0.5, 0)
+	bodyCorner.Parent = body
+
+	-- Tail (Rotated Frame)
+	local tail = Instance.new("Frame")
+	tail.Name = "FishTail"
+	tail.Size = UDim2.new(0.25, 0, 0.3, 0)
+	tail.AnchorPoint = Vector2.new(0, 0.5)
+	tail.Position = UDim2.new(0.7, 0, 0.5, 0)
+	tail.Rotation = 45
+	tail.BackgroundColor3 = color
+	tail.BorderSizePixel = 0
+	tail.Parent = parent
+	local tailCorner = Instance.new("UICorner")
+	tailCorner.CornerRadius = UDim.new(0, 2)
+	tailCorner.Parent = tail
+
+	-- Eye (White dot for life)
+	local eye = Instance.new("Frame")
+	eye.Name = "FishEye"
+	eye.Size = UDim2.new(0, 4, 0, 4)
+	eye.Position = UDim2.new(0.3, 0, 0.4, 0)
+	eye.BackgroundColor3 = Color3.new(1, 1, 1)
+	eye.BorderSizePixel = 0
+	eye.Parent = parent
+	local eyeCorner = Instance.new("UICorner")
+	eyeCorner.CornerRadius = UDim.new(0.5, 0)
+	eyeCorner.Parent = eye
+end
+
 local function makeCollectionCard(parent, order, data, discovered)
 	local card = Instance.new("Frame")
 	card.Size = UDim2.new(0, IS_MOBILE and 138 or 146, 0, IS_MOBILE and 130 or 126)
@@ -1523,7 +1567,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		icon.ZIndex = 27
 		icon.Parent = card
 		corner(icon, 999)
-		makeLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = "F", Font = FONT_HEAD, TextSize = 26, TextColor3 = rarityColor, ZIndex = 28 })
+		-- TASK 27.1: Replace "F" text with procedural fish silhouette
+		buildFishSilhouette(icon, rarityColor)
 
 		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = FONT_BOLD, TextSize = 14, TextColor3 = UI.text, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
 		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = FONT_BODY, TextSize = 11, TextColor3 = UI.textDim, ZIndex = 27 })
@@ -1546,7 +1591,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		icon.ZIndex = 27
 		icon.Parent = card
 		corner(icon, 999)
-		makeLabel(icon, { Size = UDim2.new(1, 0, 1, 0), Text = "?", Font = FONT_HEAD, TextSize = 28, TextColor3 = UI.textFaint, ZIndex = 28 })
+		-- TASK 27.1: Replace "?" text with greyed fish silhouette (no species-identifying info)
+		buildFishSilhouette(icon, UI.textFaint)
 
 		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = FONT_BOLD, TextSize = 16, TextColor3 = UI.textFaint, ZIndex = 27 })
 		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = FONT_BODY, TextSize = 11, TextColor3 = rarityColor, ZIndex = 27 })
