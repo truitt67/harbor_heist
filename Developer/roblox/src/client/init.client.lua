@@ -2134,12 +2134,17 @@ local raidTargets = {}
 local raidInProgress = false
 
 
+-- Table to track countdown labels for unavailable targets (hvfh.6.1.2)
+local raidTargetCountdownLabels = {}
+
 local function renderRaidTargets(data)
 	for _, child in ipairs(raidTargetList:GetChildren()) do
 		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end
+	raidTargetCountdownLabels = {}
+	
 	if not data or not data.ok then
 		makeLabel(raidTargetList, {
 			Size = UDim2.new(1, 0, 0, 48),
@@ -2190,16 +2195,30 @@ local function renderRaidTargets(data)
 		})
 		return
 	end
-	for i, target in ipairs(data.targets) do
+	
+	-- Sort targets: available first, then unavailable (hvfh.6.1.2)
+	local sortedTargets = {}
+	for _, target in ipairs(data.targets) do
+		table.insert(sortedTargets, target)
+	end
+	table.sort(sortedTargets, function(a, b)
+		if a.available == b.available then
+			return (a.displayName or a.name or "") < (b.displayName or b.name or "")
+		end
+		return a.available == true
+	end)
+	
+	for i, target in ipairs(sortedTargets) do
+		local isAvailable = target.available ~= false
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -6, 0, IS_MOBILE and 68 or 60)
-		row.BackgroundColor3 = UI.surface
-		row.BackgroundTransparency = 0.15
+		row.BackgroundColor3 = isAvailable and UI.surface or UI.surfaceHi
+		row.BackgroundTransparency = isAvailable and 0.15 or 0.3
 		row.LayoutOrder = i
 		row.ZIndex = 26
 		row.Parent = raidTargetList
 		corner(row, 12)
-		stroke(row, 0.9)
+		stroke(row, isAvailable and 0.9 or 0.95)
 
 		makeLabel(row, {
 			Size = UDim2.new(1, -110, 0, 20),
@@ -2207,65 +2226,123 @@ local function renderRaidTargets(data)
 			Text = target.displayName or target.name or "Unknown",
 			Font = FONT_BOLD,
 			TextSize = 14,
-			TextColor3 = UI.text,
+			TextColor3 = isAvailable and UI.text or UI.textFaint,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			ZIndex = 27,
 		})
-		makeLabel(row, {
-			Size = UDim2.new(1, -110, 0, 16),
-			Position = UDim2.new(0, 12, 0, 28),
-			Text = string.format("Dock %d  •  %d stealable fish", target.dockIndex or 0, target.stealableCount or 0),
-			Font = FONT_BODY,
-			TextSize = 12,
-			TextColor3 = UI.textDim,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			ZIndex = 27,
-		})
+		
+		local subtitleText = ""
+		if isAvailable then
+			subtitleText = string.format("Dock %d  •  %d stealable fish", target.dockIndex or 0, target.stealableCount or 0)
+		else
+			-- Format reason with countdown if applicable (hvfh.6.1.2)
+			local reason = target.unavailableReason or "unavailable"
+			local reasonLabel = ({
+				locked = "LOCKED",
+				raid_protection = "Protected",
+				loss_capped = "Loss cap reached",
+				safe_harbor = "In Safe Harbor",
+				victim_cooldown = "Recently raided",
+				no_stealable_fish = "No fish to steal",
+			})[reason] or reason
+			
+			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds > 0 then
+				subtitleText = string.format("%s  •  %s", reasonLabel, formatRaidTime(target.unavailableSeconds))
+				-- Store reference for 1Hz update
+				local countdownLabel = makeLabel(row, {
+					Size = UDim2.new(1, -110, 0, 16),
+					Position = UDim2.new(0, 12, 0, 28),
+					Text = subtitleText,
+					Font = FONT_BODY,
+					TextSize = 12,
+					TextColor3 = UI.textFaint,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					ZIndex = 27,
+				})
+				raidTargetCountdownLabels[target.userId] = {
+					label = countdownLabel,
+					reason = reason,
+					reasonLabel = reasonLabel,
+					seconds = target.unavailableSeconds,
+				}
+			else
+				subtitleText = reasonLabel
+				makeLabel(row, {
+					Size = UDim2.new(1, -110, 0, 16),
+					Position = UDim2.new(0, 12, 0, 28),
+					Text = subtitleText,
+					Font = FONT_BODY,
+					TextSize = 12,
+					TextColor3 = UI.textFaint,
+					TextXAlignment = Enum.TextXAlignment.Left,
+					ZIndex = 27,
+				})
+			end
+		end
+		
+		if not subtitleText:find("LOCKED") and not subtitleText:find("Protected") and not subtitleText:find("Loss cap") and not subtitleText:find("Safe Harbor") and not subtitleText:find("Recently raided") and not subtitleText:find("No fish") then
+			makeLabel(row, {
+				Size = UDim2.new(1, -110, 0, 16),
+				Position = UDim2.new(0, 12, 0, 28),
+				Text = subtitleText,
+				Font = FONT_BODY,
+				TextSize = 12,
+				TextColor3 = isAvailable and UI.textDim or UI.textFaint,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 27,
+			})
+		end
+		
 		local attempt = makeButton(row, {
 			Size = UDim2.new(0, IS_MOBILE and 104 or 92, 0, IS_MOBILE and 44 or 32),
 			Position = UDim2.new(1, IS_MOBILE and -114 or -102, 0.5, IS_MOBILE and -22 or -16),
-			Text = "RAID",
-			BackgroundColor3 = UI.bad,
+			Text = isAvailable and "RAID" or "UNAVAILABLE",
+			BackgroundColor3 = isAvailable and UI.bad or UI.surfaceHi,
+			TextColor3 = isAvailable and UI.text or UI.textFaint,
 			TextSize = 12,
 			ZIndex = 27,
+			Active = isAvailable,
 		})
-		attempt.Activated:Connect(function()
-			if raidInProgress then
-				return
-			end
-			-- TASK 23.1 (hvfh.3.1) gate 2: never start a raid while a
-			-- cast/bite minigame holds the overlay slot. Refused BEFORE
-			-- RequestRaidAttempt fires — no server deadline starts.
-			if isOverlayActive("cast") or isOverlayActive("bite") then
-				showNotification("Reeling in a fish — one moment!", UI.warn)
-				return
-			end
-			raidInProgress = true
-			local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
-			if not result or not result.ok then
-				raidInProgress = false
-				-- P0 syntax fix: parenthesize constructor before indexing
-				-- (same class as the reasonText fix ~40 lines above).
-				local failReason = ({
-					window_closed = "The raid window closed.",
-					not_opted_in = "You are not opted in.",
-					new_player_protected = "New players cannot raid.",
-					stunned = "You are stunned.",
-					attacker_cooldown = "Raid cooldown active.",
-					victim_cooldown = "You recently raided this dock.",
-					loss_capped = "This dock has lost too much this window.",
-					target_unavailable = "Target left the harbor.",
-					target_no_longer_eligible = "Target is no longer eligible.",
-					no_stealable_fish = "No fish left to steal.",
-					safe_harbor = "Target is in the Safe Harbor zone.",
-					raid_in_progress = "You already have a raid in progress.",
-				})[result and result.reason] or "Could not start raid."
-				showNotification(failReason, UI.bad)
-				return
-			end
-			startRaidMinigame(result)
-		end)
+		
+		if isAvailable then
+			attempt.Activated:Connect(function()
+				if raidInProgress then
+					return
+				end
+				-- TASK 23.1 (hvfh.3.1) gate 2: never start a raid while a
+				-- cast/bite minigame holds the overlay slot. Refused BEFORE
+				-- RequestRaidAttempt fires — no server deadline starts.
+				if isOverlayActive("cast") or isOverlayActive("bite") then
+					showNotification("Reeling in a fish — one moment!", UI.warn)
+					return
+				end
+				raidInProgress = true
+				local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+				if not result or not result.ok then
+					raidInProgress = false
+					-- P0 syntax fix: parenthesize constructor before indexing
+					-- (same class as the reasonText fix ~40 lines above).
+					local failReason = ({
+						window_closed = "The raid window closed.",
+						not_opted_in = "You are not opted in.",
+						new_player_protected = "New players cannot raid.",
+						stunned = "You are stunned.",
+						attacker_cooldown = "Raid cooldown active.",
+						victim_cooldown = "You recently raided this dock.",
+						loss_capped = "This dock has lost too much this window.",
+						target_unavailable = "Target left the harbor.",
+						target_no_longer_eligible = "Target is no longer eligible.",
+						no_stealable_fish = "No fish left to steal.",
+						safe_harbor = "Target is in the Safe Harbor zone.",
+						raid_in_progress = "You already have a raid in progress.",
+					})[result and result.reason] or "Could not start raid."
+					showNotification(failReason, UI.bad)
+					return
+				end
+				startRaidMinigame(result)
+			end)
+		end
 	end
 end
 
@@ -3729,6 +3806,18 @@ task.spawn(function()
 			raidWindow.nextWindowInSeconds = math.max(0, raidWindow.nextWindowInSeconds - 1)
 		end
 		updateRaidCountdown()
+		
+		-- Update unavailable target countdowns (hvfh.6.1.2)
+		for userId, data in pairs(raidTargetCountdownLabels) do
+			if data.seconds > 0 then
+				data.seconds = data.seconds - 1
+				if data.seconds > 0 then
+					data.label.Text = string.format("%s  •  %s", data.reasonLabel, formatRaidTime(data.seconds))
+				else
+					data.label.Text = data.reasonLabel
+				end
+			end
+		end
 	end
 end)
 
