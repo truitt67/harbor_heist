@@ -379,11 +379,15 @@ local TOAST_CATEGORIES = {
 }
 local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
 
+-- Host geometry is consumed by the onboarding prompt clamp (TASK 28.2,
+-- updateOnboardingPromptOffset) — single-sourced here, never re-literal'd.
+local TOAST_HOST_TOP_OFFSET = 8
+local TOAST_HOST_HEIGHT = 300
 local toastHost = Instance.new("Frame")
 toastHost.Name = "Toasts"
 toastHost.AnchorPoint = Vector2.new(0.5, 0)
-toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, 300)
-toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 8)
+toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, TOAST_HOST_HEIGHT)
+toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
 toastHost.BackgroundTransparency = 1
 toastHost.ZIndex = 50
 toastHost.Parent = screenGui
@@ -460,18 +464,20 @@ local function showToastDirect(message, color, category)
 	TweenService:Create(chip, EASE_OUT, { TextTransparency = 0 }):Play()
 	TweenService:Create(text, EASE_OUT, { TextTransparency = 0 }):Play()
 	task.delay(TOAST_LIFETIME, function()
-		if not toast.Parent then
-			return
+		if toast.Parent then
+			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
+			TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
+			local t = TweenService:Create(text, fade, { TextTransparency = 1 })
+			t:Play()
+			t.Completed:Wait()
+			toast:Destroy()
 		end
-		local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-		TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
-		TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
-		TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
-		TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
-		local t = TweenService:Create(text, fade, { TextTransparency = 1 })
-		t:Play()
-		t.Completed:Wait()
-		toast:Destroy()
+		-- Runs even if the toast was destroyed externally (fresh-eyes fix):
+		-- an early return here leaked activeToastCount, and 3 leaks would
+		-- permanently stall the queue (counter stuck at the cap).
 		activeToastCount -= 1
 		drainToastQueue()
 	end)
@@ -799,7 +805,9 @@ local function desktopPanelFitScale(panel)
 	-- clear the Roblox top bar (inset) plus the aesthetic margin.
 	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
 	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
-	return math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset)
+	-- Floor: on absurdly small windows (<~120px tall) availW/availH go
+	-- negative — never hand UIScale a non-positive scale (blanks the panel).
+	return math.max(0.1, math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset))
 end
 
 local function makePanel(title, titleColor, desktopSize)
@@ -2384,14 +2392,14 @@ local function updateOnboardingPromptOffset()
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
 		-- bead's "safe fraction" fallback, anchored to the actual HUD
-		-- geometry instead of an arbitrary ratio. (Prompt height: 48px,
-		-- per onboardingPrompt.Size.) Trade-off accepted per bead: on
-		-- ultra-short screens the prompt may overlap the stack, never
-		-- the HUD/toasts.
+		-- geometry instead of an arbitrary ratio. Toast-host and prompt
+		-- dimensions are read from their single sources (no literals here).
+		-- Trade-off accepted per bead: on ultra-short screens the prompt
+		-- may overlap the stack, never the HUD/toasts.
 		local cam = workspace.CurrentCamera
 		if cam then
-			local toastHostBottom = SAFE_TOP + 8 + 300 + 8
-			local maxOffset = cam.ViewportSize.Y - toastHostBottom - 48
+			local toastHostBottom = SAFE_TOP + TOAST_HOST_TOP_OFFSET + TOAST_HOST_HEIGHT + 8
+			local maxOffset = cam.ViewportSize.Y - toastHostBottom - onboardingPrompt.Size.Y.Offset
 			offset = math.min(offset, math.max(maxOffset, 0))
 		end
 		onboardingPrompt.Position = UDim2.new(0.5, 0, 1, -offset)
