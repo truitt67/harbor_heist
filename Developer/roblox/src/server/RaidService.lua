@@ -513,7 +513,8 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		remotes.notify(
 			targetPlayer,
 			string.format("ALARM! %s is trying to steal from your aquarium!", player.DisplayName),
-			Color3.fromRGB(255, 150, 100)
+			Color3.fromRGB(255, 150, 100),
+			"raid-victim"
 		)
 	end
 	if analytics then
@@ -637,7 +638,8 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		remotes.notify(
 			attacker,
 			string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
-			Color3.fromRGB(255, 100, 100)
+			Color3.fromRGB(255, 100, 100),
+			"raid-attacker"
 		)
 		victimNoteSuffix = string.format(" Your alarm stunned them for %ds.", alarmConfig.stunDuration)
 		-- Push now so the attacker's client applies the WalkSpeed gate
@@ -661,12 +663,13 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			GameConfig.Raid.defenderProtectionSeconds,
 			victimNoteSuffix or ""
 		),
-		Color3.fromRGB(255, 100, 100)
+		Color3.fromRGB(255, 100, 100),
+		"raid-victim"
 	)
 	if fenced then
-		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), Color3.fromRGB(130, 255, 130))
+		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), Color3.fromRGB(130, 255, 130), "raid-attacker")
 	else
-		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), Color3.fromRGB(130, 255, 130))
+		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), Color3.fromRGB(130, 255, 130), "raid-attacker")
 	end
 	if auditLog then
 		auditLog.logRaidTransfer(attacker, victim, stolenFish, true)
@@ -720,7 +723,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		-- No outcome event here: raid_attempted already fired at commit, and
 		-- the catalog has no attacker-side "expired" event (adding one is
 		-- analytics-scope, not this bead).
-		remotes.notify(player, "Too slow! The raid window of opportunity passed...", Color3.fromRGB(255, 120, 120))
+		remotes.notify(player, "Too slow! The raid window of opportunity passed...", Color3.fromRGB(255, 120, 120), "raid-attacker")
 		return { ok = false, reason = "too_slow" }
 	end
 	if type(markerPosition) ~= "number" then
@@ -748,7 +751,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	local victimSession = victim and dataManager.get(victim)
 	local function failOutcome(reason)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100))
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100), "raid-victim")
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
@@ -793,7 +796,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	end
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
-		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120))
+		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120), "raid-attacker")
 		return failOutcome("missed")
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
@@ -878,7 +881,7 @@ local function watchRaidZone(zone: BasePart)
 		local now = os.clock()
 		if (now - (lastNotifyAt[plr] or 0)) > 5 then
 			lastNotifyAt[plr] = now
-			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", Color3.fromRGB(255, 120, 120))
+			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", Color3.fromRGB(255, 120, 120), "raid-info")
 		end
 	end)
 	zone.TouchEnded:Connect(function(hit)

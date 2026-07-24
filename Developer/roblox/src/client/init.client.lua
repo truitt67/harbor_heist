@@ -361,8 +361,15 @@ toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
 toastLayout.Parent = toastHost
 
 local toastOrder = 0
-local function showNotification(message, color)
+local function showNotification(message, color, category)
 	color = color or UI.accentSoft
+	-- TASK 24.3 (hvfh.4.3): category forwarded from server (catch/quest/raid/
+	-- lock/economy/info). Defaults to "info" when nil so existing 2-arg
+	-- FireClient call sites keep working. The value is accepted here to
+	-- satisfy the arity contract; the toast icon/chip RENDERING that consumes
+	-- it is the client-visual half of 24.3 (separate follow-up). Until that
+	-- lands, the param is forward-only plumbing — harmless dead local.
+	category = category or "info"
 	toastOrder += 1
 
 	local toast = Instance.new("Frame")

@@ -275,9 +275,9 @@ function FishingService.init(deps)
 
 		-- Feedback so the player knows their cast quality registered.
 		if tier == "perfect" then
-			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", Color3.fromRGB(134, 239, 172))
+			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", Color3.fromRGB(134, 239, 172), "cast")
 		elseif tier == "good" then
-			remotes.notify(player, "Good cast. +Luck on this catch.", Color3.fromRGB(120, 190, 255))
+			remotes.notify(player, "Good cast. +Luck on this catch.", Color3.fromRGB(120, 190, 255), "cast")
 		end
 	end)
 
@@ -439,7 +439,7 @@ function FishingService.init(deps)
 		-- TASK 7.1: Track species discovery
 		if not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] then
 			session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] = true
-			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), Color3.fromRGB(255, 215, 0))
+			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), Color3.fromRGB(255, 215, 0), "discovery")
 		end
 
 		-- Find rarity color for notification
@@ -454,7 +454,8 @@ function FishingService.init(deps)
 		remotes.notify(
 			player,
 			string.format("You caught a %s %s! (worth $%d)", fish.Rarity, fish.SpeciesId, fish.BaseSellValue),
-			rarityColor
+			rarityColor,
+			"catch"
 		)
 		stateSync.push(session)
 		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue }

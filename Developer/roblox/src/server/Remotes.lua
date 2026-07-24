@@ -24,8 +24,15 @@ end
 
 folder.Parent = ReplicatedStorage
 
-function Remotes.notify(player, message, color)
-	Remotes.Notify:FireClient(player, message, color)
+-- TASK 24.3 (hvfh.4.3): optional category (catch/discovery/cast/quest/raid-
+-- victim/raid-attacker/raid-info/lock/economy/info) so the client can render a
+-- glanceable icon/chip instead of relying on color alone (PRD accessibility
+-- rule: never color alone). Backward-compatible: existing 2-arg calls forward
+-- nil -> client defaults to "info". Luau binds FireClient args positionally,
+-- so unmigrated call sites silently drop the 3rd arg until the client-visual
+-- half of 24.3 consumes it.
+function Remotes.notify(player, message, color, category)
+	Remotes.Notify:FireClient(player, message, color, category)
 end
 
 return Remotes

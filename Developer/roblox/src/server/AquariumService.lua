@@ -110,7 +110,7 @@ function AquariumService.init(deps)
 		if auditLog then
 			auditLog.logClaim(player, unclaimed)
 		end
-		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130))
+		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130), "economy")
 		stateSync.push(session)
 		-- EPIC 11 (TASK 11.2): income_claimed. Amount is the key field —
 		-- dashboard uses it to track economy flow + claim frequency.
@@ -175,9 +175,9 @@ function AquariumService.init(deps)
 			auditLog.logSell(player, soldCount, payout)
 		end
 		if locked then
-			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), Color3.fromRGB(130, 255, 130))
+			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), Color3.fromRGB(130, 255, 130), "economy")
 		else
-			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130))
+			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130), "economy")
 		end
 		refreshVisual(session)
 		-- TASK 14.15 (wqw.15): stored fish were removed only when not locked,
@@ -303,7 +303,7 @@ function AquariumService.init(deps)
 			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
-				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80))
+				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80), "lock")
 			end
 		end)
 		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
@@ -345,9 +345,9 @@ function AquariumService.init(deps)
 		local newValue = not session.profile.Aquarium.RaidOptIn
 		session.profile.Aquarium.RaidOptIn = newValue
 		if newValue then
-			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", Color3.fromRGB(255, 170, 80), "raid-info")
 		else
-			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130))
+			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130), "raid-info")
 		end
 		stateSync.push(session)
 		-- harborheist-os9: the PRD catalog event is raid_opt_in_enabled; the
