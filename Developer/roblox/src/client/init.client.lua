@@ -89,6 +89,114 @@ end
 local function isOverlayActive(name)
 	return activeOverlay == name
 end
+
+-- ============================================================
+-- TASK 23.2 (hvfh.3.2): Unified overlay visual language
+-- All three minigame overlays (cast, bite, raid) share the same
+-- frame treatment: corner radius, stroke, gradient, title style.
+-- ZIndex ladder: backdrop(20) < panels(25-29) < overlays(40-49)
+-- < reveal card(50-54) < toasts(55-59). Toasts always win — they
+-- carry server truth like raid-victim notifications.
+-- ============================================================
+local OVERLAY_Z_BASE = 40
+local OVERLAY_Z_CONTENT = 41
+local OVERLAY_Z_ZONE = 42
+local OVERLAY_Z_MARKER = 43
+
+local function makeOverlayFrame(name, titleText, subtitleText)
+	local frame = Instance.new("Frame")
+	frame.Name = name
+	frame.AnchorPoint = Vector2.new(0.5, 0.5)
+	-- Unified size: mobile full-width minus padding, desktop fixed 400x112
+	frame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
+	-- Unified position: center-stage at 0.42 mobile / 0.58 desktop
+	frame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
+	frame.BackgroundColor3 = UI.bg
+	frame.BackgroundTransparency = 0.08
+	frame.Visible = false
+	frame.ZIndex = OVERLAY_Z_BASE
+	frame.Parent = screenGui
+	corner(frame, 16)
+	stroke(frame, 0.8)
+	vGradient(frame, Color3.fromRGB(26, 38, 57), UI.bg)
+
+	-- Title (unified style)
+	local title = makeLabel(frame, {
+		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.new(0, 10, 0, 10),
+		Text = titleText,
+		Font = FONT_HEAD,
+		TextSize = IS_MOBILE and 15 or 16,
+		TextColor3 = UI.warn,
+		ZIndex = OVERLAY_Z_CONTENT,
+	})
+
+	-- Timing bar track (unified)
+	local barTrack = Instance.new("Frame")
+	barTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
+	barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
+	barTrack.BackgroundColor3 = UI.surface
+	barTrack.ZIndex = OVERLAY_Z_CONTENT
+	barTrack.Parent = frame
+	corner(barTrack, 10)
+	stroke(barTrack, 0.85)
+
+	-- Good zone (unified)
+	local goodZone = Instance.new("Frame")
+	goodZone.Name = "GoodZone"
+	goodZone.Size = UDim2.new(0.3, 0, 1, 0)
+	goodZone.Position = UDim2.new(0.35, 0, 0, 0)
+	goodZone.BackgroundColor3 = UI.good
+	goodZone.BackgroundTransparency = 0.45
+	goodZone.ZIndex = OVERLAY_Z_ZONE
+	goodZone.Parent = barTrack
+	corner(goodZone, 8)
+	stroke(goodZone, 0.5, UI.good, 1.5)
+
+	-- Perfect zone (unified)
+	local perfectZone = Instance.new("Frame")
+	perfectZone.Name = "PerfectZone"
+	perfectZone.AnchorPoint = Vector2.new(0.5, 0)
+	perfectZone.Size = UDim2.new(0.4, 0, 1, -8)
+	perfectZone.Position = UDim2.new(0.5, 0, 0, 4)
+	perfectZone.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
+	perfectZone.BackgroundTransparency = 0.12
+	perfectZone.ZIndex = OVERLAY_Z_MARKER
+	perfectZone.Parent = goodZone
+	corner(perfectZone, 7)
+
+	-- Subtitle (unified)
+	local subtitle = makeLabel(frame, {
+		Size = UDim2.new(1, -24, 0, 16),
+		Position = UDim2.new(0, 12, 1, -20),
+		Text = subtitleText,
+		Font = FONT_BOLD,
+		TextSize = 9,
+		TextColor3 = UI.textFaint,
+		ZIndex = OVERLAY_Z_CONTENT,
+	})
+
+	-- Marker (unified)
+	local marker = Instance.new("Frame")
+	marker.Size = UDim2.new(0, 5, 1, 6)
+	marker.Position = UDim2.new(0, 0, 0, -3)
+	marker.BackgroundColor3 = Color3.new(1, 1, 1)
+	marker.ZIndex = OVERLAY_Z_MARKER
+	marker.Parent = barTrack
+	corner(marker, 3)
+
+	local markerGlow = Instance.new("Frame")
+	markerGlow.Size = UDim2.new(0, 15, 1, 10)
+	markerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+	markerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+	markerGlow.BackgroundColor3 = UI.accentSoft
+	markerGlow.BackgroundTransparency = 0.75
+	markerGlow.ZIndex = OVERLAY_Z_ZONE
+	markerGlow.Parent = marker
+	corner(markerGlow, 8)
+
+	return frame, title, barTrack, goodZone, perfectZone, subtitle, marker, markerGlow
+end
 -- TASK 22.4 (hvfh.2.4): local first-catch counter. Incremented on each
 -- ok=true SubmitCatchInput result; counter == 1 triggers the reveal card
 -- regardless of rarity. Local + deterministic — no server-flag race.
@@ -424,7 +532,7 @@ toastHost.AnchorPoint = Vector2.new(0.5, 0)
 toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, TOAST_HOST_HEIGHT)
 toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
 toastHost.BackgroundTransparency = 1
-toastHost.ZIndex = 50
+toastHost.ZIndex = 55
 toastHost.Parent = screenGui
 
 local toastLayout = Instance.new("UIListLayout")
@@ -450,7 +558,7 @@ local function showToastDirect(message, color, category)
 	toast.BackgroundColor3 = UI.bg
 	toast.BackgroundTransparency = 1
 	toast.LayoutOrder = toastOrder
-	toast.ZIndex = 51
+	toast.ZIndex = 56
 	toast.Parent = toastHost
 	corner(toast, 12)
 	local tStroke = stroke(toast, 1)
@@ -464,7 +572,7 @@ local function showToastDirect(message, color, category)
 	accentBar.Position = UDim2.new(0, 8, 0, 7)
 	accentBar.BackgroundColor3 = color
 	accentBar.BackgroundTransparency = 1
-	accentBar.ZIndex = 52
+	accentBar.ZIndex = 57
 	accentBar.Parent = toast
 	corner(accentBar, 2)
 	local chip = makeLabel(toast, {
@@ -476,7 +584,7 @@ local function showToastDirect(message, color, category)
 		TextColor3 = color,
 		TextTransparency = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 53,
+		ZIndex = 58,
 	})
 	local text = makeLabel(toast, {
 		Size = UDim2.new(1, -32, 0, 0),
@@ -487,7 +595,7 @@ local function showToastDirect(message, color, category)
 		TextTransparency = 1,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 52,
+		ZIndex = 57,
 	})
 	text.AutomaticSize = Enum.AutomaticSize.Y
 	-- hvfh.4.3 review fixup: bottom breathing room via label-internal
@@ -2222,84 +2330,11 @@ end
 -- ============================================================
 -- Raid timing minigame overlay (TASK 8.5b / gdj.14)
 -- ============================================================
-local raidMinigameFrame = Instance.new("Frame")
-raidMinigameFrame.Name = "RaidMinigame"
-raidMinigameFrame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
-raidMinigameFrame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
-raidMinigameFrame.BackgroundColor3 = UI.bg
-raidMinigameFrame.BackgroundTransparency = 0.08
-raidMinigameFrame.Visible = false
-raidMinigameFrame.ZIndex = 40
-raidMinigameFrame.Parent = screenGui
-corner(raidMinigameFrame, 16)
-stroke(raidMinigameFrame, 0.8)
-vGradient(raidMinigameFrame, Color3.fromRGB(26, 38, 57), UI.bg)
-
-makeLabel(raidMinigameFrame, {
-	Size = UDim2.new(1, -20, 0, 24),
-	Position = UDim2.new(0, 10, 0, 10),
-	Text = IS_MOBILE and "TAP IN THE GREEN ZONE!" or "CLICK IN THE GREEN ZONE!",
-	Font = FONT_HEAD,
-	TextSize = IS_MOBILE and 15 or 16,
-	TextColor3 = UI.warn,
-	ZIndex = 41,
-})
-
-local raidBarTrack = Instance.new("Frame")
-raidBarTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
-raidBarTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
-raidBarTrack.BackgroundColor3 = UI.surface
-raidBarTrack.ZIndex = 41
-raidBarTrack.Parent = raidMinigameFrame
-corner(raidBarTrack, 10)
-stroke(raidBarTrack, 0.85)
-
-local raidGoodZone = Instance.new("Frame")
-raidGoodZone.Size = UDim2.new(0.3, 0, 1, 0)
-raidGoodZone.Position = UDim2.new(0.35, 0, 0, 0)
-raidGoodZone.BackgroundColor3 = UI.good
-raidGoodZone.BackgroundTransparency = 0.45
-raidGoodZone.ZIndex = 42
-raidGoodZone.Parent = raidBarTrack
-corner(raidGoodZone, 8)
-stroke(raidGoodZone, 0.5, UI.good, 1.5)
-
-local raidPerfectZone = Instance.new("Frame")
-raidPerfectZone.Size = UDim2.new(0.4, 0, 1, -8)
-raidPerfectZone.Position = UDim2.new(0.5, 0, 0, 4)
-raidPerfectZone.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
-raidPerfectZone.BackgroundTransparency = 0.12
-raidPerfectZone.ZIndex = 43
-raidPerfectZone.Parent = raidGoodZone
-corner(raidPerfectZone, 7)
-
-makeLabel(raidMinigameFrame, {
-	Size = UDim2.new(1, -24, 0, 16),
-	Position = UDim2.new(0, 12, 1, -20),
-	Text = "PERFECT = HIGH CHANCE  •  GOOD = FAIR  •  MISS = LOW",
-	Font = FONT_BOLD,
-	TextSize = 9,
-	TextColor3 = UI.textFaint,
-	ZIndex = 41,
-})
-
-local raidMarker = Instance.new("Frame")
-raidMarker.Size = UDim2.new(0, 5, 1, 6)
-raidMarker.Position = UDim2.new(0, 0, 0, -3)
-raidMarker.BackgroundColor3 = Color3.new(1, 1, 1)
-raidMarker.ZIndex = 43
-raidMarker.Parent = raidBarTrack
-corner(raidMarker, 3)
-
-local raidMarkerGlow = Instance.new("Frame")
-raidMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
-raidMarkerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
-raidMarkerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
-raidMarkerGlow.BackgroundColor3 = UI.accentSoft
-raidMarkerGlow.BackgroundTransparency = 0.75
-raidMarkerGlow.ZIndex = 42
-raidMarkerGlow.Parent = raidMarker
-corner(raidMarkerGlow, 8)
+-- TASK 23.2 (hvfh.3.2): Unified overlay factory
+local raidMinigameFrame, raidTitle, raidBarTrack, raidGoodZone, raidPerfectZone, raidSubtitle, raidMarker, raidMarkerGlow =
+	makeOverlayFrame("RaidMinigame",
+		IS_MOBILE and "TAP IN THE GREEN ZONE!" or "CLICK IN THE GREEN ZONE!",
+		"PERFECT = HIGH CHANCE  •  GOOD = FAIR  •  MISS = LOW")
 
 local raidMinigameTween = nil
 local raidMinigameDuration = 0
@@ -2660,87 +2695,11 @@ end
 -- ============================================================
 -- Fishing minigame overlay — glowing timing bar
 -- ============================================================
-local castOverlay = Instance.new("Frame")
-castOverlay.AnchorPoint = Vector2.new(0.5, 0.5)
-castOverlay.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
-castOverlay.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
-castOverlay.BackgroundColor3 = UI.bg
-castOverlay.BackgroundTransparency = 0.08
-castOverlay.Visible = false
-castOverlay.ZIndex = 40
-castOverlay.Parent = screenGui
-corner(castOverlay, 16)
-stroke(castOverlay, 0.8)
-vGradient(castOverlay, Color3.fromRGB(26, 38, 57), UI.bg)
-
-local castTitle = makeLabel(castOverlay, {
-	Size = UDim2.new(1, -20, 0, 24),
-	Position = UDim2.new(0, 10, 0, 10),
-	Text = IS_MOBILE and "TAP WHEN IN THE GREEN!" or "CLICK WHEN IN THE GREEN!",
-	Font = FONT_HEAD,
-	TextSize = IS_MOBILE and 15 or 16,
-	TextColor3 = UI.warn,
-	ZIndex = 41,
-})
-
-local timingBar = Instance.new("Frame")
-timingBar.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
-timingBar.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
-timingBar.BackgroundColor3 = UI.surface
-timingBar.ZIndex = 41
-timingBar.Parent = castOverlay
-corner(timingBar, 10)
-stroke(timingBar, 0.85)
-
-local hitZoneFrame = Instance.new("Frame")
-hitZoneFrame.Name = "HitZone"
-hitZoneFrame.Size = UDim2.new(0.3, 0, 1, 0)
-hitZoneFrame.Position = UDim2.new(0.35, 0, 0, 0)
-hitZoneFrame.BackgroundColor3 = UI.good
-hitZoneFrame.BackgroundTransparency = 0.45
-hitZoneFrame.ZIndex = 42
-hitZoneFrame.Parent = timingBar
-corner(hitZoneFrame, 8)
-stroke(hitZoneFrame, 0.5, UI.good, 1.5)
-
-local perfectZoneFrame = Instance.new("Frame")
-perfectZoneFrame.Name = "PerfectZone"
-perfectZoneFrame.AnchorPoint = Vector2.new(0.5, 0)
-perfectZoneFrame.Size = UDim2.new(0.4, 0, 1, -8)
-perfectZoneFrame.Position = UDim2.new(0.5, 0, 0, 4)
-perfectZoneFrame.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
-perfectZoneFrame.BackgroundTransparency = 0.12
-perfectZoneFrame.ZIndex = 43
-perfectZoneFrame.Parent = hitZoneFrame
-corner(perfectZoneFrame, 7)
-
-makeLabel(castOverlay, {
-	Size = UDim2.new(1, -24, 0, 16),
-	Position = UDim2.new(0, 12, 1, -20),
-	Text = "CENTER HIT  •  BONUS LUCK",
-	Font = FONT_BOLD,
-	TextSize = 9,
-	TextColor3 = UI.textFaint,
-	ZIndex = 41,
-})
-
-local marker = Instance.new("Frame")
-marker.Size = UDim2.new(0, 5, 1, 6)
-marker.Position = UDim2.new(0, 0, 0, -3)
-marker.BackgroundColor3 = Color3.new(1, 1, 1)
-marker.ZIndex = 43
-marker.Parent = timingBar
-corner(marker, 3)
-
-local markerGlow = Instance.new("Frame")
-markerGlow.Size = UDim2.new(0, 15, 1, 10)
-markerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
-markerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
-markerGlow.BackgroundColor3 = UI.accentSoft
-markerGlow.BackgroundTransparency = 0.75
-markerGlow.ZIndex = 42
-markerGlow.Parent = marker
-corner(markerGlow, 8)
+-- TASK 23.2 (hvfh.3.2): Unified overlay factory
+local castOverlay, castTitle, timingBar, hitZoneFrame, perfectZoneFrame, castSubtitle, marker, markerGlow =
+	makeOverlayFrame("CastOverlay",
+		IS_MOBILE and "TAP WHEN IN THE GREEN!" or "CLICK WHEN IN THE GREEN!",
+		"CENTER HIT  •  BONUS LUCK")
 
 local markTween = nil
 
@@ -3116,29 +3075,41 @@ end
 
 -- ============================================================
 -- Bite Timing Minigame (TASK 3.2)
+-- TASK 23.2 (hvfh.3.2): Unified frame treatment with cast/raid overlays
 -- ============================================================
 local minigameFrame = Instance.new("Frame")
-minigameFrame.Size = UDim2.new(0, 400, 0, 120)
-minigameFrame.Position = UDim2.new(0.5, -200, 0.5, -60)
+minigameFrame.Name = "BiteMinigame"
+minigameFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+minigameFrame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
+minigameFrame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
 minigameFrame.BackgroundColor3 = UI.bg
+minigameFrame.BackgroundTransparency = 0.08
 minigameFrame.Visible = false
+minigameFrame.ZIndex = OVERLAY_Z_BASE
 minigameFrame.Parent = screenGui
-corner(minigameFrame, 14)
+corner(minigameFrame, 16)
+stroke(minigameFrame, 0.8)
+vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), UI.bg)
 
 local minigameTitle = makeLabel(minigameFrame, {
-	Size = UDim2.new(1, 0, 0, 28),
-	Position = UDim2.new(0, 0, 0, 8),
+	Size = UDim2.new(1, -20, 0, 24),
+	Position = UDim2.new(0, 10, 0, 10),
 	Text = "FISH ON! Tap when the marker is in the zone!",
+	Font = FONT_HEAD,
+	TextSize = IS_MOBILE and 15 or 16,
 	TextColor3 = UI.warn,
+	ZIndex = OVERLAY_Z_CONTENT,
 })
 
--- The bar track
+-- The bar track (unified sizing with cast/raid)
 local barTrack = Instance.new("Frame")
-barTrack.Size = UDim2.new(1, -40, 0, 20)
-barTrack.Position = UDim2.new(0, 20, 0, 50)
-barTrack.BackgroundColor3 = UI.surfaceHi
+barTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
+barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
+barTrack.BackgroundColor3 = UI.surface
+barTrack.ZIndex = OVERLAY_Z_CONTENT
 barTrack.Parent = minigameFrame
-corner(barTrack, 8)
+corner(barTrack, 10)
+stroke(barTrack, 0.85)
 
 -- The target zone (centered; width comes from the equipped rod's
 -- minigameZoneSize — see runMinigame for the per-cast resize)
@@ -3146,19 +3117,31 @@ local targetZone = Instance.new("Frame")
 targetZone.Size = UDim2.new(0.3, 0, 1, 0)
 targetZone.Position = UDim2.new(0.35, 0, 0, 0)
 targetZone.BackgroundColor3 = UI.good
-targetZone.BackgroundTransparency = 0.5
+targetZone.BackgroundTransparency = 0.45
+targetZone.ZIndex = OVERLAY_Z_ZONE
 targetZone.Parent = barTrack
 corner(targetZone, 8)
+stroke(targetZone, 0.5, UI.good, 1.5)
 
 -- The moving marker (bite minigame)
--- Renamed from 'marker' to 'biteMarker' to avoid shadowing the cast overlay marker (line 2723).
--- The shadow caused the cast overlay marker to never animate, breaking the fishing minigame.
+-- Renamed from 'marker' to 'biteMarker' to avoid shadowing the cast overlay marker.
 local biteMarker = Instance.new("Frame")
-biteMarker.Size = UDim2.new(0, 4, 1, 4)
-biteMarker.Position = UDim2.new(0, 0, 0, -2)
-biteMarker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+biteMarker.Size = UDim2.new(0, 5, 1, 6)
+biteMarker.Position = UDim2.new(0, 0, 0, -3)
+biteMarker.BackgroundColor3 = Color3.new(1, 1, 1)
+biteMarker.ZIndex = OVERLAY_Z_MARKER
 biteMarker.Parent = barTrack
-corner(biteMarker, 2)
+corner(biteMarker, 3)
+
+local biteMarkerGlow = Instance.new("Frame")
+biteMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
+biteMarkerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+biteMarkerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+biteMarkerGlow.BackgroundColor3 = UI.accentSoft
+biteMarkerGlow.BackgroundTransparency = 0.75
+biteMarkerGlow.ZIndex = OVERLAY_Z_ZONE
+biteMarkerGlow.Parent = biteMarker
+corner(biteMarkerGlow, 8)
 
 local minigameActive = false
 local minigameStartTime = 0
@@ -3286,7 +3269,7 @@ local function showRevealCard(speciesId, rarity, value)
 		card.Position = UDim2.new(0.5, -140, yScale, -80)
 	end
 	card.BackgroundColor3 = UI.bg
-	card.ZIndex = 55
+	card.ZIndex = 50
 	card.Active = true
 	card.Parent = screenGui
 	corner(card, 14)
@@ -3302,7 +3285,7 @@ local function showRevealCard(speciesId, rarity, value)
 	local topBar = Instance.new("Frame")
 	topBar.Size = UDim2.new(1, 0, 0, 6)
 	topBar.BackgroundColor3 = rarityColor
-	topBar.ZIndex = 56
+	topBar.ZIndex = 51
 	topBar.Parent = card
 	corner(topBar, 6)
 
@@ -3312,7 +3295,7 @@ local function showRevealCard(speciesId, rarity, value)
 	tag.Position = UDim2.new(0.5, -50, 0, 20)
 	tag.BackgroundColor3 = rarityColor
 	tag.BackgroundTransparency = 0.78
-	tag.ZIndex = 56
+	tag.ZIndex = 51
 	tag.Parent = card
 	corner(tag, 5)
 	makeLabel(tag, {
@@ -3321,7 +3304,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Font = FONT_BOLD,
 		TextSize = 11,
 		TextColor3 = rarityColor,
-		ZIndex = 57,
+		ZIndex = 52,
 	})
 
 	-- Species display name (big, centered)
@@ -3332,7 +3315,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Font = FONT_HEAD,
 		TextSize = 22,
 		TextColor3 = UI.text,
-		ZIndex = 56,
+		ZIndex = 51,
 	})
 
 	-- Sell value + income/min line
@@ -3343,7 +3326,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Font = FONT_BODY,
 		TextSize = 14,
 		TextColor3 = UI.textDim,
-		ZIndex = 56,
+		ZIndex = 51,
 	})
 
 	-- "tap to dismiss" hint
@@ -3354,7 +3337,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Font = FONT_BODY,
 		TextSize = 11,
 		TextColor3 = UI.textFaint,
-		ZIndex = 56,
+		ZIndex = 51,
 	})
 
 	revealCard = card
