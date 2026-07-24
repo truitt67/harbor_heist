@@ -165,13 +165,13 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	perfectZone.Parent = goodZone
 	corner(perfectZone, 7)
 
-	-- Subtitle (unified)
+	-- Subtitle (unified) - TASK 26.3: improved readability
 	local subtitle = makeLabel(frame, {
 		Size = UDim2.new(1, -24, 0, 16),
 		Position = UDim2.new(0, 12, 1, -20),
 		Text = subtitleText,
 		Font = FONT_BOLD,
-		TextSize = 9,
+		TextSize = IS_MOBILE and 13 or 12,
 		TextColor3 = UI.textFaint,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
