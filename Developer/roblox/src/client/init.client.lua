@@ -483,7 +483,7 @@ local function showToastDirect(message, color, category)
 	end)
 end
 
-local function drainToastQueue()
+function drainToastQueue()
 	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
