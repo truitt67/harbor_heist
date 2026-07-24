@@ -764,6 +764,28 @@ local sellArmed = false
 local sellArmPayout = 0
 local computeSellPayout: any = nil
 
+-- TASK 28.3 (hvfh.8.3): desktop panels are fixed pixel sizes (up to
+-- 520x560) centered in a ScreenGui with IgnoreGuiInset=true — on small
+-- windows they crop against the Roblox top bar and screen edges. Fit by
+-- shrinking the panel's existing pop-animation UIScale (internal layout
+-- proportions survive; no content reflow). The mobile bottom sheet
+-- (0.78 height) already scales — untouched.
+local PANEL_SCREEN_MARGIN = 24
+local function desktopPanelFitScale(panel)
+	if IS_MOBILE then
+		return 1
+	end
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return 1
+	end
+	-- A centered panel has equal top/bottom gaps, and the top gap must
+	-- clear the Roblox top bar (inset) plus the aesthetic margin.
+	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
+	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
+	return math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset)
+end
+
 local function makePanel(title, titleColor, desktopSize)
 	local panel = Instance.new("Frame")
 	panel.Name = title
@@ -875,14 +897,43 @@ local function showPanel(panel)
 	else
 		local scale = panel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 		scale.Parent = panel
-		scale.Scale = 0.92
+		-- TASK 28.3: clamp oversized panels to the viewport — the pop
+		-- animates toward the fit factor instead of 1.
+		local fit = desktopPanelFitScale(panel)
+		scale.Scale = 0.92 * fit
 		panel.BackgroundTransparency = 0.3
-		TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
+		TweenService:Create(scale, EASE_POP, { Scale = fit }):Play()
 		TweenService:Create(panel, EASE_OUT, { BackgroundTransparency = 0.04 }):Play()
 	end
 end
 
 backdrop.Activated:Connect(hidePanels)
+
+-- TASK 28.3 (hvfh.8.3): re-clamp an OPEN desktop panel on window resize —
+-- the fit computed in showPanel would otherwise go stale mid-session.
+if not IS_MOBILE then
+	local panelFitConn
+	local function bindPanelFit(cam)
+		if not cam then
+			return
+		end
+		if panelFitConn then
+			panelFitConn:Disconnect()
+		end
+		panelFitConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			if activePanel then
+				local scale = activePanel:FindFirstChildOfClass("UIScale")
+				if scale then
+					scale.Scale = desktopPanelFitScale(activePanel)
+				end
+			end
+		end)
+	end
+	bindPanelFit(workspace.CurrentCamera)
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindPanelFit(workspace.CurrentCamera)
+	end)
+end
 
 -- ============================================================
 -- Aquarium panel
