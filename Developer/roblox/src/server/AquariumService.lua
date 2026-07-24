@@ -62,12 +62,15 @@ function AquariumService.init(deps)
 			end
 			auditLog.logStore(player, stored, totalVal)
 		end
-		refreshVisual(session)
 		-- TASK 14.15 (wqw.15): fish were added to StoredFish, so invalidate
-		-- the cached incomePerSec before the push repopulates it.
+		-- the cached incomePerSec before the push repopulates it. TASK 24.1
+		-- (hvfh.4.1, fresh-eyes): this must ALSO precede refreshVisual — the
+		-- dock sign now reads incomePerSec, so refreshing the visual first
+		-- would paint the stale pre-store rate.
 		if stored > 0 then
 			stateSync.invalidateIncomeCache(session)
 		end
+		refreshVisual(session)
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist when fish are stored (not just autosave).
 		-- Spawned so the handler returns immediately; coalesced by
@@ -179,13 +182,16 @@ function AquariumService.init(deps)
 		else
 			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130), "economy")
 		end
-		refreshVisual(session)
 		-- TASK 14.15 (wqw.15): stored fish were removed only when not locked,
 		-- so invalidate the cached incomePerSec in that case. Carried-only sells
-		-- (locked) don't change income and don't need invalidation.
+		-- (locked) don't change income and don't need invalidation. TASK 24.1
+		-- (hvfh.4.1, fresh-eyes): this must ALSO precede refreshVisual — the
+		-- dock sign now reads incomePerSec, so refreshing the visual first
+		-- would paint the stale pre-sell rate.
 		if not locked and storedCount > 0 then
 			stateSync.invalidateIncomeCache(session)
 		end
+		refreshVisual(session)
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on sell (not just autosave + leave).
 		-- Spawned so the handler returns immediately; coalesced by
