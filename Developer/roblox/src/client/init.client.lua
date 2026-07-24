@@ -500,6 +500,22 @@ local function showNotification(message, color, category)
 end
 
 -- ============================================================
+-- Action bar / action-stack geometry constants (TASK 28.2 / hvfh.8.2)
+-- Single source of truth for the onboarding-prompt offset AND the
+-- mobile action stack / desktop action bar layout. Defined here (before
+-- the first use at the onboarding prompt) so every site reads the same
+-- values; adding/removing an ACTION keeps the prompt clear with zero
+-- manual edits. (itt5: these definitions were lost in the hvfh.8.2
+-- partial-staging and are restored here.)
+-- ============================================================
+local MOBILE_STACK_BOTTOM = 90
+local MOBILE_STACK_PITCH = 70
+local PROMPT_STACK_GAP = 12
+local DESKTOP_BAR_BOTTOM = 18
+local DESKTOP_BAR_H = 58
+local PROMPT_BAR_GAP = 8
+
+-- ============================================================
 -- Onboarding contextual prompts (TASK 9.2 / 0jc.2)
 -- Dismissible inline banners driven by OnboardingService flags.
 -- Shows one prompt at a time based on the player's progression stage.
