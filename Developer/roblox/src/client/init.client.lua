@@ -436,6 +436,9 @@ toastLayout.Parent = toastHost
 local toastOrder = 0
 local activeToastCount = 0
 local toastQueue = {}
+
+-- Forward declaration: showToastDirect calls drainToastQueue (line 517)
+-- before it's defined, causing a runtime error.
 local drainToastQueue
 
 local function showToastDirect(message, color, category)
@@ -518,7 +521,8 @@ local function showToastDirect(message, color, category)
 	end)
 end
 
-function drainToastQueue()
+-- Assign to the forward-declared local
+drainToastQueue = function()
 	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
@@ -2906,7 +2910,7 @@ local function render()
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
 	-- pulse loop re-asserts it while ready > 0; this covers every state push).
 	updateIncomeLine()
-	carryLabel.Text = string.format("On line: %d / %d fish", state.carried, state.maxCarried)
+	carryLabel.Text = string.format("On line: %d / %d fish", state.carried or 0, state.maxCarried or 0)
 	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
 	-- state push (catch, per-fish sell/store, bulk actions) while it is open.
 	if activePanel == inventoryPanel then
@@ -2932,7 +2936,7 @@ local function render()
 
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
-		local count = state.liveWellCounts[rarity.name] or 0
+		local count = (state.liveWellCounts and state.liveWellCounts[rarity.name]) or 0
 		-- R2.2 (dt9.2): removed per-rarity incomePerSec display — it was
 		-- reading the dead GameConfig.Rarities[].incomePerSec field which
 		-- disagreed with the actual income (from FishDefinitions per-species
@@ -2947,11 +2951,11 @@ local function render()
 	rarityList.Text = table.concat(lines, "\n")
 	-- Lock button state (LOCAL field names per StateSync.lua)
 	-- TASK 8.4: show free-use count in lock button text.
-	if state.lockedUntil > 0 then
+	if (state.lockedUntil or 0) > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockButton.BackgroundColor3 = UI.bad
 		lockButton.TextColor3 = UI.ink
-	elseif state.lockCooldownUntil > 0 then
+	elseif (state.lockCooldownUntil or 0) > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
 		lockButton.BackgroundColor3 = UI.surfaceHi
 		lockButton.TextColor3 = UI.textDim
@@ -3146,13 +3150,15 @@ targetZone.BackgroundTransparency = 0.5
 targetZone.Parent = barTrack
 corner(targetZone, 8)
 
--- The moving marker
-local marker = Instance.new("Frame")
-marker.Size = UDim2.new(0, 4, 1, 4)
-marker.Position = UDim2.new(0, 0, 0, -2)
-marker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-marker.Parent = barTrack
-corner(marker, 2)
+-- The moving marker (bite minigame)
+-- Renamed from 'marker' to 'biteMarker' to avoid shadowing the cast overlay marker (line 2723).
+-- The shadow caused the cast overlay marker to never animate, breaking the fishing minigame.
+local biteMarker = Instance.new("Frame")
+biteMarker.Size = UDim2.new(0, 4, 1, 4)
+biteMarker.Position = UDim2.new(0, 0, 0, -2)
+biteMarker.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+biteMarker.Parent = barTrack
+corner(biteMarker, 2)
 
 local minigameActive = false
 local minigameStartTime = 0
@@ -3228,7 +3234,7 @@ local function runMinigame(windowSeconds)
 			else
 				pos = 2 - t * 2 -- 1 -> 0
 			end
-			marker.Position = UDim2.new(pos, -2, 0, -2)
+			biteMarker.Position = UDim2.new(pos, -2, 0, -2)
 			task.wait()
 		end
 	end)
@@ -3392,7 +3398,7 @@ end
 local function onMinigameTap()
 	if not minigameActive then return end
 	local elapsed = os.clock() - minigameStartTime
-	local markerPos = marker.Position.X.Scale
+	local markerPos = biteMarker.Position.X.Scale
 	-- ROUND-3 FIX: validate against the per-rod zone (minigameZoneHalfWidth
 	-- was set by runMinigame from RodDefinitions), not the legacy hardcoded
 	-- [0.35, 0.65] band. The server is still authoritative (it re-rolls
@@ -3668,6 +3674,10 @@ end)
 -- Remote listeners
 -- ============================================================
 Remotes.StateChanged.OnClientEvent:Connect(function(snapshot)
+	if not snapshot or type(snapshot) ~= "table" then
+		warn("[Client] Invalid state snapshot received")
+		return
+	end
 	state = snapshot
 	render()
 	refreshShop()
