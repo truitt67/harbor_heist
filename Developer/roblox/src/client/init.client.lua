@@ -2300,7 +2300,7 @@ local function stopRaidMinigame()
 	end
 end
 
-local function startRaidMinigame(challenge)
+function startRaidMinigame(challenge)
 	-- TASK 23.1 (hvfh.3.1): take the overlay slot. Gate 2 (the RAID
 	-- button handler) already refuses when a cast/bite is active, so this
 	-- is the defensive backstop; bailing here leaves the raid challenge
