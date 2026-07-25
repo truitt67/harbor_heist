@@ -3041,6 +3041,117 @@ local function setFishState(newState)
 	renderFishButton()
 end
 
+-- ============================================================
+-- TASK 29.1 (hvfh.8.4): Persistent cast-zone guidance cue.
+-- A soft world-space BillboardGui (bobbing arrow + slow-pulsing
+-- ring) over the player's FishingZone, visible ONLY while
+-- snapshot onboarding.HasCaughtFirstFish == false. It disappears
+-- because the player succeeded, not because they dismissed it.
+-- Cozy styling per PRD (warm accent, no flashing red).
+-- ============================================================
+local zoneCueGui = nil       -- the BillboardGui instance (or nil)
+local zoneCueLoop = nil      -- the Heartbeat connection
+local zoneCueDockIndex = nil -- which dock the cue is attached to
+
+local function destroyZoneCue()
+	if zoneCueLoop then
+		zoneCueLoop:Disconnect()
+		zoneCueLoop = nil
+	end
+	if zoneCueGui then
+		zoneCueGui:Destroy()
+		zoneCueGui = nil
+	end
+	zoneCueDockIndex = nil
+end
+
+-- Build or refresh the cue for the player's dock. No-op if no dock
+-- assigned (dockIndex nil = spawned at plaza — no personal zone).
+local function updateZoneCue(dockIndex, hasCaught)
+	if hasCaught or not dockIndex then
+		destroyZoneCue()
+		return
+	end
+	-- Already attached to the correct dock — nothing to do.
+	if zoneCueGui and zoneCueDockIndex == dockIndex then
+		return
+	end
+	-- Dock changed (rare: rejoin to a different dock) — rebuild.
+	destroyZoneCue()
+	local docksFolder = workspace:FindFirstChild("Docks")
+	if not docksFolder then
+		return
+	end
+	local dock = docksFolder:FindFirstChild("Dock" .. tostring(dockIndex))
+	if not dock then
+		return
+	end
+	local zone = dock:FindFirstChild("FishingZone")
+	if not zone then
+		return
+	end
+	zoneCueDockIndex = dockIndex
+	-- BillboardGui floats above the zone pad, always faces the camera.
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "ZoneCue"
+	gui.Adornee = zone
+	gui.Size = UDim2.new(0, 120, 0, 80)
+	gui.StudsOffset = Vector3.new(0, 5, 0) -- 5 studs above the zone center
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 80 -- fades out when far away (cozy, not intrusive)
+	gui.Parent = zone
+	zoneCueGui = gui
+	-- Downward-pointing arrow (triangle-ish via rotated frame) in warm green.
+	local arrow = Instance.new("Frame")
+	arrow.Name = "Arrow"
+	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
+	arrow.Size = UDim2.new(0, 20, 0, 20)
+	arrow.Position = UDim2.new(0.5, 0, 0.35, 0)
+	arrow.BackgroundColor3 = UI.good
+	arrow.BackgroundTransparency = 0.2
+	arrow.Rotation = 45 -- diamond; the bottom half reads as a down-arrow tip
+	local arrowCorner = Instance.new("UICorner")
+	arrowCorner.CornerRadius = UDim.new(0, 4)
+	arrowCorner.Parent = arrow
+	arrow.Parent = gui
+	-- Soft pulsing ring below the arrow (the "glow" that draws the eye).
+	local ring = Instance.new("Frame")
+	ring.Name = "Ring"
+	ring.AnchorPoint = Vector2.new(0.5, 0.5)
+	ring.Size = UDim2.new(0, 40, 0, 40)
+	ring.Position = UDim2.new(0.5, 0, 0.7, 0)
+	ring.BackgroundColor3 = UI.good
+	ring.BackgroundTransparency = 0.7
+	local ringCorner = Instance.new("UICorner")
+	ringCorner.CornerRadius = UDim.new(1, 0) -- circle
+	ringCorner.Parent = ring
+	local ringStroke = Instance.new("UIStroke")
+	ringStroke.Color = UI.good
+	ringStroke.Thickness = 2
+	ringStroke.Transparency = 0.3
+	ringStroke.Parent = ring
+	ring.Parent = gui
+	-- Gentle pulse: arrow bobs up/down, ring scales/fades slowly.
+	-- Matches the cozy PRD aesthetic — no flashing, no urgency colors.
+	local RunService = game:GetService("RunService")
+	zoneCueLoop = RunService.Heartbeat:Connect(function()
+		-- Self-destruct if the zone part was destroyed (server dock
+		-- teardown) — prevents a leaked connection after the gui is gone.
+		if not zoneCueGui or not zoneCueGui.Parent then
+			destroyZoneCue()
+			return
+		end
+		local t = os.clock()
+		-- Bob: arrow moves ±6px on a 1.5s cycle.
+		arrow.Position = UDim2.new(0.5, 0, 0.35 + math.sin(t * 4) * 0.06, 0)
+		-- Pulse: ring scales 1.0→1.25 + fades on a 2s cycle.
+		local pulse = (math.sin(t * 3) + 1) / 2 -- 0→1
+		ring.Size = UDim2.new(0, 40 + pulse * 10, 0, 40 + pulse * 10)
+		ring.BackgroundTransparency = 0.7 - pulse * 0.25
+		ringStroke.Transparency = 0.3 - pulse * 0.2
+	end)
+end
+
 local function render()
 	if not state then
 		return
@@ -3065,6 +3176,14 @@ local function render()
 	end
 
 	renderFishButton()
+
+	-- TASK 29.1 (hvfh.8.4): persistent cast-zone guidance. The cue
+	-- lives only while the player hasn't caught their first fish and
+	-- has an assigned dock. It self-destructs the instant the flag
+	-- flips — progress-gated, never dismiss-gated. (Reuses the `ob`
+	-- local declared further down in this function; both compute the
+	-- same value, but we avoid a second declaration here.)
+	updateZoneCue(state.dockIndex, (state.onboarding or {}).HasCaughtFirstFish == true)
 
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
 	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
