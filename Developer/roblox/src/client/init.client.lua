@@ -3180,9 +3180,7 @@ local function render()
 	-- TASK 29.1 (hvfh.8.4): persistent cast-zone guidance. The cue
 	-- lives only while the player hasn't caught their first fish and
 	-- has an assigned dock. It self-destructs the instant the flag
-	-- flips — progress-gated, never dismiss-gated. (Reuses the `ob`
-	-- local declared further down in this function; both compute the
-	-- same value, but we avoid a second declaration here.)
+	-- flips — progress-gated, never dismiss-gated.
 	updateZoneCue(state.dockIndex, (state.onboarding or {}).HasCaughtFirstFish == true)
 
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
