@@ -219,8 +219,9 @@ function AquariumService.init(deps)
 	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
 	-- resource, cooldown, or limited free uses." Design: 3 free uses per
 	-- session (tracked in profile.Defense.LockFreeUsesRemaining), then cooldown
-	-- gates further uses. Free uses regenerate on daily reset (future) or can
-	-- be purchased (future). For V1: free uses + cooldown, no purchase.
+	-- gates further uses. Free uses regenerate PER SESSION via
+	-- onSessionLoaded below (vaz2); daily-reset / purchase top-ups remain
+	-- possible future directions.
 	remotes.RequestActivateLock.OnServerInvoke = function(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "lock")
@@ -244,7 +245,8 @@ function AquariumService.init(deps)
 		end
 		-- TASK 8.4: check free-use budget. If exhausted, still allow lock but
 		-- with a longer cooldown (2x) to discourage spam. Free uses are the
-		-- "earned resource" — they regenerate via daily reset (future bead).
+		-- "earned resource" — they regenerate per session (vaz2:
+		-- onSessionLoaded resets to LockFreeUsesMax at join).
 		local defense = session.profile.Defense
 		if not defense then
 			-- egf.4: single-source the Defense shape from GameConfig instead
@@ -388,6 +390,25 @@ function AquariumService.init(deps)
 	end
 
 	AquariumService.refreshVisual = refreshVisual
+end
+
+--- vaz2 (PVP-03): per-session lock free-use regen. The 8.4 design is "3 free
+--- uses per session", but LockFreeUsesRemaining is persisted, so without this
+--- hook the budget depleted across the account's whole lifetime. Reset to
+--- LockFreeUsesMax on every (re)join; the session-scoped lock cooldown still
+--- paces usage within the session, and refreshing DEFENSIVE locks by
+--- rejoining is not a grief vector against other players. Called once from
+--- init.server onPlayerAdded, right after DataManager.load.
+function AquariumService.onSessionLoaded(session)
+	if not session then
+		return
+	end
+	local defense = session.profile and session.profile.Defense
+	if not defense then
+		return -- sanitize guarantees Defense; leave the activate-path rebuild as backstop
+	end
+	defense.LockFreeUsesMax = defense.LockFreeUsesMax or GameConfig.Defense.LockFreeUsesMax
+	defense.LockFreeUsesRemaining = defense.LockFreeUsesMax
 end
 
 -- TASK 8.3 (gdj.3): New-player protection gate — server-side eligibility check.

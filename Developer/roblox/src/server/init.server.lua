@@ -134,6 +134,9 @@ local function onPlayerAdded(player)
 	-- a rejoin can't reset them. Must run AFTER DataManager.load (the profile
 	-- mirrors come from the DataStore) and BEFORE any raid remote can fire.
 	RaidService.onSessionLoaded(session)
+	-- vaz2 (PVP-03): per-session lock free-use regen (reset to
+	-- LockFreeUsesMax at join; the written 8.4 design is "3 per session").
+	AquariumService.onSessionLoaded(session)
 	StateSync.setupLeaderstats(player, session)
 
 	-- EPIC 11 (TASK 11.2): tutorial_started fires once per player join.
