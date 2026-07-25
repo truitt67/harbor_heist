@@ -74,6 +74,12 @@ return function()
 		pcall(RaidService.init, deps)
 	end)
 
+	afterEach(function()
+		-- Defensive: a leaked players provider from RaidServiceOutcome (which
+		-- shares this module) must not poison this file's tests.
+		RaidService._setPlayersProvider(nil)
+	end)
+
 	local function newTestPair()
 		local player = makeFakePlayer()
 		local session = makeSession()

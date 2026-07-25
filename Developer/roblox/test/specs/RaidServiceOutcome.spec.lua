@@ -118,6 +118,13 @@ return function()
 		pcall(RaidService.init, deps)
 	end)
 
+	afterEach(function()
+		-- Tests that install a players provider clean up inline, but if an
+		-- assertion fails first the inline cleanup never runs and the stale
+		-- provider leaks into later tests (cascade failures). Reset always.
+		RaidService._setPlayersProvider(nil)
+	end)
+
 	-- ================================================================
 	-- Helpers
 	-- ================================================================
