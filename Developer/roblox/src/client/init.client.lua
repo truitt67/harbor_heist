@@ -938,6 +938,12 @@ local activePanel = nil
 -- declared AFTER render()/hidePanels would be invisible to them (they'd
 -- see globals instead). All four are assigned at the handler section below.
 local disarmSellButton: any = nil
+-- TASK 24.4 (hvfh.4.4): forward declaration for the action-bar active-panel
+-- indicator. Same hook pattern as disarmSellButton — the implementation is
+-- assigned AFTER the action bar is built (~:2937) because actionButtons is
+-- declared there; referencing it from showPanel/hidePanels directly would
+-- bind a nil global (Luau lexical binding at the definition site).
+local updateActionBarIndicator: any = nil
 local sellArmed = false
 local sellArmPayout = 0
 local computeSellPayout: any = nil
@@ -1041,6 +1047,9 @@ local function hidePanels()
 		end
 		local panel = activePanel
 		activePanel = nil
+		if updateActionBarIndicator then
+			updateActionBarIndicator()
+		end
 		if IS_MOBILE then
 			local slide = TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
 			slide:Play()
@@ -1068,6 +1077,9 @@ local function showPanel(panel)
 		activePanel.Visible = false
 	end
 	activePanel = panel
+	if updateActionBarIndicator then
+		updateActionBarIndicator()
+	end
 	backdrop.Visible = true
 	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
 	panel.Visible = true
@@ -2932,6 +2944,39 @@ else
 		bindViewport(workspace.CurrentCamera)
 		layoutDesktopBar()
 	end)
+end
+
+-- TASK 24.4 (hvfh.4.4): action-bar active-panel indicator. showPanel and
+-- hidePanels already track activePanel centrally — this renders that state
+-- on the buttons (no parallel state). Selected treatment: brighter stroke
+-- (~0.3 vs 0.88 desktop / 0.58 mobile), action-colored, slightly thicker.
+-- FISH and BOAT are momentary actions with no panel — never highlighted.
+-- Assigned here (not declared with showPanel) because actionButtons and the
+-- panel locals are all defined above this point; see the forward decl.
+updateActionBarIndicator = function()
+	local panelToAction = {
+		[inventoryPanel] = "store",
+		[collectionPanel] = "collection",
+		[aquariumPanel] = "aquarium",
+		[questPanel] = "quests",
+		[raidPanel] = "raid",
+	}
+	local activeId = activePanel and panelToAction[activePanel] or nil
+	for _, action in ipairs(ACTIONS) do
+		local btn = actionButtons[action.id]
+		local s = btn and btn:FindFirstChildOfClass("UIStroke")
+		if s then
+			local selected = (action.id == activeId)
+			if IS_MOBILE then
+				s.Transparency = selected and 0.3 or 0.58
+				s.Thickness = selected and 2.5 or 1.5
+			else
+				s.Transparency = selected and 0.3 or 0.88
+				s.Color = selected and action.color or UI.stroke
+				s.Thickness = selected and 2 or 1
+			end
+		end
+	end
 end
 
 -- ============================================================
