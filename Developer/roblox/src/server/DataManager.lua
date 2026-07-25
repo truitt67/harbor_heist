@@ -316,6 +316,20 @@ local function sanitize(data)
 				end
 			end
 		end
+		-- hbyz (PVP-07 cross-session): per-victim attempt timestamps. DataStore
+		-- JSON round-trips sparse numeric keys as STRINGS, so coerce keys back
+		-- with tonumber. Expired entries (older than the per-victim cooldown)
+		-- are dropped here as a second prune alongside the write-side prune.
+		if type(data.PvP.RecentTargetTimestamps) == "table" then
+			local now = os.time()
+			local window = GameConfig.Raid.perVictimCooldownSeconds
+			for uidKey, ts in pairs(data.PvP.RecentTargetTimestamps) do
+				local uid = tonumber(uidKey)
+				if uid and type(ts) == "number" and ts > 0 and (now - ts) < window then
+					clean.PvP.RecentTargetTimestamps[uid] = ts
+				end
+			end
+		end
 		if type(data.PvP.RaidsWon) == "number" then
 			clean.PvP.RaidsWon = math.max(0, math.floor(data.PvP.RaidsWon))
 		end

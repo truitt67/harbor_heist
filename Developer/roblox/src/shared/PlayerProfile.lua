@@ -78,6 +78,11 @@ function PlayerProfile.default()
 			RaidAttemptsToday = 0,
 			LastRaidTimestamp = 0,
 			RecentTargetUserIds = {},
+			-- hbyz (PVP-07 cross-session): per-victim raid-attempt timestamps
+			-- (os.time, keyed by victim UserId). Read at session load to re-seed
+			-- session.raidTargetCooldowns so a rejoin can't reset the per-victim
+			-- gate. Entries are pruned once expired (write side + sanitize).
+			RecentTargetTimestamps = {},
 			RaidsWon = 0,
 			RaidsLost = 0,
 			TotalCatches = 0,

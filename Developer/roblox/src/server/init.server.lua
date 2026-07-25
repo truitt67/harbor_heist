@@ -130,6 +130,10 @@ local function onPlayerAdded(player)
 		DataManager.remove(player)
 		return
 	end
+	-- hbyz (PVP-06/07): re-seed raid cooldowns from the persisted profile so
+	-- a rejoin can't reset them. Must run AFTER DataManager.load (the profile
+	-- mirrors come from the DataStore) and BEFORE any raid remote can fire.
+	RaidService.onSessionLoaded(session)
 	StateSync.setupLeaderstats(player, session)
 
 	-- EPIC 11 (TASK 11.2): tutorial_started fires once per player join.

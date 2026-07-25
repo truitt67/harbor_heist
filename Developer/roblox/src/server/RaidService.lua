@@ -168,8 +168,10 @@ end
 -- existing stun/lock runtime fields (session.stunUntil, session.lockedUntil).
 --   session.raidAttackLastAt                 os.clock() of the attacker's last raid (gdj.14 writes)
 --   session.raidTargetCooldowns[defenderId]  os.clock() expiry of the per-victim gate (gdj.14 writes)
--- These reset on rejoin (a documented V1 limitation shared with lock-cooldown
--- enforcement); profile.PvP timestamps exist for a future cross-session pass.
+-- hbyz: NO LONGER reset-on-rejoin. onSessionLoaded (below, called from
+-- init.server onPlayerAdded) re-seeds both fields from the persisted
+-- profile.PvP mirrors (LastRaidTimestamp, RecentTargetTimestamps) using a
+-- wall-clock -> session-clock bridge, closing the PVP-06/07 rejoin bypass.
 -- ════════════════════════════════════════════════════════════════════════════
 
 --- Attacker raid cooldown (PRD PVP-06). Reads session.raidAttackLastAt
@@ -200,6 +202,50 @@ function RaidService.isVictimOnCooldown(session: any, targetUserId: number)
 		return true, math.ceil(expiry - now)
 	end
 	return false, 0
+end
+
+--- hbyz (PVP-06/07 cross-session): re-seed the session-scoped os.clock()
+--- cooldown fields from the persisted profile.PvP mirrors after a (re)join.
+--- Bridge: the mirrors store os.time() wall-clock instants; the session
+--- fields are os.clock()-relative. For an instant T seconds in the past,
+--- raidAttackLastAt = os.clock() - T gives isAttackerOnCooldown the correct
+--- remaining = cooldown - T. Called ONCE from init.server onPlayerAdded,
+--- right after DataManager.load — never from RaidService's own PlayerAdded
+--- hook (that one fires before the DataStore load yields finish).
+--- Read-side stays unchanged: isAttackerOnCooldown/isVictimOnCooldown see
+--- the seeded session fields exactly as if the attempt happened this session.
+function RaidService.onSessionLoaded(session: any)
+	if not session then
+		return
+	end
+	local pvp = session.profile and session.profile.PvP
+	if not pvp then
+		return
+	end
+	local nowWall = os.time()
+	-- Attacker cooldown (PVP-06): only seed while still inside the window;
+	-- an expired mirror leaves the field nil (off cooldown).
+	local lastRaid = pvp.LastRaidTimestamp or 0
+	if lastRaid > 0 then
+		local elapsed = nowWall - lastRaid
+		if elapsed >= 0 and elapsed < GameConfig.Raid.raiderCooldownSeconds then
+			session.raidAttackLastAt = os.clock() - elapsed
+		end
+	end
+	-- Per-victim cooldowns (PVP-07): sanitize already pruned expired entries
+	-- at load, but re-check here so this function is correct on any caller.
+	local perVictim = GameConfig.Raid.perVictimCooldownSeconds
+	if type(pvp.RecentTargetTimestamps) == "table" then
+		for uid, ts in pairs(pvp.RecentTargetTimestamps) do
+			if type(uid) == "number" and type(ts) == "number" then
+				local remaining = perVictim - (nowWall - ts)
+				if remaining > 0 then
+					session.raidTargetCooldowns = session.raidTargetCooldowns or {}
+					session.raidTargetCooldowns[uid] = os.clock() + remaining
+				end
+			end
+		end
+	end
 end
 
 --- Full attacker eligibility gate for the raid flow (PRD PVP-02 / PVP-06).
@@ -419,6 +465,18 @@ local function commitAttackerCooldowns(session: any, targetUserId: number)
 	local pvp = session.profile.PvP
 	pvp.LastRaidTimestamp = os.time()
 	pvp.RaidAttemptsToday = (pvp.RaidAttemptsToday or 0) + 1
+	-- hbyz (PVP-07 cross-session): per-victim timestamp map, read back by
+	-- onSessionLoaded after a rejoin. Prune expired entries on every write
+	-- so the map is bounded by attempts-within-the-window (sanitize prunes
+	-- too, as the load-side gate).
+	pvp.RecentTargetTimestamps = pvp.RecentTargetTimestamps or {}
+	local now = os.time()
+	pvp.RecentTargetTimestamps[targetUserId] = now
+	for uid, ts in pairs(pvp.RecentTargetTimestamps) do
+		if (now - ts) >= GameConfig.Raid.perVictimCooldownSeconds then
+			pvp.RecentTargetTimestamps[uid] = nil
+		end
+	end
 	pvp.RecentTargetUserIds = pvp.RecentTargetUserIds or {}
 	for _, uid in ipairs(pvp.RecentTargetUserIds) do
 		if uid == targetUserId then
