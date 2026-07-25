@@ -34,6 +34,7 @@
 
 local Players = game:GetService("Players")
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local RaidService = {}
 

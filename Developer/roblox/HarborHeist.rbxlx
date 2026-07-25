@@ -1565,9 +1565,9 @@ local function onPlayerRemoving(player)
 	--     Running it synchronously here -- before any rejoin can register --
 	--     closes that window. The deferred save+remove are object-keyed, so a
 	--     rejoin touches a different sessions[] key and is unaffected.
-	-- Order preserved: funnel events (above) -> release/boat/rod (their churn
-	-- events still have an analytics session) -> clearSession -> [spawn] save
-	-- -> remove. BindToClose is the authoritative shutdown save (isShutdown).
+	-- Order preserved: funnel events (above) -&gt; release/boat/rod (their churn
+	-- events still have an analytics session) -&gt; clearSession -&gt; [spawn] save
+	-- -&gt; remove. BindToClose is the authoritative shutdown save (isShutdown).
 	DockManager.release(player)
 	BoatService.onPlayerRemoving(player)
 	RodService.onPlayerRemoving(player)
@@ -3566,7 +3566,7 @@ local DataManager = {}
 -- migration can't permanently corrupt the only copy of a player's data.
 --
 -- Migration flow (DataManager.load): read v2 first. If empty, read v1,
--- sanitize() (which handles the flat->structured conversion, TASK 1.3), then
+-- sanitize() (which handles the flat-&gt;structured conversion, TASK 1.3), then
 -- write the migrated profile to v2 and mark it migrated. v1 is left intact
 -- for one grace period as a rollback anchor; a future task can delete it once
 -- the closed test confirms migration stability.
@@ -3603,7 +3603,7 @@ end
 local function recordFailure()
 	consecutiveFailures += 1
 	lastFailureTime = os.time()
-	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
+	if consecutiveFailures &gt;= MAX_FAILURES_BEFORE_DISABLE then
 		isDataStoreHealthy = false
 		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
 	end
@@ -3643,8 +3643,8 @@ local function sanitizeStoredFish(list)
 	for _, item in ipairs(list) do
 		if type(item) == "table" and FishInstance.validate(item) then
 			table.insert(clean, item)
-		elseif type(item) == "number" and item >= 1 and item &lt;= #GameConfig.Rarities then
-			-- Legacy rarity index -> convert to FishInstance
+		elseif type(item) == "number" and item &gt;= 1 and item &lt;= #GameConfig.Rarities then
+			-- Legacy rarity index -&gt; convert to FishInstance
 			local fish = FishInstance.fromRarityIndex(item)
 			table.insert(clean, fish)
 		end
@@ -3662,8 +3662,8 @@ local function sanitizeQuestList(list)
 	for _, q in ipairs(list) do
 		if type(q) == "table"
 			and type(q.type) == "string"
-			and type(q.target) == "number" and q.target > 0
-			and type(q.reward) == "number" and q.reward >= 0
+			and type(q.target) == "number" and q.target &gt; 0
+			and type(q.reward) == "number" and q.reward &gt;= 0
 		then
 			table.insert(clean, {
 				id = type(q.id) == "string" and q.id or "",
@@ -3686,7 +3686,7 @@ local function sanitize(data)
 		return clean
 	end
 	-- Version
-	if type(data.Version) == "number" and data.Version >= 1 then
+	if type(data.Version) == "number" and data.Version &gt;= 1 then
 		clean.Version = data.Version
 	end
 
@@ -3700,13 +3700,13 @@ local function sanitize(data)
 	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
 		clean.Equipment.EquippedBaitLevel = data.baitLevel
 	end
-	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel &lt;= #GameConfig.Upgrades.Capacity then
+	if type(data.capacityLevel) == "number" and data.capacityLevel &gt;= 0 and data.capacityLevel &lt;= #GameConfig.Upgrades.Capacity then
 		clean.Aquarium.UpgradeLevel = math.floor(data.capacityLevel) + 1
 	end
-	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel &lt;= #GameConfig.Upgrades.Lock then
+	if type(data.lockLevel) == "number" and data.lockLevel &gt;= 0 and data.lockLevel &lt;= #GameConfig.Upgrades.Lock then
 		clean.Aquarium.LockLevel = math.floor(data.lockLevel)
 	end
-	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel &lt;= #GameConfig.Upgrades.Alarm then
+	if type(data.alarmLevel) == "number" and data.alarmLevel &gt;= 0 and data.alarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 		clean.Aquarium.AlarmLevel = math.floor(data.alarmLevel)
 	end
 	if type(data.liveWell) == "table" then
@@ -3743,10 +3743,10 @@ local function sanitize(data)
 	-- Aquarium
 	if type(data.Aquarium) == "table" then
 		local aq = data.Aquarium
-		if type(aq.Capacity) == "number" and aq.Capacity >= 1 then
+		if type(aq.Capacity) == "number" and aq.Capacity &gt;= 1 then
 			clean.Aquarium.Capacity = math.floor(aq.Capacity)
 		end
-		if type(aq.UpgradeLevel) == "number" and aq.UpgradeLevel >= 1 then
+		if type(aq.UpgradeLevel) == "number" and aq.UpgradeLevel &gt;= 1 then
 			clean.Aquarium.UpgradeLevel = math.floor(aq.UpgradeLevel)
 		end
 		-- N3 (CRITICAL): only migrate v2 StoredFish when it actually exists.
@@ -3773,7 +3773,7 @@ local function sanitize(data)
 		-- table so a crafted/exploited Capacity value cannot inflate storage.
 		local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
 		local upLevel = clean.Aquarium.UpgradeLevel or 1
-		if AquariumUpgradeTiers and #AquariumUpgradeTiers > 0 then
+		if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
 			upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
 			clean.Aquarium.UpgradeLevel = upLevel
 			clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
@@ -3785,17 +3785,17 @@ local function sanitize(data)
 			clean.Aquarium.RaidOptIn = aq.RaidOptIn
 		end
 		-- N5: persist defense upgrade levels from the v2 schema location.
-		if type(aq.LockLevel) == "number" and aq.LockLevel >= 0 and aq.LockLevel &lt;= #GameConfig.Upgrades.Lock then
+		if type(aq.LockLevel) == "number" and aq.LockLevel &gt;= 0 and aq.LockLevel &lt;= #GameConfig.Upgrades.Lock then
 			clean.Aquarium.LockLevel = math.floor(aq.LockLevel)
 		end
-		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel >= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
+		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel &gt;= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 			clean.Aquarium.AlarmLevel = math.floor(aq.AlarmLevel)
 		end
 	end
 
 	-- Dock
 	if type(data.Dock) == "table" then
-		if type(data.Dock.UpgradeLevel) == "number" and data.Dock.UpgradeLevel >= 1 then
+		if type(data.Dock.UpgradeLevel) == "number" and data.Dock.UpgradeLevel &gt;= 1 then
 			clean.Dock.UpgradeLevel = math.floor(data.Dock.UpgradeLevel)
 		end
 		-- N17 (TASK 17.6): clamp Dock.UpgradeLevel against the authoritative
@@ -3804,7 +3804,7 @@ local function sanitize(data)
 		-- DockUpgradeTiers[999] lookups to return nil downstream.
 		local DockUpgradeTiers = GameConfig.DockUpgradeTiers
 		local dockLevel = clean.Dock.UpgradeLevel or 1
-		if DockUpgradeTiers and #DockUpgradeTiers > 0 then
+		if DockUpgradeTiers and #DockUpgradeTiers &gt; 0 then
 			dockLevel = math.max(1, math.min(dockLevel, #DockUpgradeTiers))
 			clean.Dock.UpgradeLevel = dockLevel
 		end
@@ -3845,7 +3845,7 @@ local function sanitize(data)
 					-- Map form: { [milestoneId] = true }
 					clean.Collection.MilestonesClaimed[key] = true
 				elseif type(key) == "number" and type(val) == "string" then
-					-- Legacy array form: { "milestoneId", ... } -> convert to set
+					-- Legacy array form: { "milestoneId", ... } -&gt; convert to set
 					clean.Collection.MilestonesClaimed[val] = true
 				end
 			end
@@ -3876,7 +3876,7 @@ local function sanitize(data)
 			local window = GameConfig.Raid.perVictimCooldownSeconds
 			for uidKey, ts in pairs(data.PvP.RecentTargetTimestamps) do
 				local uid = tonumber(uidKey)
-				if uid and type(ts) == "number" and ts > 0 and (now - ts) &lt; window then
+				if uid and type(ts) == "number" and ts &gt; 0 and (now - ts) &lt; window then
 					clean.PvP.RecentTargetTimestamps[uid] = ts
 				end
 			end
@@ -4002,8 +4002,8 @@ function DataManager.load(player)
 		end
 	end
 
-	-- TASK 1.6: v1->v2 migration. If v2 has no data but the legacy v1 store
-	-- does, load v1 (sanitize() converts flat->structured), then write the
+	-- TASK 1.6: v1-&gt;v2 migration. If v2 has no data but the legacy v1 store
+	-- does, load v1 (sanitize() converts flat-&gt;structured), then write the
 	-- migrated profile to v2 so subsequent loads hit v2 directly. The v1 key
 	-- is left intact as a rollback anchor for the closed-test grace period.
 	local migratedFromV1 = false
@@ -4019,7 +4019,7 @@ function DataManager.load(player)
 
 	local profile = sanitize(saved)
 
-	-- R1.6 (egf.6): log the result of the v1->v2 migration so support can
+	-- R1.6 (egf.6): log the result of the v1-&gt;v2 migration so support can
 	-- reconstruct what happened if a player reports missing fish/coins.
 	-- print (not warn): this is a routine, expected one-time-per-player
 	-- migration, not an error. warn() would spam the console and
@@ -4043,7 +4043,7 @@ function DataManager.load(player)
 			return table.concat(parts, ", ")
 		end
 
-		print(("[HarborHeist] MIGRATION v1->v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s} | result{%s}"):format(
+		print(("[HarborHeist] MIGRATION v1-&gt;v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s} | result{%s}"):format(
 			player.Name, player.UserId,
 			tostring(saved.cash), tostring(saved.rodLevel), tostring(saved.baitLevel),
 			type(saved.liveWell) == "table" and (#saved.liveWell .. " fish") or tostring(saved.liveWell),
@@ -4115,7 +4115,7 @@ function DataManager.load(player)
 		if remaining &lt;= 0 then
 			return 0
 		end
-		if remaining > MAX_REHYDRATE_SECONDS then
+		if remaining &gt; MAX_REHYDRATE_SECONDS then
 			warn(string.format("[HarborHeist] Timer rehydration clamped: %s had %ds remaining (max %ds) — possible data corruption or clock skew",
 				fieldName, math.floor(remaining), MAX_REHYDRATE_SECONDS))
 			remaining = MAX_REHYDRATE_SECONDS
@@ -4200,11 +4200,11 @@ function DataManager.save(player, isShutdown)
 	-- bug at the source instead of silently storing corruption.
 	local nowEpoch = os.time()
 	local nowClock = os.clock()
-	if session.lockedUntil > nowClock then
+	if session.lockedUntil &gt; nowClock then
 		local remaining = math.min(math.floor(session.lockedUntil - nowClock), 600)
 		profile.Aquarium.LockUntilTimestamp = nowEpoch + remaining
 	end
-	if session.lockCooldownUntil > nowClock then
+	if session.lockCooldownUntil &gt; nowClock then
 		local remaining = math.min(math.floor(session.lockCooldownUntil - nowClock), 600)
 		profile.Aquarium.LockCooldownUntilTimestamp = nowEpoch + remaining
 	end
@@ -4334,12 +4334,12 @@ function DataManager.bindToClose()
 			task.spawn(function()
 				-- RELIABILITY: pcall so an unexpected error can never leave the
 				-- `remaining` counter stuck and hang BindToClose for the full 30s.
-				-- TASK 14.20: isShutdown=true -> fewer retries inside the budget.
+				-- TASK 14.20: isShutdown=true -&gt; fewer retries inside the budget.
 				pcall(DataManager.save, player, true)
 				remaining -= 1
 			end)
 		end
-		while remaining > 0 do
+		while remaining &gt; 0 do
 			task.wait(0.1)
 		end
 	end)
@@ -4350,7 +4350,7 @@ function DataManager.isHealthy()
 end
 
 function DataManager.tryRecover()
-	if not isDataStoreHealthy and os.time() - lastFailureTime > FAILURE_COOLDOWN then
+	if not isDataStoreHealthy and os.time() - lastFailureTime &gt; FAILURE_COOLDOWN then
 		isDataStoreHealthy = true
 		consecutiveFailures = 0
 		print("[HarborHeist] DataStore attempting recovery after cooldown.")
@@ -6250,6 +6250,7 @@ return QuestService
 
 local Players = game:GetService("Players")
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local RaidService = {}
 
@@ -8898,10 +8899,10 @@ local castOverlayDuration = 0
 -- Model: initiation gating, NOT preemption (see bead; preemption eats
 -- in-flight catches or races the server raid deadline). The single
 -- UserInputService.InputBegan router connection is wired at the BOTTOM of
--- this file (after every overlayInputHandlers.&lt;name> assignment), because
+-- this file (after every overlayInputHandlers.&lt;name&gt; assignment), because
 -- Lua locals are lexically scoped and the handlers don't exist yet here.
 local activeOverlay = nil -- nil | "cast" | "bite" | "raid"
-local overlayInputHandlers = {} -- name -> handler(input, gameProcessed)
+local overlayInputHandlers = {} -- name -&gt; handler(input, gameProcessed)
 
 local function requestOverlay(name)
 	if activeOverlay ~= nil then
@@ -9219,7 +9220,7 @@ local CLAIM_GREEN_HEX = "32A050"
 -- authoritative snapshot value (state.incomePerSec) — NEVER re-derive income
 -- client-side (R2.2/dt9.2, see note near render()). Sub-0.1/sec rates (a
 -- starter tank of 1-2 Commons) render per-minute so early players see a
--- non-zero rate; 0.1-10/sec gets 2 decimals; >10/sec keeps the legacy
+-- non-zero rate; 0.1-10/sec gets 2 decimals; &gt;10/sec keeps the legacy
 -- 1-decimal per-sec form. "/min" and "/sec" suffixes are equal width, so the
 -- HUD card does not jump when the format flips threshold.
 local function formatIncomeRate(ratePerSec)
@@ -9235,13 +9236,13 @@ end
 
 local function updateIncomeLine(readyTransparency)
 	local ready = state and state.unclaimedIncome or 0
-	if ready > 0 then
+	if ready &gt; 0 then
 		-- One notch smaller on the 178px mobile card so rate + ready fit on
 		-- one line (the no-layout-shift path; 6+ digit ready values may still
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
 		incomeLabel.TextSize = IS_MOBILE and 11 or 13
 		incomeLabel.Text = string.format(
-			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
+			'%s  •  &lt;font color="#%s" transparency="%.2f"&gt;&lt;b&gt;$%s ready&lt;/b&gt;&lt;/font&gt;',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
@@ -9255,7 +9256,7 @@ end
 -- render() owns the plain-rate line whenever ready == 0.
 task.spawn(function()
 	while true do
-		if state and (state.unclaimedIncome or 0) > 0 then
+		if state and (state.unclaimedIncome or 0) &gt; 0 then
 			local phase = (os.clock() % 2.4) / 2.4
 			local alpha = 0.05 + 0.5 * (1 - math.abs(phase * 2 - 1))
 			updateIncomeLine(alpha)
@@ -9280,7 +9281,7 @@ local function animateCashTo(target)
 		cashLabel.Text = "$" .. formatCash(target)
 		return
 	end
-	if lastCash and target > lastCash then
+	if lastCash and target &gt; lastCash then
 		local gain = makeLabel(hud, {
 			Size = UDim2.new(0, 100, 0, 20),
 			Position = UDim2.new(1, -110, 0, 8),
@@ -9316,7 +9317,7 @@ local function animateCashTo(target)
 		a = 1 - (1 - a) ^ 3
 		displayedCash = from + (target - from) * a
 		cashLabel.Text = "$" .. formatCash(displayedCash)
-		if a >= 1 then
+		if a &gt;= 1 then
 			displayedCash = target
 			cashTweenConn:Disconnect()
 			cashTweenConn = nil
@@ -9471,7 +9472,7 @@ end
 
 -- Assign to the forward-declared local
 drainToastQueue = function()
-	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue > 0 do
+	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue &gt; 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
 	end
@@ -9618,7 +9619,7 @@ sellStorePrompt.Name = "SellStorePrompt"
 sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
 -- hvfh.4.3 (BronzeLynx plan-space note): anchor below the cap-3 toast
 -- stack (3 toasts ~= 152px from SAFE_TOP+8) so first-catch toasts no
--- longer render on top of this prompt (toast ZIndex 51 > 16).
+-- longer render on top of this prompt (toast ZIndex 51 &gt; 16).
 sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
 sellStorePrompt.BackgroundColor3 = UI.surface
@@ -10117,12 +10118,12 @@ local function sortCarriedForDisplay(carried)
 		local ra = FishDefinitions.RARITY_ORDER[a.fish.Rarity] or 0
 		local rb = FishDefinitions.RARITY_ORDER[b.fish.Rarity] or 0
 		if ra ~= rb then
-			return ra > rb
+			return ra &gt; rb
 		end
 		local va = a.fish.BaseSellValue or 0
 		local vb = b.fish.BaseSellValue or 0
 		if va ~= vb then
-			return va > vb
+			return va &gt; vb
 		end
 		return a.idx &lt; b.idx
 	end)
@@ -10583,7 +10584,7 @@ local function renderCollection()
 	clearCollectionList()
 
 	collectionProgress.Text = string.format("%d / %d species discovered", book.discoveredCount or 0, book.totalSpecies or 0)
-	local progress = (book.totalSpecies or 0) > 0 and (book.discoveredCount or 0) / (book.totalSpecies or 0) or 0
+	local progress = (book.totalSpecies or 0) &gt; 0 and (book.discoveredCount or 0) / (book.totalSpecies or 0) or 0
 	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
 
 	if not book.ordered or #book.ordered == 0 then
@@ -10630,7 +10631,7 @@ local function renderCollection()
 	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = FONT_BOLD, TextSize = 12, TextColor3 = UI.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 	order += 1
 
-	if book.milestones and #book.milestones > 0 then
+	if book.milestones and #book.milestones &gt; 0 then
 		for _, milestone in ipairs(book.milestones) do
 			makeMilestoneRow(collectionList, order, milestone)
 			order += 1
@@ -10735,7 +10736,7 @@ local function itemSubText(entry)
 	elseif entry.kind == "dock" then
 		-- DockUpgradeTiers use `incomeMultiplier` + `cosmeticUnlocks`.
 		local mult = "+" .. math.floor(((it.incomeMultiplier or 1) - 1) * 100 + 0.5) .. "% income"
-		if it.cosmeticUnlocks and #it.cosmeticUnlocks > 0 then
+		if it.cosmeticUnlocks and #it.cosmeticUnlocks &gt; 0 then
 			return mult .. "  •  " .. table.concat(it.cosmeticUnlocks, ", ")
 		end
 		return mult
@@ -10851,7 +10852,7 @@ function refreshShop()
 			entry.buyButton.TextColor3 = UI.textFaint
 			entry.buyButton.Active = false
 		elseif entry.level == currentLevel + 1 then
-			local affordable = state.cash >= (entry.item.cost or 0)
+			local affordable = state.cash &gt;= (entry.item.cost or 0)
 			entry.buyButton.Text = "$" .. formatCash(entry.item.cost)
 			entry.buyButton.BackgroundColor3 = affordable and UI.good or UI.surfaceHi
 			entry.buyButton.TextColor3 = affordable and UI.ink or UI.textDim
@@ -11178,7 +11179,7 @@ local function renderRaidTargets(data)
 				no_stealable_fish = "No fish to steal",
 			})[reason] or reason
 			
-			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds > 0 then
+			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds &gt; 0 then
 				subtitleText = string.format("%s  •  %s", reasonLabel, formatRaidTime(target.unavailableSeconds))
 				-- Store reference for 1Hz update
 				local countdownLabel = makeLabel(row, {
@@ -11458,8 +11459,8 @@ function startRaidMinigame(challenge)
 	local perfectEnd = challenge.perfectEnd or 0.56
 	local pWidth = perfectEnd - perfectStart
 	local pCenter = (perfectStart + perfectEnd) / 2
-	local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
-	local relCenter = goodWidth > 0 and ((pCenter - goodStart) / goodWidth) or 0.5
+	local relWidth = goodWidth &gt; 0 and (pWidth / goodWidth) or 0.4
+	local relCenter = goodWidth &gt; 0 and ((pCenter - goodStart) / goodWidth) or 0.5
 	raidPerfectZone.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
 	raidPerfectZone.Position = UDim2.new(math.clamp(relCenter, 0, 1), 0, 0, 4)
 
@@ -11867,13 +11868,13 @@ local dataStoreWarningShown = false
 --   waiting     "WAITING"/"..."   muted,  slow stroke pulse
 --   bite-ready  "FISH ON!"/"FISH!" warn,   fast stroke pulse
 -- Transition edges (verified against server event order):
---   idle      -> waiting     on CastState(true)
---   waiting   -> idle        on CastState(false) with no bite
---   *         -> bite-ready  on BiteEvent, REGARDLESS of flag state
+--   idle      -&gt; waiting     on CastState(true)
+--   waiting   -&gt; idle        on CastState(false) with no bite
+--   *         -&gt; bite-ready  on BiteEvent, REGARDLESS of flag state
 --   (CastState(false) fires at FishingService:187 BEFORE BiteEvent at
 --    :213, so the transient idle is immediately overridden — bite-ready
 --    survives that ordering rather than being lost to the early false.)
---   bite-ready -> idle       when the LOCAL minigame closes (tap or
+--   bite-ready -&gt; idle       when the LOCAL minigame closes (tap or
 --   timeout via onMinigameTap / runMinigame expiry) — NOT on any
 --   CastState event; none is coming.
 -- `casting` stays for the doFish + cast-input guards; it no longer
@@ -12091,7 +12092,7 @@ local function render()
 	end
 	animateCashTo(state.cash)
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
-	-- pulse loop re-asserts it while ready > 0; this covers every state push).
+	-- pulse loop re-asserts it while ready &gt; 0; this covers every state push).
 	updateIncomeLine()
 	carryLabel.Text = string.format("On line: %d / %d fish", state.carried or 0, state.maxCarried or 0)
 	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
@@ -12116,7 +12117,7 @@ local function render()
 	local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
 	local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
 	aquariumStats.Text = string.format(
-		'&lt;font color="#EEF3FA">&lt;b>%d / %d fish&lt;/b>&lt;/font>  •  &lt;font color="#86EFAC">&lt;b>$%.1f / sec&lt;/b>&lt;/font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
+		'&lt;font color="#EEF3FA"&gt;&lt;b&gt;%d / %d fish&lt;/b&gt;&lt;/font&gt;  •  &lt;font color="#86EFAC"&gt;&lt;b&gt;$%.1f / sec&lt;/b&gt;&lt;/font&gt;\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
@@ -12133,29 +12134,29 @@ local function render()
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
-			'&lt;font color="%s">●&lt;/font>  &lt;font color="%s">&lt;b>%s&lt;/b>&lt;/font>  ×%d   &lt;font color="#94A3B8">$%d each&lt;/font>',
+			'&lt;font color="%s"&gt;●&lt;/font&gt;  &lt;font color="%s"&gt;&lt;b&gt;%s&lt;/b&gt;&lt;/font&gt;  ×%d   &lt;font color="#94A3B8"&gt;$%d each&lt;/font&gt;',
 			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")
 	-- Lock button state (LOCAL field names per StateSync.lua)
 	-- TASK 8.4: show free-use count in lock button text.
-	if (state.lockedUntil or 0) > 0 then
+	if (state.lockedUntil or 0) &gt; 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockButton.BackgroundColor3 = UI.bad
 		lockButton.TextColor3 = UI.ink
-	elseif (state.lockCooldownUntil or 0) > 0 then
+	elseif (state.lockCooldownUntil or 0) &gt; 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
 		lockButton.BackgroundColor3 = UI.surfaceHi
 		lockButton.TextColor3 = UI.textDim
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
-		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
+		if state.lockLevel and state.lockLevel &gt; 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
 			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
 		end
 		local freeUses = state.lockFreeUsesRemaining or 0
 		local freeMax = state.lockFreeUsesMax or 3
-		if freeUses > 0 then
+		if freeUses &gt; 0 then
 			lockButton.Text = string.format("LOCK %ds — %d quick locks left", lockDur, freeUses)
 		else
 			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
@@ -12195,7 +12196,7 @@ local function render()
 	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
-			if state.stunRemaining and state.stunRemaining > 0 then
+			if state.stunRemaining and state.stunRemaining &gt; 0 then
 				humanoid.WalkSpeed = 8
 			else
 				humanoid.WalkSpeed = 16
@@ -12209,7 +12210,7 @@ local function render()
 	if not storeHealthy then
 		claimButton.Text = "SAVING UNAVAILABLE"
 		claimButton.BackgroundColor3 = Color3.fromRGB(100, 60, 60)
-	elseif state.unclaimedIncome > 0 then
+	elseif state.unclaimedIncome &gt; 0 then
 		claimButton.Text = string.format("CLAIM $%d", state.unclaimedIncome)
 		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
 	else
@@ -12237,7 +12238,7 @@ local function render()
 		end
 	elseif not ob.HasStoredFirstFish then
 		-- Stage 2: caught a fish but hasn't stored it yet.
-		if state.carried > 0 then
+		if state.carried &gt; 0 then
 			-- Button renamed STORE → BAG by TASK 4.4 (0cw.4): G now opens the
 			-- per-fish bag panel, where STORE / STORE ALL live.
 			showOnboardingPrompt("firstStore",
@@ -12251,7 +12252,7 @@ local function render()
 			currentPromptStage = nil
 			onboardingPrompt.Visible = false
 		end
-	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) > 0 then
+	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) &gt; 0 then
 		-- Stage 3: has stored fish earning income but hasn't claimed yet.
 		showOnboardingPrompt("firstClaim",
 			IS_MOBILE and "Tap CLAIM to collect your earned income!" or "Open your tank and hit CLAIM to collect your income!",
@@ -12291,7 +12292,7 @@ local function render()
 		end
 	end
 
-	if carriedCount > lastCarriedCount
+	if carriedCount &gt; lastCarriedCount
 		and not sellStorePromptShown
 		and not (state.onboarding or {}).HasSeenSellStoreComparison
 		and not sellStorePrompt.Visible then
@@ -12400,7 +12401,7 @@ local function runMinigame(windowSeconds)
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
-	-- BiteEvent -> runMinigame reached here, so a bite is really happening:
+	-- BiteEvent -&gt; runMinigame reached here, so a bite is really happening:
 	-- enter bite-ready now (after the windowSeconds guard, so a bad payload
 	-- never sticks the button in bite-ready with no minigame to close it).
 	setFishState("bite-ready")
@@ -12429,7 +12430,7 @@ local function runMinigame(windowSeconds)
 		local sweepDuration = 1.2 -- seconds for one full sweep
 		while minigameActive do
 			local elapsed = os.clock() - minigameStartTime
-			if elapsed > minigameWindow then
+			if elapsed &gt; minigameWindow then
 				-- Time expired
 				minigameActive = false
 				releaseOverlay("bite")
@@ -12439,13 +12440,13 @@ local function runMinigame(windowSeconds)
 				break
 			end
 
-			-- Ping-pong sweep: 0 -> 1 -> 0
+			-- Ping-pong sweep: 0 -&gt; 1 -&gt; 0
 			local t = (elapsed % sweepDuration) / sweepDuration
 			local pos
 			if t &lt; 0.5 then
-				pos = t * 2 -- 0 -> 1
+				pos = t * 2 -- 0 -&gt; 1
 			else
-				pos = 2 - t * 2 -- 1 -> 0
+				pos = 2 - t * 2 -- 1 -&gt; 0
 			end
 			biteMarker.Position = UDim2.new(pos, -2, 0, -2)
 			task.wait()
@@ -12618,7 +12619,7 @@ local function onMinigameTap()
 	-- against the rod's zone size in SubmitCatchInput); this just aligns
 	-- the client's pre-validation with the visual the player saw.
 	local halfWidth = minigameZoneHalfWidth or 0.15
-	local hit = markerPos >= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
+	local hit = markerPos &gt;= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
 	minigameActive = false
 	releaseOverlay("bite")
 	minigameFrame.Visible = false
@@ -12743,7 +12744,7 @@ computeSellPayout = function(): number
 	if not state then
 		return 0
 	end
-	local locked = (state.lockedUntil or 0) > 0
+	local locked = (state.lockedUntil or 0) &gt; 0
 	local payout = 0
 	for _, fish in ipairs(state.carriedFish or {}) do
 		payout += fish.BaseSellValue or 0
@@ -12779,8 +12780,8 @@ sellButton.Activated:Connect(function()
 	else
 		local payout = computeSellPayout()
 		if payout &lt;= 0 then
-			local locked = (state.lockedUntil or 0) > 0
-			if locked and (state.liveWellCount or 0) > 0 then
+			local locked = (state.lockedUntil or 0) &gt; 0
+			if locked and (state.liveWellCount or 0) &gt; 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
 			else
 				showNotification("No fish to sell!", Color3.fromRGB(255, 170, 80))
@@ -12789,7 +12790,7 @@ sellButton.Activated:Connect(function()
 		end
 		sellArmed = true
 		sellArmPayout = payout
-		local locked = (state.lockedUntil or 0) > 0
+		local locked = (state.lockedUntil or 0) &gt; 0
 		if locked then
 			sellButton.Text = string.format("SELL BAG $%d? TAP", payout)
 		else
@@ -12962,9 +12963,9 @@ task.spawn(function()
 		
 		-- Update unavailable target countdowns (hvfh.6.1.2)
 		for userId, data in pairs(raidTargetCountdownLabels) do
-			if data.seconds > 0 then
+			if data.seconds &gt; 0 then
 				data.seconds = data.seconds - 1
-				if data.seconds > 0 then
+				if data.seconds &gt; 0 then
 					data.label.Text = string.format("%s  •  %s", data.reasonLabel, formatRaidTime(data.seconds))
 				else
 					data.label.Text = data.reasonLabel
@@ -13012,9 +13013,9 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			local pWidth = castHitZone.perfectEnd_ - castHitZone.perfectStart_
 			local pCenter = (castHitZone.perfectStart_ + castHitZone.perfectEnd_) / 2
 			-- Width of perfect zone relative to the good band
-			local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
+			local relWidth = goodWidth &gt; 0 and (pWidth / goodWidth) or 0.4
 			-- Center of perfect zone as a fraction within the good band [0,1]
-			local relCenter = goodWidth > 0
+			local relCenter = goodWidth &gt; 0
 				and ((pCenter - goodStart) / goodWidth)
 				or 0.5
 			perfectZoneFrame.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
@@ -13122,7 +13123,7 @@ end)
 
 -- ============================================================
 -- TASK 23.1 (hvfh.3.1): the ONE UserInputService.InputBegan router.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name&gt;
 -- assignment (cast at stopCastOverlay, raid in startRaidMinigame, bite in
 -- the bite-minigame section), because Lua locals are lexically scoped and
 -- those handlers don't exist until their sections run. Every event checks
