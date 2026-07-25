@@ -282,7 +282,7 @@ function FishingService.init(deps)
 	end)
 
 	-- TASK 3.3: Client submits catch input after the minigame
-	remotes.SubmitCatchInput.OnServerInvoke = function(player, timingResult)
+	local function handleSubmitCatchInput(player, timingResult)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "submit_catch")
 			if not ok then
@@ -461,8 +461,20 @@ function FishingService.init(deps)
 		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue }
 	end
 
+	remotes.SubmitCatchInput.OnServerInvoke = handleSubmitCatchInput
+
+	-- Test seams (same pattern as RaidService): expose internal state so E2E
+	-- tests can inspect/seed bite state and substitute the RNG for
+	-- deterministic catch rolls, without needing to fire remote events
+	-- (which require a real client connection the server can't simulate).
 	return {
 		onPlayerRemoving = onPlayerRemoving,
+		_activeBites = activeBites,
+		_setRng = function(newRng) rng = newRng end,
+		-- Expose the submit handler for direct E2E invocation (bypasses the
+		-- RemoteFunction which passes nil as the player when called from
+		-- server context via InvokeServer).
+		_submitCatch = handleSubmitCatchInput,
 	}
 end
 

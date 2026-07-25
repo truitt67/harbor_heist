@@ -1,5 +1,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 local Remotes = require(script.Remotes)
@@ -47,7 +49,8 @@ local deps = {
 AntiExploitService.init(deps) -- EPIC 10: must init first so rate limiting is available
 AuditLogService.init(deps) -- EPIC 10 / TASK 10.3
 DockManager.init(deps) -- TASK 24.1 (hvfh.4.1): dock sign income-rate readout
-local fishingCleanup = FishingService.init(deps).onPlayerRemoving
+local fishingInit = FishingService.init(deps)
+local fishingCleanup = fishingInit.onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)
 FishInventoryService.init(deps)
@@ -59,6 +62,21 @@ RaidService.init(deps) -- EPIC 8 / TASK 8.1 (raid-window scheduler)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
+
+-- E2E test bridge: expose internal service state for the E2E runner
+-- (tests/e2e/runner.server.lua). The _G table is per-VM and never
+-- replicates to clients. Guarded by the E2ERunner script existing (only
+-- present in the E2E place, not in production builds).
+local hasE2E = ServerScriptService:FindFirstChild("E2ERunner") ~= nil
+print("[HarborHeist] init.server: E2ERunner present=" .. tostring(hasE2E))
+if hasE2E then
+	_G.HARBORHEIST_TEST = {
+		activeBites = fishingInit._activeBites,
+		setFishingRng = fishingInit._setRng,
+		submitCatch = fishingInit._submitCatch,
+		fishingCleanup = fishingCleanup,
+	}
+end
 
 -- R2.3 (dt9.3): boot-time config assertion — prevents income definition
 -- divergence from being reintroduced silently after R2.2 unification.
