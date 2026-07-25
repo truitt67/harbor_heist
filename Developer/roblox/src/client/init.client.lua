@@ -1257,6 +1257,39 @@ for _, rarity in ipairs(GameConfig.Rarities) do
 	RARITY_COLORS[rarity.name] = rarity.color
 end
 
+-- TASK 27.2 (hvfh.7.2): bag rows sorted by rarity (desc), then BaseSellValue
+-- (desc), with original catch order as the stable tiebreak so rows don't
+-- shuffle under the player. table.sort is NOT stable, so the original index
+-- rides along explicitly as the final comparator key. Returns a COPY — the
+-- bead constraint is explicit: do NOT sort session.carried server-side
+-- (carry order may gain gameplay meaning later; the server contract is not
+-- the problem). Sorting upstream in renderInventory keeps the rebuild-guard
+-- signature consistent automatically.
+local function sortCarriedForDisplay(carried)
+	local wrapped = {}
+	for i, fish in ipairs(carried) do
+		wrapped[i] = { fish = fish, idx = i }
+	end
+	table.sort(wrapped, function(a, b)
+		local ra = FishDefinitions.RARITY_ORDER[a.fish.Rarity] or 0
+		local rb = FishDefinitions.RARITY_ORDER[b.fish.Rarity] or 0
+		if ra ~= rb then
+			return ra > rb
+		end
+		local va = a.fish.BaseSellValue or 0
+		local vb = b.fish.BaseSellValue or 0
+		if va ~= vb then
+			return va > vb
+		end
+		return a.idx < b.idx
+	end)
+	local sorted = {}
+	for i, entry in ipairs(wrapped) do
+		sorted[i] = entry.fish
+	end
+	return sorted
+end
+
 -- Failure reasons the server already notifies about (avoid duplicate toasts).
 -- The server stays silent on rate_limited, no_session, bad_id,
 -- fish_not_found, invalid_fish — those need a client-side toast.
@@ -1292,7 +1325,7 @@ local function renderInventory()
 	if not state then
 		return
 	end
-	local carried = state.carriedFish or {}
+	local carried = sortCarriedForDisplay(state.carriedFish or {})
 	local signatureParts = { tostring(state.maxCarried or 0) }
 	for _, fish in ipairs(carried) do
 		if fish then
