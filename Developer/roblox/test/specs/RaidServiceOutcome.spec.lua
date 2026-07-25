@@ -28,9 +28,12 @@ return function()
 	local playerCounter = 0
 	local function makeFakePlayer()
 		playerCounter += 1
-		local p = Instance.new("Player")
-		p.UserId = 960000 + playerCounter
-		p.Parent = Instance.new("Folder")
+		local p = {
+			UserId = 960000 + playerCounter,
+			Name = "TestPlayer" .. playerCounter,
+			DisplayName = "TestPlayer" .. playerCounter,
+			Parent = true,
+		}
 		return p
 	end
 
@@ -104,7 +107,16 @@ return function()
 		worldFolder = nil,
 	}
 
-	pcall(RaidService.init, deps)
+	-- Re-init before EVERY test rather than once at plan-build time:
+	-- RaidService module state (deps, rng, players provider) is shared across
+	-- all spec files in this TestEZ process, and RaidServiceScheduler.spec
+	-- inits it with its own deps. TestEZ builds every file's plan before
+	-- running any tests, so a build-time init gets clobbered by whichever
+	-- spec is collected last; a beforeEach init makes THIS file's deps and
+	-- sessions table authoritative at test time.
+	beforeEach(function()
+		pcall(RaidService.init, deps)
+	end)
 
 	-- ================================================================
 	-- Helpers
@@ -306,11 +318,12 @@ return function()
 		end
 
 		local function statisticalRate(position)
-			-- Create a victim player parented to Players so GetPlayers finds it.
-			local victim = Instance.new("Player")
-			victim.UserId = 970001
-			victim.Name = "TestVictim"
-			victim.Parent = Players
+			-- Table-fake victim + players-provider seam (Instance.new("Player")
+			-- is blocked in the sandboxed plugin context).
+			local victim = { UserId = 970001, Name = "TestVictim", DisplayName = "TestVictim", Parent = true }
+			RaidService._setPlayersProvider(function()
+				return { victim }
+			end)
 
 			local victimSession = makeSession(victim)
 			victimSession.profile.Aquarium.RaidOptIn = true
@@ -345,8 +358,7 @@ return function()
 			local rate = successes / ROLLS_PER_TIER
 
 			-- Cleanup
-			victim.Parent = nil
-			attacker.Parent = nil
+			RaidService._setPlayersProvider(nil)
 			sessions[victim] = nil
 			sessions[attacker] = nil
 			restoreRng()
@@ -378,10 +390,10 @@ return function()
 	-- ================================================================
 	describe("Failed raid (missed roll)", function()
 		it("does not transfer fish when the success roll fails", function()
-			local victim = Instance.new("Player")
-			victim.UserId = 970101
-			victim.Name = "TestVictimFailed"
-			victim.Parent = Players
+			local victim = { UserId = 970101, Name = "TestVictimFailed", DisplayName = "TestVictimFailed", Parent = true }
+			RaidService._setPlayersProvider(function()
+				return { victim }
+			end)
 
 			local victimSession = makeSession(victim)
 			victimSession.profile.Aquarium.RaidOptIn = true
@@ -416,18 +428,17 @@ return function()
 
 			-- Restore RNG.
 			RaidService._setRng(Random.new())
+			RaidService._setPlayersProvider(nil)
 
-			victim.Parent = nil
-			attacker.Parent = nil
 			sessions[victim] = nil
 			sessions[attacker] = nil
 		end)
 
 		it("increments attacker RaidsLost on a failed raid", function()
-			local victim = Instance.new("Player")
-			victim.UserId = 970102
-			victim.Name = "TestVictimFailed2"
-			victim.Parent = Players
+			local victim = { UserId = 970102, Name = "TestVictimFailed2", DisplayName = "TestVictimFailed2", Parent = true }
+			RaidService._setPlayersProvider(function()
+				return { victim }
+			end)
 
 			local victimSession = makeSession(victim)
 			victimSession.profile.Aquarium.RaidOptIn = true
@@ -451,9 +462,8 @@ return function()
 			expect(attackerSession.profile.PvP.RaidsLost).to.equal(beforeLost + 1)
 
 			RaidService._setRng(Random.new())
+			RaidService._setPlayersProvider(nil)
 
-			victim.Parent = nil
-			attacker.Parent = nil
 			sessions[victim] = nil
 			sessions[attacker] = nil
 		end)

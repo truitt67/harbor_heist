@@ -93,9 +93,15 @@ return function()
 	local playerCounter = 0
 	local function makeFakePlayer()
 		playerCounter += 1
-		local p = Instance.new("Player")
-		p.UserId = 910000 + playerCounter
-		p.Parent = Instance.new("Folder")
+		local p = {
+			-- Table fake: engine Player Instances can't be fabricated from the
+			-- sandboxed plugin context (WritePlayer capability). Services only
+			-- read UserId/Name/Parent/Character on this object.
+			UserId = 910000 + playerCounter,
+			Name = "TestPlayer" .. playerCounter,
+			DisplayName = "TestPlayer" .. playerCounter,
+			Parent = true,
+		}
 		return p
 	end
 

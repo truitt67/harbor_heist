@@ -47,10 +47,13 @@ return function()
 	local playerCounter = 0
 	local function makeFakePlayer()
 		playerCounter += 1
-		local p = Instance.new("Player")
-		p.UserId = 900000 + playerCounter
-		p.Parent = Instance.new("Folder")
-		p.Character = Instance.new("Model")
+		local p = {
+			UserId = 900000 + playerCounter,
+			Name = "TestPlayer" .. playerCounter,
+			DisplayName = "TestPlayer" .. playerCounter,
+			Parent = true,
+			Character = {}, -- truthy stand-in; dockManager.isInFishingZone is stubbed
+		}
 		return p
 	end
 
@@ -121,10 +124,11 @@ return function()
 	end
 
 	-- Helper: extract zone bounds from the last CastState call.
+	-- CastState payload: (casting: boolean, biteDelay: number, bounds: table?)
 	local function lastCastBounds()
 		local call = castStateRemote:last()
-		if call and call.args and call.args[2] then
-			return call.args[2] -- the data table with hitZoneStart etc.
+		if call and call.args and call.args[3] then
+			return call.args[3] -- the data table with hitZoneStart etc.
 		end
 		return nil
 	end
