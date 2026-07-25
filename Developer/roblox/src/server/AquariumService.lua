@@ -115,6 +115,15 @@ function AquariumService.init(deps)
 		end
 		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130), "economy")
 		stateSync.push(session)
+		-- 6sbm: checkpoint on claim, same pattern as the store path (thj.2)
+		-- above — without it, a crash/leave before the next autosave (60s)
+		-- replays LastIncomeTimestamp and silently wipes the claimed coins.
+		-- unclaimed > 0 is guaranteed by the early return, so every save here
+		-- persists a real mutation. Spawned so the handler returns immediately;
+		-- coalesced by DataManager.save's isSaving guard.
+		task.spawn(function()
+			dataManager.save(player)
+		end)
 		-- EPIC 11 (TASK 11.2): income_claimed. Amount is the key field —
 		-- dashboard uses it to track economy flow + claim frequency.
 		if analytics then
