@@ -103,6 +103,82 @@ local OVERLAY_Z_CONTENT = 41
 local OVERLAY_Z_ZONE = 42
 local OVERLAY_Z_MARKER = 43
 
+-- TASK 22.4 (hvfh.2.4): local first-catch counter. Incremented on each
+-- ok=true SubmitCatchInput result; counter == 1 triggers the reveal card
+-- regardless of rarity. Local + deterministic — no server-flag race.
+local catchesThisSession = 0
+local questData = nil
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "HarborHeistUI"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+local inset = GuiService:GetGuiInset()
+local SAFE_TOP = math.max(inset.Y, IS_MOBILE and 12 or 8)
+
+-- ============================================================
+-- Primitive helpers
+-- ============================================================
+local function corner(parent, radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius or 12)
+	c.Parent = parent
+	return c
+end
+
+local function stroke(parent, transparency, color, thickness)
+	local s = Instance.new("UIStroke")
+	s.Color = color or UI.stroke
+	s.Transparency = transparency or 0.88
+	s.Thickness = thickness or 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function padding(parent, all)
+	local p = Instance.new("UIPadding")
+	p.PaddingTop = UDim.new(0, all)
+	p.PaddingBottom = UDim.new(0, all)
+	p.PaddingLeft = UDim.new(0, all)
+	p.PaddingRight = UDim.new(0, all)
+	p.Parent = parent
+	return p
+end
+
+local function vGradient(parent, topColor, bottomColor)
+	local g = Instance.new("UIGradient")
+	g.Rotation = 90
+	g.Color = ColorSequence.new(topColor, bottomColor)
+	g.Parent = parent
+	return g
+end
+
+local function makeLabel(parent, props)
+	local label = Instance.new("TextLabel")
+	label.BackgroundTransparency = 1
+	label.TextColor3 = UI.text
+	label.Font = FONT_BODY
+	label.TextScaled = false
+	label.TextSize = 15
+	for key, value in pairs(props) do
+		label[key] = value
+	end
+	label.Parent = parent
+	return label
+end
+
+-- TASK 23.2 (hvfh.3.2): Unified overlay factory.
+-- TASK 21.4 (harborheist-7w5a): definition MOVED below the primitive helpers
+-- (screenGui/corner/stroke/vGradient/makeLabel). It was originally defined at
+-- ~:106, BEFORE those locals — Luau binds names lexically at the definition
+-- site, so the body read them as nil globals and the first corner() call
+-- threw "attempt to call a nil value" at load time (both callers are
+-- top-level: raid minigame + cast overlay), killing the client script before
+-- the remote listeners and bootstrap could wire up. P0 boot-blocker.
 local function makeOverlayFrame(name, titleText, subtitleText)
 	local frame = Instance.new("Frame")
 	frame.Name = name
@@ -196,73 +272,6 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	corner(markerGlow, 8)
 
 	return frame, title, barTrack, goodZone, perfectZone, subtitle, marker, markerGlow
-end
--- TASK 22.4 (hvfh.2.4): local first-catch counter. Incremented on each
--- ok=true SubmitCatchInput result; counter == 1 triggers the reveal card
--- regardless of rarity. Local + deterministic — no server-flag race.
-local catchesThisSession = 0
-local questData = nil
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "HarborHeistUI"
-screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-screenGui.Parent = playerGui
-
-local inset = GuiService:GetGuiInset()
-local SAFE_TOP = math.max(inset.Y, IS_MOBILE and 12 or 8)
-
--- ============================================================
--- Primitive helpers
--- ============================================================
-local function corner(parent, radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius or 12)
-	c.Parent = parent
-	return c
-end
-
-local function stroke(parent, transparency, color, thickness)
-	local s = Instance.new("UIStroke")
-	s.Color = color or UI.stroke
-	s.Transparency = transparency or 0.88
-	s.Thickness = thickness or 1
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	s.Parent = parent
-	return s
-end
-
-local function padding(parent, all)
-	local p = Instance.new("UIPadding")
-	p.PaddingTop = UDim.new(0, all)
-	p.PaddingBottom = UDim.new(0, all)
-	p.PaddingLeft = UDim.new(0, all)
-	p.PaddingRight = UDim.new(0, all)
-	p.Parent = parent
-	return p
-end
-
-local function vGradient(parent, topColor, bottomColor)
-	local g = Instance.new("UIGradient")
-	g.Rotation = 90
-	g.Color = ColorSequence.new(topColor, bottomColor)
-	g.Parent = parent
-	return g
-end
-
-local function makeLabel(parent, props)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.TextColor3 = UI.text
-	label.Font = FONT_BODY
-	label.TextScaled = false
-	label.TextSize = 15
-	for key, value in pairs(props) do
-		label[key] = value
-	end
-	label.Parent = parent
-	return label
 end
 
 local function pressFeedback(button)
@@ -2392,6 +2401,14 @@ local function renderRaidTargets(data)
 	end
 end
 
+-- TASK 9.2 (0jc.2): raid window state — declared before updateRaidPanelStatic
+-- (its earliest reader) so render() can check HasSeenRaidExplanation against
+-- raidWindow.open for the onboarding prompt. The OnClientEvent handler is
+-- wired at the bottom of this file. TASK 21.4 (harborheist-7w5a): this local
+-- was previously declared ~500 lines LOWER (after updateRaidPanelStatic), so
+-- the :2409 read bound a nil global and crashed on "attempt to index nil".
+local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
+
 local function updateRaidPanelStatic()
 	if not state then
 		return
@@ -2439,18 +2456,6 @@ local function refreshRaidPanel()
 			end
 		end
 	end)
-end
-
-local function toggleRaidPanel()
-	if activePanel == raidPanel then
-		hidePanels()
-		-- Polling stops automatically (activePanel check in pollRaidTargets).
-		return
-	end
-	showPanel(raidPanel)
-	refreshRaidPanel()
-	-- TASK 26.2 (hvfh.6.2): start auto-refresh polling.
-	startRaidPanelPolling()
 end
 
 -- ============================================================
@@ -2513,6 +2518,22 @@ local function startRaidPanelPolling()
 	lastRaidTargetsSignature = computeRaidTargetsSignature(raidTargets)
 	-- Start polling loop.
 	task.delay(3, pollRaidTargets)
+end
+
+-- TASK 21.4 (harborheist-7w5a): toggleRaidPanel moved BELOW
+-- startRaidPanelPolling — it calls it, and Luau binds locals lexically at
+-- the definition site, so the previous order crashed the RAID button
+-- handler with "attempt to call a nil value".
+local function toggleRaidPanel()
+	if activePanel == raidPanel then
+		hidePanels()
+		-- Polling stops automatically (activePanel check in pollRaidTargets).
+		return
+	end
+	showPanel(raidPanel)
+	refreshRaidPanel()
+	-- TASK 26.2 (hvfh.6.2): start auto-refresh polling.
+	startRaidPanelPolling()
 end
 
 -- ============================================================
@@ -2928,11 +2949,6 @@ local function toHex(color)
 end
 
 local dataStoreWarningShown = false
-
--- TASK 9.2 (0jc.2): raid window state — forward-declared here so render()
--- can check HasSeenRaidExplanation against raidWindow.open for the onboarding
--- prompt. The actual OnClientEvent handler is wired at line ~1851 below.
-local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
 
 -- ============================================================
 -- TASK 22.1 (hvfh.2.1): FISH button state machine.
