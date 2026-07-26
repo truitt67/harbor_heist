@@ -149,25 +149,50 @@ if [[ "$BUCKET" == "datamodel" ]]; then
 
 	# Check for test place file
 	TEST_PLACE="$PROJECT_ROOT/HarborHeist_tests.rbxlx"
-	if [[ ! -f "$TEST_PLACE" ]]; then
-		echo "Test place file not found: $TEST_PLACE" >&2
-		echo "Building it now with rojo..." >&2
-		cd "$PROJECT_ROOT"
-		if ! rojo build test.project.json -o "$TEST_PLACE" 2>&1; then
-			echo "ERROR: rojo build failed. Cannot proceed without a test place file." >&2
-			echo "Fix the rojo build errors and retry." >&2
-			exit 2
-		fi
-		echo "Built test place successfully." >&2
+
+	# TASK 19.10: rojo and run-in-roblox are native Windows binaries — they
+	# cannot resolve MSYS-style absolute paths (/c/Users/...). Convert to
+	# native form (no-op on real Linux/macOS).
+	to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -w "$1" || printf '%s' "$1"; }
+
+	# Always rebuild so the suite never runs against a stale place.
+	echo "Building test place..."
+	cd "$PROJECT_ROOT"
+	if ! rojo build test.project.json -o "$(to_native "$TEST_PLACE")" 2>&1; then
+		echo "ERROR: rojo build failed. Cannot proceed without a test place file." >&2
+		echo "Fix the rojo build errors and retry." >&2
+		exit 2
 	fi
 
 	echo "=== Running DataModel-bound tests (run-in-roblox bucket) ==="
-	echo "run-in-roblox + Roblox Studio" >&2
+	echo "run-in-roblox + Roblox Studio"
 	echo ""
 
+	# TASK 19.10: the suite MUST run in the PLUGIN context via a stub FILE.
+	# run-in-roblox >= 0.3.0 treats --script as a file path executed in the
+	# plugin VM (the old instance-path form "ServerScriptService.RunTests" is
+	# the broken pre-0.3.0 style). Plugin context is required because several
+	# specs read ModuleScript.Source for static guards, which needs the
+	# PluginOrOpenCloud capability the run-mode server VM lacks — running via a
+	# server bootstrap silently drops those spec files and fails the guards.
 	cd "$PROJECT_ROOT"
-	run-in-roblox --place "$TEST_PLACE" --script "ServerScriptService.RunTests"
-	exit_code=$?
+	set +e
+	run-in-roblox --place "$(to_native "$TEST_PLACE")" --script "$(to_native "$PROJECT_ROOT/tests/datamodel_stub.lua")" 2>&1 | tee /tmp/hh_datamodel_run.log
+	exit_code=${PIPESTATUS[0]}
+	set -e
+
+	# TASK 19.10: run-in-roblox's own exit code is unreliable (non-zero on
+	# normal /stop shutdown, zero on completed plugin scripts regardless of
+	# test outcomes) — the TestEZ summary line is the verdict of record.
+	DM_SUMMARY=$(grep -E "Harbor Heist tests: [0-9]+ passed, [0-9]+ failed" /tmp/hh_datamodel_run.log | tail -1 || true)
+	if [[ -z "$DM_SUMMARY" ]]; then
+		echo "ERROR: TestEZ suite did not report a summary (boot failure?)" >&2
+		exit_code=2
+	elif [[ "$DM_SUMMARY" =~ ([0-9]+)\ failed ]] && [[ "${BASH_REMATCH[1]}" != "0" ]]; then
+		exit_code=1
+	else
+		exit_code=0
+	fi
 	exit $exit_code
 fi
 

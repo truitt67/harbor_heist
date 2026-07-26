@@ -79,9 +79,12 @@ return function()
 	local playerCounter = 0
 	local function makeFakePlayer()
 		playerCounter += 1
-		local p = Instance.new("Player")
-		p.UserId = 920000 + playerCounter
-		p.Parent = Instance.new("Folder")
+		local p = {
+			UserId = 920000 + playerCounter,
+			Name = "TestPlayer" .. playerCounter,
+			DisplayName = "TestPlayer" .. playerCounter,
+			Parent = true,
+		}
 		return p
 	end
 

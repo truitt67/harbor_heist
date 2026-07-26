@@ -347,14 +347,17 @@ return function()
 			local input = defaultProfile()
 			input.Aquarium.LockLevel = 999
 			local result = sanitize(input)
-			expect(result.Aquarium.LockLevel).to.equal(#GameConfig.Upgrades.Lock)
+			-- Out-of-range values are REJECTED (default 0 kept), not clamped —
+			-- matches the sibling migration spec (lockLevel=999 -> 0).
+			expect(result.Aquarium.LockLevel).to.equal(0)
 		end)
 
 		it("should clamp AlarmLevel to valid range", function()
 			local input = defaultProfile()
 			input.Aquarium.AlarmLevel = 999
 			local result = sanitize(input)
-			expect(result.Aquarium.AlarmLevel).to.equal(#GameConfig.Upgrades.Alarm)
+			-- Rejected to default 0, same as LockLevel above.
+			expect(result.Aquarium.AlarmLevel).to.equal(0)
 		end)
 
 		it("should reject non-boolean RaidOptIn", function()
@@ -384,6 +387,9 @@ return function()
 		it("should convert legacy 'rodLevel' to Equipment.EquippedRodLevel", function()
 			local input = defaultProfile()
 			input.rodLevel = 2
+			-- defaultProfile() fills Equipment (EquippedRodLevel=1) which wins
+			-- over the legacy field (v2 priority) — nil it to test the legacy path.
+			input.Equipment = nil
 			local result = sanitize(input)
 			expect(result.Equipment.EquippedRodLevel).to.equal(2)
 		end)
@@ -398,6 +404,7 @@ return function()
 		it("should convert legacy 'baitLevel' to Equipment.EquippedBaitLevel", function()
 			local input = defaultProfile()
 			input.baitLevel = 2
+			input.Equipment = nil -- see rodLevel test above: v2 wins otherwise
 			local result = sanitize(input)
 			expect(result.Equipment.EquippedBaitLevel).to.equal(2)
 		end)
@@ -405,6 +412,9 @@ return function()
 		it("should convert legacy 'capacityLevel' to Aquarium.UpgradeLevel", function()
 			local input = defaultProfile()
 			input.capacityLevel = 2
+			-- defaultProfile() fills Aquarium (UpgradeLevel=1) which would win
+			-- over the legacy conversion — nil it to test the legacy path.
+			input.Aquarium = nil
 			local result = sanitize(input)
 			expect(result.Aquarium.UpgradeLevel).to.equal(3) -- math.floor(2) + 1
 		end)

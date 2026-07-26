@@ -34,6 +34,7 @@
 
 local Players = game:GetService("Players")
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local RaidService = {}
 
@@ -58,6 +59,17 @@ local auditLog: any = nil
 local dockManager: any = nil
 
 local rng = Random.new()
+
+-- Test seam (mirrors _setRng below): lets specs substitute the live player
+-- list instead of fabricating engine Player Instances, which sandboxed
+-- plugin contexts cannot create (WritePlayer capability). nil = real Players.
+local playersProvider: (() -> { any })? = nil
+local function getPlayers(): { any }
+	if playersProvider then
+		return playersProvider()
+	end
+	return Players:GetPlayers()
+end
 
 -- Window state. `windowOpen` is the authoritative flag downstream beads
 -- (gdj.13 eligibility) check. The two deadline fields are os.clock()-based
@@ -177,7 +189,13 @@ end
 --- Attacker raid cooldown (PRD PVP-06). Reads session.raidAttackLastAt
 --- (written by gdj.14 after a raid). Returns (onCooldown, remainingSeconds).
 function RaidService.isAttackerOnCooldown(session: any)
-	local last = (session and session.raidAttackLastAt) or 0
+	local last = session and session.raidAttackLastAt
+	if not last then
+		-- No raid this session. (Previously `or 0` made cooldownEnd =
+		-- raiderCooldownSeconds, so every fresh attacker read as on-cooldown
+		-- for the first raiderCooldownSeconds of server uptime.)
+		return false, 0
+	end
 	local cooldownEnd = last + GameConfig.Raid.raiderCooldownSeconds
 	local now = os.clock()
 	if cooldownEnd > now then
@@ -517,7 +535,7 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 	-- Resolve + re-validate the target at call time (PVP-10: a stale target
 	-- list can never authorize a raid).
 	local targetPlayer = nil
-	for _, p in ipairs(Players:GetPlayers()) do
+	for _, p in ipairs(getPlayers()) do
 		if p.UserId == targetUserId and p ~= player then
 			targetPlayer = p
 			break
@@ -828,7 +846,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	end
 	-- Re-resolve the victim; they may have left mid-minigame.
 	local victim = nil
-	for _, p in ipairs(Players:GetPlayers()) do
+	for _, p in ipairs(getPlayers()) do
 		if p.UserId == raid.targetUserId then
 			victim = p
 			break
@@ -1208,5 +1226,24 @@ end
 -- active raid entries and seed/replacement the RNG for deterministic tests.
 RaidService._activeRaids = activeRaids
 RaidService._setRng = function(newRng) rng = newRng end
+RaidService._setPlayersProvider = function(provider) playersProvider = provider end
+-- E2E test seam (TASK 19.8): force the raid window state. The real scheduler
+-- waits 20-30min between windows — far too long for a test run, and its next
+-- transition is >= 20min after boot in a fresh server, so a short test
+-- cannot race it. Returns windowSerial so tests can key loss-cap
+-- bookkeeping (raidWindowLosses.serial) to the forced window.
+RaidService._setWindowOpen = function(open, durationSeconds)
+	if open then
+		windowOpen = true
+		windowSerial = windowSerial + 1
+		windowEndsAt = os.clock() + (durationSeconds or 60)
+		nextWindowAt = 0
+	else
+		windowOpen = false
+		windowEndsAt = 0
+		nextWindowAt = os.clock() + 9999
+	end
+	return windowSerial
+end
 
 return RaidService

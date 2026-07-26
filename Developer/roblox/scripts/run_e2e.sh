@@ -2,16 +2,14 @@
 # scripts/run_e2e.sh — E2E integration test runner for Harbor Heist.
 #
 # Usage:
-#   scripts/run_e2e.sh [script-path]
+#   scripts/run_e2e.sh
 #
-#   script-path  Optional: the in-place script instance to execute.
-#                Defaults to "ServerScriptService.RunTests".
-#                When E2E scenarios are added (tasks 19.2+), pass
-#                "ServerScriptService.RunE2E" or similar.
-#
-# Builds the test place via Rojo, launches it through run-in-roblox +
-# Roblox Studio, and streams output to BOTH stdout and
-# testlogs/run-<runid>.log.
+# Builds the E2E place (e2e.project.json) via Rojo, launches it through
+# run-in-roblox + Roblox Studio, and streams output to BOTH stdout and
+# testlogs/run-<runid>.log. The suite (tests/e2e/runner.server.lua) is
+# booted by tests/e2e_stub.lua, which run-in-roblox executes in the plugin
+# context; the stub starts the sim via RunService:Run() (TASK 19.10 —
+# the old in-place script instance arg was the broken pre-0.3.0 style).
 #
 # Exit codes:
 #   0 = all E2E tests passed
@@ -22,7 +20,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-RUN_SCRIPT="${1:-ServerScriptService.RunTests}"
 
 # --- Generate run ID and prepare log directory ---
 RUN_ID=$(date -u +%Y%m%dT%H%M%SZ)
@@ -97,11 +94,16 @@ fi
 # ---------------------------------------------------------------------------
 # Build the test place
 # ---------------------------------------------------------------------------
-TEST_PLACE="$PROJECT_ROOT/HarborHeist_tests.rbxlx"
+TEST_PLACE="$PROJECT_ROOT/HarborHeist_e2e.rbxlx"
 
-echo "=== Building test place ===" | tee "$LOG_FILE"
+# TASK 19.10: rojo and run-in-roblox are native Windows binaries — they
+# cannot resolve MSYS-style absolute paths (/c/Users/...). Convert to
+# native form (no-op on real Linux/macOS).
+to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -w "$1" || printf '%s' "$1"; }
+
+echo "=== Building E2E place ===" | tee "$LOG_FILE"
 cd "$PROJECT_ROOT"
-if ! rojo build test.project.json -o "$TEST_PLACE" 2>&1 | tee -a "$LOG_FILE"; then
+if ! rojo build e2e.project.json -o "$(to_native "$TEST_PLACE")" 2>&1 | tee -a "$LOG_FILE"; then
 	echo "" | tee -a "$LOG_FILE"
 	echo "ERROR: rojo build failed. See $LOG_FILE for details." | tee -a "$LOG_FILE"
 	exit 2
@@ -114,7 +116,7 @@ echo "" | tee -a "$LOG_FILE"
 # ---------------------------------------------------------------------------
 echo "=== Running E2E tests ===" | tee -a "$LOG_FILE"
 echo "run-in-roblox + Roblox Studio" | tee -a "$LOG_FILE"
-echo "In-place script: $RUN_SCRIPT" | tee -a "$LOG_FILE"
+echo "Stub: tests/e2e_stub.lua (plugin context -> RunService:Run())" | tee -a "$LOG_FILE"
 echo "Run ID: $RUN_ID" | tee -a "$LOG_FILE"
 echo "Log file: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
@@ -123,9 +125,23 @@ echo "" | tee -a "$LOG_FILE"
 # We disable errexit around the pipeline so a test failure (exit 1) does
 # not abort the script before we can write the summary.
 set +e
-run-in-roblox --place "$TEST_PLACE" --script "$RUN_SCRIPT" 2>&1 | tee -a "$LOG_FILE"
+run-in-roblox --place "$(to_native "$TEST_PLACE")" --script "$(to_native "$PROJECT_ROOT/tests/e2e_stub.lua")" 2>&1 | tee -a "$LOG_FILE"
 EXIT_CODE=${PIPESTATUS[0]}
 set -e
+
+# TASK 19.10: run-in-roblox's own exit code is unreliable (non-zero on
+# normal /stop shutdown, zero on completed plugin scripts regardless of
+# test outcomes) — the suite's SUMMARY line is the verdict of record:
+# missing -> environment error, failures > 0 -> test failure, else pass.
+SUMMARY_LINE=$(grep -E "\[E2E\] SUMMARY: [0-9]+ passed, [0-9]+ failed" "$LOG_FILE" | tail -1 || true)
+if [[ -z "$SUMMARY_LINE" ]]; then
+	echo "ERROR: E2E suite did not report a SUMMARY (boot failure?)" | tee -a "$LOG_FILE"
+	EXIT_CODE=2
+elif [[ "$SUMMARY_LINE" =~ ([0-9]+)\ failed ]] && [[ "${BASH_REMATCH[1]}" != "0" ]]; then
+	EXIT_CODE=1
+else
+	EXIT_CODE=0
+fi
 
 echo "" | tee -a "$LOG_FILE"
 echo "=== E2E run complete ===" | tee -a "$LOG_FILE"
@@ -148,7 +164,7 @@ cat > "$SUMMARY_FILE" <<EOF
   "log_file": "$LOG_FILE",
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "place_file": "$TEST_PLACE",
-  "script": "$RUN_SCRIPT",
+  "script": "tests/e2e_stub.lua",
   "result": "$(case "$EXIT_CODE" in 0) echo pass;; 1) echo fail;; *) echo env_error;; esac)"
 }
 EOF

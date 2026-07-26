@@ -24,9 +24,12 @@ return function()
 	local playerCounter = 0
 	local function makeFakePlayer()
 		playerCounter += 1
-		local p = Instance.new("Player")
-		p.UserId = 940000 + playerCounter
-		p.Parent = Instance.new("Folder")
+		local p = {
+			UserId = 940000 + playerCounter,
+			Name = "TestPlayer" .. playerCounter,
+			DisplayName = "TestPlayer" .. playerCounter,
+			Parent = true,
+		}
 		return p
 	end
 
@@ -39,33 +42,42 @@ return function()
 	-- Set up deps with capturing remotes; init sets module-level dataManager.
 	local sessions = {}
 	local windowChangedCalls = {}
-	pcall(function()
-		RaidService.init({
-			remotes = {
-				notify = function() end,
-				RaidWindowChanged = {
-					FireClient = function(self, p, open, rem, nextIn)
-						table.insert(windowChangedCalls, { open = open, remaining = rem, nextIn = nextIn })
-					end,
-					FireAllClients = function(self, open, rem, nextIn)
-						table.insert(windowChangedCalls, { open = open, remaining = rem, nextIn = nextIn })
-					end,
-				},
+	local deps = {
+		remotes = {
+			notify = function() end,
+			RaidWindowChanged = {
+				FireClient = function(self, p, open, rem, nextIn)
+					table.insert(windowChangedCalls, { open = open, remaining = rem, nextIn = nextIn })
+				end,
+				FireAllClients = function(self, open, rem, nextIn)
+					table.insert(windowChangedCalls, { open = open, remaining = rem, nextIn = nextIn })
+				end,
 			},
-			dataManager = {
-				get = function(player) return sessions[player] end,
-				allSessions = function() return sessions end,
-			},
-			stateSync = { push = function() end },
-			aquariumService = nil,
-			dockManager = { getDock = function() return nil end },
-			boatService = nil,
-			analytics = { track = function() end, isFirst = function() return false end },
-			questService = { onStealAttempt = function() end },
-			antiExploit = nil,
-			auditLog = nil,
-			onboarding = { mark = function() return false end },
-		})
+		},
+		dataManager = {
+			get = function(player) return sessions[player] end,
+			allSessions = function() return sessions end,
+		},
+		stateSync = { push = function() end },
+		aquariumService = nil,
+		dockManager = { getDock = function() return nil end },
+		boatService = nil,
+		analytics = { track = function() end, isFirst = function() return false end },
+		questService = { onStealAttempt = function() end },
+		antiExploit = nil,
+		auditLog = nil,
+		onboarding = { mark = function() return false end },
+	}
+	-- See RaidServiceOutcome.spec for why this must be a beforeEach re-init
+	-- (shared RaidService module state across spec files in one TestEZ run).
+	beforeEach(function()
+		pcall(RaidService.init, deps)
+	end)
+
+	afterEach(function()
+		-- Defensive: a leaked players provider from RaidServiceOutcome (which
+		-- shares this module) must not poison this file's tests.
+		RaidService._setPlayersProvider(nil)
 	end)
 
 	local function newTestPair()

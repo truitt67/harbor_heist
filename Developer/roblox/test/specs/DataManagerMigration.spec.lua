@@ -187,18 +187,21 @@ return function()
 
 		it("should not re-migrate v2 Equipment when already present", function()
 			local input = makeV1Fixture({ rodLevel = 2 })
-			input.Equipment = { EquippedRodLevel = 4, EquippedBaitLevel = 3, OwnedRodLevels = { 1, 2, 3, 4 } }
+			-- 3 rods exist; EquippedRodLevel=4 would be rejected by sanitize,
+			-- silently resurrecting the legacy value. Use a valid v2 level.
+			input.Equipment = { EquippedRodLevel = 3, EquippedBaitLevel = 3, OwnedRodLevels = { 1, 2, 3 } }
 			local v2 = sanitize(input)
-			expect(v2.Equipment.EquippedRodLevel).to.equal(4)
+			expect(v2.Equipment.EquippedRodLevel).to.equal(3)
 			expect(v2.Equipment.EquippedBaitLevel).to.equal(3)
 		end)
 
 		it("should not re-migrate v2 Aquarium.StoredFish when already present", function()
 			local input = makeV1Fixture({ liveWell = { 1, 2 } })
 			-- Pre-existing v2 StoredFish should take priority over legacy liveWell
+			-- (fish must satisfy FishInstance.validate or it gets dropped)
 			input.Aquarium = {
 				StoredFish = {
-					{ SpeciesId = "TestFish", Rarity = "Common", BaseSellValue = 10 },
+					FishInstance.new("Bluegill", "StarterPier"),
 				}
 			}
 			local v2 = sanitize(input)
@@ -303,7 +306,7 @@ return function()
 		end)
 
 		it("should handle partially corrupt liveWell (mix of valid and garbage)", function()
-			local v1 = makeV1Fixture({ liveWell = { 1, "garbage", 3, nil, 5, true } })
+			local v1 = makeV1Fixture({ liveWell = { 1, "garbage", 3, 5, true } })
 			local v2 = sanitize(v1)
 			-- Only numeric rarity indexes 1-5 are converted; "garbage", nil, true dropped
 			expect(#v2.Aquarium.StoredFish).to.equal(3)
@@ -443,16 +446,20 @@ return function()
 
 		it("v2 Equipment should win over legacy rodLevel when BOTH are present", function()
 			local input = makeV1Fixture({ rodLevel = 2 })
-			input.Equipment = { EquippedRodLevel = 4, EquippedBaitLevel = 1 }
+			-- 3 rods exist; level 4 would be rejected by sanitize. Use a valid
+			-- v2 value distinct from the legacy one to prove v2 priority.
+			input.Equipment = { EquippedRodLevel = 3, EquippedBaitLevel = 1 }
 			local v2 = sanitize(input)
-			expect(v2.Equipment.EquippedRodLevel).to.equal(4)
+			expect(v2.Equipment.EquippedRodLevel).to.equal(3)
 		end)
 
 		it("v2 Aquarium.StoredFish should win over legacy liveWell (N3 fix)", function()
 			local input = makeV1Fixture({ liveWell = { 1, 2, 3 } })
 			input.Aquarium = {
 				StoredFish = {
-					{ SpeciesId = "PreExisting", Rarity = "Common", BaseSellValue = 10 },
+					-- Must satisfy FishInstance.validate or sanitizeStoredFish
+					-- drops it (which would let legacy liveWell win).
+					FishInstance.new("Bluegill", "StarterPier"),
 				}
 			}
 			local v2 = sanitize(input)

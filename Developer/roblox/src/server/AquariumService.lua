@@ -25,7 +25,7 @@ function AquariumService.init(deps)
 	-- one; this wrapper was a duplicate that added an unnecessary function
 	-- call layer and confusingly overwrote itself.
 
-	remotes.RequestStoreFish.OnServerInvoke = function(player)
+	local function handleStoreFish(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "store")
 			if not ok then return { ok = false, reason = reason } end
@@ -90,8 +90,9 @@ function AquariumService.init(deps)
 		end
 		return { ok = stored > 0, stored = stored }
 	end
+	remotes.RequestStoreFish.OnServerInvoke = handleStoreFish
 
-	remotes.RequestClaimIncome.OnServerInvoke = function(player)
+	local function handleClaimIncome(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "claim")
 			if not ok then return { ok = false, reason = reason } end
@@ -135,8 +136,9 @@ function AquariumService.init(deps)
 		end
 		return { ok = true, amount = unclaimed }
 	end
+	remotes.RequestClaimIncome.OnServerInvoke = handleClaimIncome
 
-	remotes.RequestSellFish.OnServerInvoke = function(player)
+	local function handleSellFish(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "sell")
 			if not ok then return { ok = false, reason = reason } end
@@ -214,6 +216,7 @@ function AquariumService.init(deps)
 		end
 		return { ok = true, payout = payout }
 	end
+	remotes.RequestSellFish.OnServerInvoke = handleSellFish
 
 	-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
 	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
@@ -222,7 +225,7 @@ function AquariumService.init(deps)
 	-- gates further uses. Free uses regenerate PER SESSION via
 	-- onSessionLoaded below (vaz2); daily-reset / purchase top-ups remain
 	-- possible future directions.
-	remotes.RequestActivateLock.OnServerInvoke = function(player)
+	local function handleActivateLock(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "lock")
 			if not ok then return { ok = false, reason = reason } end
@@ -325,6 +328,7 @@ function AquariumService.init(deps)
 		end)
 		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
 	end
+	remotes.RequestActivateLock.OnServerInvoke = handleActivateLock
 
 	-- TASK 8.2 (gdj.2): Raid opt-in toggle. PRD PVP-02: "A player can raid only
 	-- during a clearly labeled raid window or after explicitly opting into a
@@ -390,6 +394,12 @@ function AquariumService.init(deps)
 	end
 
 	AquariumService.refreshVisual = refreshVisual
+	
+	-- Test seams for E2E runner (must be inside init where remotes is in scope)
+	AquariumService._requestStoreFish = handleStoreFish
+	AquariumService._requestClaimIncome = handleClaimIncome
+	AquariumService._requestSellFish = handleSellFish
+	AquariumService._requestActivateLock = handleActivateLock
 end
 
 --- vaz2 (PVP-03): per-session lock free-use regen. The 8.4 design is "3 free

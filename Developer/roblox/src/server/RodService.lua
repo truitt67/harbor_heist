@@ -431,7 +431,8 @@ end
 
 function RodService.init(deps)
 	-- Reserved for future dependency wiring; rod visuals are driven directly
-	-- by FishingService and the character lifecycle in init.server.lua.
+	-- by FishingService (startCast/endCast, ydf6), ShopService (re-equip on
+	-- rod purchase), and the character lifecycle in init.server.lua.
 end
 
 return RodService
