@@ -17,7 +17,7 @@ they would stay wrong until their next upgrade purchase).
 Fix: the recompute is hoisted to run on every sanitize path, making
 `Capacity == tiers[UpgradeLevel].capacity` universal. Commit bb86f91.
 
-## G2 — Studio blocks DataStore for unpublished places — DOCUMENTED
+## G2 — Studio blocks DataStore for unpublished places — DOCUMENTED (place published, runner still uses mock)
 
 Found by: 19.6 ("You must publish this place to the web to access
 DataStore"; `GetDataStore` throws and DataManager's module-level pcall
@@ -27,9 +27,24 @@ Workaround: `DataManager._setStores(v2, v1)` seam; the E2E injects an
 in-memory mock with real deep-copy semantics (reference-storing mocks
 hide aliasing bugs). The runner probes first and prefers the real store
 when the place IS published.
-FOLLOW-UP: schedule periodic E2E validation against the published place
-so the real DataStore path (UpdateAsync merge transforms included) stays
-honest.
+
+**Current state (2026-07-26):** Place is published on the web, but the
+E2E runner still reports `store mode: in-memory mock`. Reason:
+`run-in-roblox` opens the local `.rbxlx` file, which Studio treats as an
+unpublished place for DataStore purposes — it doesn't know the place ID.
+DataStore access requires opening the place *as* the published place
+(via its place ID), but `run-in-roblox` only accepts local file paths.
+
+**Manual verification path:** To test the real DataStore path, open the
+published place in Studio (via Creator Dashboard → Edit), then run the
+E2E script manually (File → Open → select `tests/e2e_stub.lua`). The
+runner should report `store mode: REAL DataStore (published place)` and
+all 198 assertions should pass. This exercises the full UpdateAsync
+merge path with real serialization.
+
+**Automation gap:** `run-in-roblox` would need a `--place-id` option to
+open by published place ID instead of file path. Until then, real-DataStore
+validation is manual-only.
 
 ## G3 — Notify-first code paths are unobservable with fake players — DOCUMENTED
 
