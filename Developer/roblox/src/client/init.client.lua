@@ -2966,6 +2966,20 @@ local function renderQuestPanel(data)
 	for i, q in ipairs(data and data.dailyQuests or {}) do
 		makeQuestRow(questList, q, 10 + i)
 	end
+	-- harborheist-7h69.6: empty-state message when no daily quests.
+	if not data or not data.dailyQuests or #data.dailyQuests == 0 then
+		makeLabel(questList, {
+			Size = UDim2.new(1, -12, 0, 40),
+			Text = "No daily quests available right now. New quests refresh daily at midnight!",
+			Font = FONT_BODY,
+			TextSize = 13,
+			TextColor3 = UI.textFaint,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			LayoutOrder = 2,
+			ZIndex = 26,
+		})
+	end
 
 	makeLabel(questList, {
 		Size = UDim2.new(1, 0, 0, 24),
@@ -2979,6 +2993,20 @@ local function renderQuestPanel(data)
 	})
 	for i, q in ipairs(data and data.weeklyQuests or {}) do
 		makeQuestRow(questList, q, 110 + i)
+	end
+	-- harborheist-7h69.6: empty-state message when no weekly quests.
+	if not data or not data.weeklyQuests or #data.weeklyQuests == 0 then
+		makeLabel(questList, {
+			Size = UDim2.new(1, -12, 0, 40),
+			Text = "No weekly quests available. Check back for new challenges!",
+			Font = FONT_BODY,
+			TextSize = 13,
+			TextColor3 = UI.textFaint,
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			LayoutOrder = 101,
+			ZIndex = 26,
+		})
 	end
 end
 
@@ -3121,7 +3149,7 @@ local function renderRaidTargets(data)
 	if not data.targets or #data.targets == 0 then
 		makeLabel(raidTargetList, {
 			Size = UDim2.new(1, 0, 0, 48),
-			Text = "No opted-in targets available.",
+			Text = "No opted-in targets available. Other players must opt in to raids to appear here.",
 			Font = FONT_MED,
 			TextSize = 14,
 			TextColor3 = UI.textDim,
