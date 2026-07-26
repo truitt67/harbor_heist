@@ -5036,8 +5036,13 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
-	showPanel(aquariumPanel)
-	render() -- R3 audit #20: aquarium block is push-gated; render on open
+	-- harborheist-egvu: server-pushed opens get the same overlay gate as
+	-- every other panel opener — the dock prompt is tappable mid-minigame,
+	-- and a panel opening under the overlay eats the timing bar's taps.
+	if not overlayBlocksPanels() then
+		showPanel(aquariumPanel)
+		render() -- R3 audit #20: aquarium block is push-gated; render on open
+	end
 end)
 
 -- TASK 24.1 (hvfh.4.1): clicking/tapping the HUD cash card opens the
@@ -5050,8 +5055,12 @@ hudClick.Activated:Connect(function()
 end)
 
 Remotes.OpenShop.OnClientEvent:Connect(function()
-	showPanel(shopPanel)
-	refreshShop()
+	-- harborheist-egvu: same overlay gate as OpenAquarium — the shop
+	-- counter prompt is tappable mid-minigame.
+	if not overlayBlocksPanels() then
+		showPanel(shopPanel)
+		refreshShop()
+	end
 end)
 
 Remotes.QuestProgressChanged.OnClientEvent:Connect(function(data)
