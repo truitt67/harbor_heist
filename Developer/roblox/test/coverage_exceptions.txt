@@ -49,6 +49,7 @@ AquariumService.onSessionLoaded: module requires game at top level; lune proof _
 RaidService.validateAttacker: composes window+zone+cooldown+new-player gates (EPIC 19.8 raid e2e covers at runtime)
 RaidService.getRaidTargets: enumerates live sessions via dataManager.allSessions (EPIC 19.8 covers at runtime)
 RaidService.requestRaidAttempt: full raid-attempt flow requiring Players:GetPlayers (EPIC 19.8 covers at runtime)
+RaidService._setWindowOpen: E2E-only test seam forcing raid window state (EPIC 19.8 exercises it at runtime)
 
 # OnboardingService.init: wires RemoteEvent handlers
 OnboardingService.init: wires collection-book remote handler (EPIC 19 covers at runtime)

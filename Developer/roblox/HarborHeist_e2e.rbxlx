@@ -1411,6 +1411,7 @@ local DataManager = require(hh:WaitForChild("DataManager"))
 local DockManager = require(hh:WaitForChild("DockManager"))
 local StateSync = require(hh:WaitForChild("StateSync"))
 local AquariumService = require(hh:WaitForChild("AquariumService"))
+local RaidService = require(hh:WaitForChild("RaidService"))
 local PlayerProfile = require(ReplicatedStorage.Shared:WaitForChild("PlayerProfile"))
 local GameConfig = require(ReplicatedStorage.Shared:WaitForChild("GameConfig"))
 
@@ -2224,6 +2225,220 @@ if activateLock then
 	end
 	DataManager.remove(lockB)
 end
+
+-- ============================================================
+-- TASK 19.8.1: Raid system (automated single-player)
+-- ============================================================
+print("[E2E 19.8] === Raid System ===")
+
+-- Two fake players through the REAL RaidService module functions
+-- (requestRaidAttempt / submitRaidResult are public — the remote wrappers
+-- only add rate limiting, which is datamodel-spec territory). Victim
+-- resolution enumerates getPlayers(), so _setPlayersProvider swaps in our
+-- fakes. The raid window is forced via _setWindowOpen (real scheduler waits
+-- 20-30min; its first transition is >= 20min after boot so a short test
+-- cannot race it). Notify throws on fake players, but always AFTER the
+-- mutation it announces — profile/session state is authoritative.
+-- The too_fast reason-string path notifies before returning, so it can't be
+-- asserted by return value here (datamodel specs cover it); E2E asserts the
+-- observable: an instant forged submit transfers nothing and consumes the
+-- raid.
+
+local raider = {
+	UserId = 111000111,
+	Name = "E2ERaider",
+	DisplayName = "E2ERaider",
+	Parent = Players,
+	Character = nil,
+}
+local raidVictim = {
+	UserId = 222000222,
+	Name = "E2EVictim",
+	DisplayName = "E2EVictim",
+	Parent = Players,
+	Character = nil,
+}
+local atkS = DataManager.load(raider)
+local vicS = DataManager.load(raidVictim)
+assertTrue("19.8 attacker session created", atkS ~= nil)
+assertTrue("19.8 victim session created", vicS ~= nil)
+
+if atkS and vicS then
+	-- Make both sides raid-legal: an aquarium upgrade bypasses new-player
+	-- protection (hasUpgrade), both opt in, victim stocks a stealable fish.
+	atkS.profile.Aquarium.UpgradeLevel = 2
+	vicS.profile.Aquarium.UpgradeLevel = 2
+	atkS.profile.Aquarium.RaidOptIn = true
+	vicS.profile.Aquarium.RaidOptIn = true
+	table.insert(vicS.profile.Aquarium.StoredFish, FishInstance.new("Tuna", "StarterPier"))
+
+	RaidService._setPlayersProvider(function()
+		return { raider, raidVictim }
+	end)
+
+	-- Gate: window closed (scheduler's first real window is >= 20min out)
+	assertTrue("19.8 window closed before force", not RaidService.isWindowOpen())
+	local rClosed = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: window_closed", "window_closed", rClosed and rClosed.reason)
+
+	RaidService._setWindowOpen(true, 300)
+	assertTrue("19.8 window forced open", RaidService.isWindowOpen())
+
+	-- Gate: attacker not opted in
+	atkS.profile.Aquarium.RaidOptIn = false
+	local rNoOpt = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: attacker not_opted_in", "not_opted_in", rNoOpt and rNoOpt.reason)
+	atkS.profile.Aquarium.RaidOptIn = true
+
+	-- Gate: victim not opted in
+	vicS.profile.Aquarium.RaidOptIn = false
+	local rVNoOpt = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: victim not_opted_in", "not_opted_in", rVNoOpt and rVNoOpt.reason)
+	vicS.profile.Aquarium.RaidOptIn = true
+
+	-- Gate: victim new-player-protected (downgrade, no catches)
+	vicS.profile.Aquarium.UpgradeLevel = 1
+	local rNewb = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: victim new_player_protected", "new_player_protected", rNewb and rNewb.reason)
+	vicS.profile.Aquarium.UpgradeLevel = 2
+
+	-- Target enumeration: victim listed, available, 1 stealable fish
+	local targetsPayload = RaidService.getRaidTargets(raider)
+	assertTrue("19.8 getRaidTargets canRaid", targetsPayload and targetsPayload.canRaid == true)
+	local targetInfo = nil
+	for _, t in ipairs(targetsPayload and targetsPayload.targets or {}) do
+		if t.userId == raidVictim.UserId then
+			targetInfo = t
+			break
+		end
+	end
+	assertTrue("19.8 victim listed as target", targetInfo ~= nil)
+	if targetInfo then
+		assertTrue("19.8 victim target available", targetInfo.available == true)
+		assertEq("19.8 victim stealableCount == 1", 1, targetInfo.stealableCount)
+	end
+
+	-- RNG seeding: raid rng call sequence for an attempt is
+	--   call 1: challenge center pick (requestRaidAttempt)
+	--   call 2: success roll (submitRaidResult)
+	--   call 3: steal-weight roll (resolveRaidSuccess)
+	-- Seed so call 2 <= threshold (perfect chance 0.85) for the success run,
+	-- or > 0.85 for the forged-submit run (even a broken timing gate could
+	-- then only "miss", never steal).
+	local function seedRaidRng(call2AtMost)
+		for seed = 1, 200 do
+			local probe = Random.new(seed)
+			probe:NextNumber() -- call 1
+			local call2 = probe:NextNumber()
+			if call2AtMost == nil or call2 <= call2AtMost then
+				if call2AtMost ~= nil or call2 > 0.85 then
+					RaidService._setRng(Random.new(seed))
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	-- ===== SUCCESS FLOW =====
+	assertTrue("19.8 rng seeded for success", seedRaidRng(0.85))
+	local challenge = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertTrue("19.8 attempt accepted", challenge and challenge.ok == true)
+	if challenge and challenge.ok then
+		assertTrue("19.8 challenge has perfect zone", challenge.perfectStart ~= nil and challenge.perfectStart < challenge.perfectEnd)
+		assertTrue("19.8 good zone contains perfect zone",
+			challenge.goodStart <= challenge.perfectStart and challenge.goodEnd >= challenge.perfectEnd)
+		assertTrue("19.8 attacker cooldown committed at request", atkS.raidAttackLastAt ~= nil)
+
+		-- One raid in flight per attacker
+		local rInFlight = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+		assertEq("19.8 re-attempt blocked: raid_in_progress", "raid_in_progress", rInFlight and rInFlight.reason)
+
+		-- TOCTOU design point: the window closing mid-minigame must NOT void
+		-- a committed raid (submitRaidResult deliberately skips the window
+		-- re-check). Force it closed before submitting.
+		RaidService._setWindowOpen(false)
+
+		-- Anti-forgery minimum time: the marker sweeps 0->1 over
+		-- durationSeconds, so position p requires p*duration elapsed (-0.5s
+		-- grace). Wait it out, then submit at the perfect-zone center.
+		local center = (challenge.perfectStart + challenge.perfectEnd) / 2
+		local waitNeeded = center * challenge.durationSeconds - 0.5 + 0.3
+		if waitNeeded > 0 then
+			task.wait(waitNeeded)
+		end
+		pcall(RaidService.submitRaidResult, raider, center)
+
+		assertEq("19.8 victim fish stolen (1->0)", 0, #vicS.profile.Aquarium.StoredFish)
+		assertEq("19.8 attacker received fish (0->1)", 1, #atkS.profile.Aquarium.StoredFish)
+		if #atkS.profile.Aquarium.StoredFish > 0 then
+			assertEq("19.8 stolen fish is the Tuna", "Tuna", atkS.profile.Aquarium.StoredFish[1].SpeciesId)
+		end
+		assertTrue("19.8 victim immunity written (raid protection)",
+			(vicS.profile.Aquarium.RaidProtectionUntilTimestamp or 0) > os.time())
+		assertEq("19.8 attacker RaidsWon == 1", 1, atkS.profile.PvP.RaidsWon)
+		assertEq("19.8 victim RaidsLost == 1", 1, vicS.profile.PvP.RaidsLost)
+		assertTrue("19.8 victim window loss counted",
+			vicS.raidWindowLosses ~= nil and vicS.raidWindowLosses.count == 1)
+		print("[E2E 19.8] success: fish transferred despite window closing mid-minigame")
+	end
+
+	-- Re-open for the remaining gate tests (new serial for loss-cap keying)
+	local serial2 = RaidService._setWindowOpen(true, 300)
+
+	-- Gate: attacker cooldown (committed by the successful raid)
+	local rAtkCd = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: attacker_cooldown", "attacker_cooldown", rAtkCd and rAtkCd.reason)
+	assertTrue("19.8 attacker cooldownRemaining reported", (rAtkCd and rAtkCd.cooldownRemaining or 0) > 0)
+
+	-- Gate: per-victim cooldown (clear only the attacker-side stamp;
+	-- restock + de-immune the victim so eligibility passes first)
+	atkS.raidAttackLastAt = nil
+	vicS.profile.Aquarium.RaidProtectionUntilTimestamp = 0
+	table.insert(vicS.profile.Aquarium.StoredFish, FishInstance.new("Perch", "StarterPier"))
+	local rVicCd = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: victim_cooldown", "victim_cooldown", rVicCd and rVicCd.reason)
+
+	-- Gate: raid protection immunity (eligibility check, before victim cd)
+	atkS.raidTargetCooldowns = nil
+	vicS.profile.Aquarium.RaidProtectionUntilTimestamp = os.time() + 600
+	local rProt = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: raid_protection", "raid_protection", rProt and rProt.reason)
+	vicS.profile.Aquarium.RaidProtectionUntilTimestamp = 0
+
+	-- Gate: per-window loss cap (2 losses this window)
+	vicS.raidWindowLosses = { serial = serial2, count = GameConfig.Raid.maxLossesPerWindow, value = 0 }
+	local rCap = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertEq("19.8 gate: loss_capped", "loss_capped", rCap and rCap.reason)
+	vicS.raidWindowLosses = nil
+
+	-- Gate: input validation
+	local rBadType = RaidService.requestRaidAttempt(raider, "not-a-number")
+	assertEq("19.8 gate: bad targetUserId type", "bad_input", rBadType and rBadType.reason)
+	local rSelf = RaidService.requestRaidAttempt(raider, raider.UserId)
+	assertEq("19.8 gate: self-raid rejected", "target_unavailable", rSelf and rSelf.reason)
+
+	-- ===== FORGED INSTANT SUBMIT (timing anti-forgery) =====
+	-- High seed: even if the timing gate were broken, the roll would miss —
+	-- so "victim keeps fish" can ONLY mean the forged submit did not steal.
+	assertTrue("19.8 rng seeded high for forge test", seedRaidRng(nil))
+	local ch2 = RaidService.requestRaidAttempt(raider, raidVictim.UserId)
+	assertTrue("19.8 forge-test attempt accepted", ch2 and ch2.ok == true)
+	if ch2 and ch2.ok then
+		local fishBefore = #vicS.profile.Aquarium.StoredFish
+		pcall(RaidService.submitRaidResult, raider, 1.0) -- instant max-position submit
+		assertEq("19.8 forged instant submit stole nothing", fishBefore, #vicS.profile.Aquarium.StoredFish)
+		-- The raid was consumed (single-resolution) either way
+		local resNA = RaidService.submitRaidResult(raider, 0.5)
+		assertEq("19.8 raid consumed after forged submit", "no_active_raid", resNA and resNA.reason)
+	end
+
+	-- Cleanup
+	RaidService._setWindowOpen(false)
+	RaidService._setPlayersProvider(nil)
+end
+DataManager.remove(raider)
+DataManager.remove(raidVictim)
 
 -- ============================================================
 -- Summary
@@ -8424,6 +8639,24 @@ end
 RaidService._activeRaids = activeRaids
 RaidService._setRng = function(newRng) rng = newRng end
 RaidService._setPlayersProvider = function(provider) playersProvider = provider end
+-- E2E test seam (TASK 19.8): force the raid window state. The real scheduler
+-- waits 20-30min between windows — far too long for a test run, and its next
+-- transition is >= 20min after boot in a fresh server, so a short test
+-- cannot race it. Returns windowSerial so tests can key loss-cap
+-- bookkeeping (raidWindowLosses.serial) to the forced window.
+RaidService._setWindowOpen = function(open, durationSeconds)
+	if open then
+		windowOpen = true
+		windowSerial = windowSerial + 1
+		windowEndsAt = os.clock() + (durationSeconds or 60)
+		nextWindowAt = 0
+	else
+		windowOpen = false
+		windowEndsAt = 0
+		nextWindowAt = os.clock() + 9999
+	end
+	return windowSerial
+end
 
 return RaidService
 ]]></string>

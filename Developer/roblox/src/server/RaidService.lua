@@ -1227,5 +1227,23 @@ end
 RaidService._activeRaids = activeRaids
 RaidService._setRng = function(newRng) rng = newRng end
 RaidService._setPlayersProvider = function(provider) playersProvider = provider end
+-- E2E test seam (TASK 19.8): force the raid window state. The real scheduler
+-- waits 20-30min between windows — far too long for a test run, and its next
+-- transition is >= 20min after boot in a fresh server, so a short test
+-- cannot race it. Returns windowSerial so tests can key loss-cap
+-- bookkeeping (raidWindowLosses.serial) to the forced window.
+RaidService._setWindowOpen = function(open, durationSeconds)
+	if open then
+		windowOpen = true
+		windowSerial = windowSerial + 1
+		windowEndsAt = os.clock() + (durationSeconds or 60)
+		nextWindowAt = 0
+	else
+		windowOpen = false
+		windowEndsAt = 0
+		nextWindowAt = os.clock() + 9999
+	end
+	return windowSerial
+end
 
 return RaidService
