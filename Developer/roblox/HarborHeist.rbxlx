@@ -5469,6 +5469,20 @@ function FishingService.init(deps)
 		if session.casting then
 			return
 		end
+		-- harborheist-egvu: reject a new cast while a bite is pending
+		-- resolution. session.casting flips false BEFORE BiteEvent fires, so
+		-- without this guard a mid-minigame RequestCast passes the check
+		-- above and overwrites activeBites[player] — the in-flight catch
+		-- then validates against the NEW cast's zone/rod/castDeadline.
+		-- Stale entries (crashed client never submits) expire after the
+		-- window + 2s grace so fishing can never softlock.
+		local pendingBite = activeBites[player]
+		if pendingBite then
+			if os.clock() - pendingBite.biteTime < BITE_WINDOW_SECONDS + 2 then
+				return
+			end
+			activeBites[player] = nil
+		end
 		if #session.carried >= GameConfig.MaxCarried then
 			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 			return
@@ -9051,8 +9065,8 @@ local function releaseOverlay(name)
 	end
 end
 
-local function isOverlayActive(name)
-	return activeOverlay == name
+local function isOverlayActive(kind)
+	return activeOverlay == kind
 end
 
 -- ============================================================
@@ -9243,6 +9257,12 @@ local function pressFeedback(button)
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
 	button.MouseButton1Down:Connect(function()
+		-- R3 audit #11: disabled buttons (Active=false — shop OWNED, raid
+		-- UNAVAILABLE) still receive Button1Down; without this gate, dead
+		-- buttons squash and imply interactivity they don't have.
+		if not button.Active then
+			return
+		end
 		TweenService:Create(scale, EASE_FAST, { Scale = 0.96 }):Play()
 	end)
 	button.MouseButton1Up:Connect(function()
@@ -9251,8 +9271,22 @@ local function pressFeedback(button)
 	button.MouseLeave:Connect(function()
 		TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
 	end)
+	-- R3 audit #1: on touch, Button1Up/MouseLeave are unreliable when the
+	-- finger slides off the button — the squash could stick at 0.96,
+	-- leaving the button visibly shrunk forever. InputEnded covers touch
+	-- release/cancel anywhere.
+	button.InputEnded:Connect(function(inputObject)
+		if inputObject.UserInputType == Enum.UserInputType.Touch
+			or inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
+			TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
+		end
+	end)
 	if not IS_MOBILE then
 		button.MouseEnter:Connect(function()
+			-- R3 audit #11: no hover-grow on disabled buttons either.
+			if not button.Active then
+				return
+			end
 			TweenService:Create(scale, EASE_FAST, { Scale = 1.025 }):Play()
 		end)
 	end
@@ -9496,6 +9530,9 @@ local carryLabel = makeLabel(carryPill, {
 -- FIFO queue w/ severity jump, category chip (color + label).
 -- ============================================================
 local MAX_VISIBLE_TOASTS = 3
+-- R3 audit #2: cap the backlog so a raid flurry can't queue 40 stale toasts
+-- that surface one-by-one over the next 2 minutes.
+local MAX_TOAST_QUEUE = 8
 local MIN_TOAST_H = IS_MOBILE and 40 or 42
 local TOAST_LIFETIME = 3.6
 local TOAST_FADE = 0.4
@@ -9553,6 +9590,13 @@ local function showToastDirect(message, color, category)
 	local toastMinSize = Instance.new("UISizeConstraint")
 	toastMinSize.MinSize = Vector2.new(0, MIN_TOAST_H)
 	toastMinSize.Parent = toast
+	-- R3 audit #3: long wrapped messages grew unbounded via AutomaticSize
+	-- inside the fixed 300px host — 3 fat toasts overflowed onto panels and
+	-- overlays beneath. Cap at ~3 text lines and clip the rest.
+	local toastMaxSize = Instance.new("UISizeConstraint")
+	toastMaxSize.MaxSize = Vector2.new(math.huge, MIN_TOAST_H + 54)
+	toastMaxSize.Parent = toast
+	toast.ClipsDescendants = true
 	local accentBar = Instance.new("Frame")
 	accentBar.Size = UDim2.new(0, 4, 1, -14)
 	accentBar.Position = UDim2.new(0, 8, 0, 7)
@@ -9635,7 +9679,35 @@ local function showNotification(message, color, category)
 		else
 			table.insert(toastQueue, entry)
 		end
+		-- R3 audit #2: unbounded queue → stale "You caught X" toasts surfacing
+		-- minutes after a raid flurry. Evict the OLDEST non-severe entry
+		-- beyond a cap (severe toasts keep their queue-jump priority).
+		while #toastQueue > MAX_TOAST_QUEUE do
+			local evicted = false
+			for i, pending in ipairs(toastQueue) do
+				if not SEVERE_CATEGORIES[pending.category] then
+					table.remove(toastQueue, i)
+					evicted = true
+					break
+				end
+			end
+			if not evicted then
+				table.remove(toastQueue, #toastQueue)
+			end
+		end
 	end
+end
+
+-- harborheist-egvu: one moment — finish the minigame first. Panels opening
+-- during an active overlay render BENEATH it but their backdrop still eats
+-- taps (gameProcessed=true), which makes the timing bar untappable and
+-- guarantees a lost fish. Placed after showNotification (lexical scope).
+local function overlayBlocksPanels()
+	if activeOverlay then
+		showNotification("One moment — finish the minigame first!", UI.warn)
+		return true
+	end
+	return false
 end
 
 -- ============================================================
@@ -9774,7 +9846,9 @@ sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360,
 sellStorePrompt.BackgroundColor3 = UI.surface
 sellStorePrompt.BackgroundTransparency = 0.08
 sellStorePrompt.Visible = false
-sellStorePrompt.ZIndex = 16
+-- R3 audit #22: above panels (25-27) — a first catch arriving while a panel
+-- was open rendered this prompt BEHIND it, invisible until closed.
+sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
 corner(sellStorePrompt, 14)
 stroke(sellStorePrompt, 0.7, UI.accent, 1.5)
@@ -9787,7 +9861,7 @@ makeLabel(sellStorePrompt, {
 	TextSize = IS_MOBILE and 16 or 15,
 	TextColor3 = UI.text,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 17,
+	ZIndex = 31,
 })
 
 makeLabel(sellStorePrompt, {
@@ -9799,7 +9873,7 @@ makeLabel(sellStorePrompt, {
 	TextColor3 = UI.textDim,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	ZIndex = 17,
+	ZIndex = 31,
 })
 
 local sellStoreClose = makeButton(sellStorePrompt, {
@@ -9810,7 +9884,7 @@ local sellStoreClose = makeButton(sellStorePrompt, {
 	BackgroundColor3 = UI.surfaceHi,
 	TextColor3 = UI.textDim,
 	CornerRadius = 999,
-	ZIndex = 17,
+	ZIndex = 31,
 })
 
 local sellStoreSellBtn = makeButton(sellStorePrompt, {
@@ -9820,7 +9894,7 @@ local sellStoreSellBtn = makeButton(sellStorePrompt, {
 	BackgroundColor3 = UI.good,
 	TextColor3 = UI.ink,
 	CornerRadius = 10,
-	ZIndex = 17,
+	ZIndex = 31,
 })
 
 local sellStoreStoreBtn = makeButton(sellStorePrompt, {
@@ -9830,7 +9904,7 @@ local sellStoreStoreBtn = makeButton(sellStorePrompt, {
 	BackgroundColor3 = UI.accent,
 	TextColor3 = UI.ink,
 	CornerRadius = 10,
-	ZIndex = 17,
+	ZIndex = 31,
 })
 
 -- The FishInstance currently being offered by the comparison prompt.
@@ -9875,14 +9949,55 @@ local function showSellStorePrompt(fish)
 	TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
 end
 
+-- Failure reasons the server already notifies about (avoid duplicate toasts).
+-- The server stays silent on rate_limited, no_session, bad_id,
+-- fish_not_found, invalid_fish — those need a client-side toast.
+-- (R3 audit #4: moved above the sellStore comparison prompt handlers —
+-- Luau binds locals lexically at the definition site, so the SELL/STORE
+-- button callbacks below would otherwise read these as nil globals.)
+local SERVER_NOTIFIED_REASONS = {
+	aquarium_full = true,
+	aquarium_locked = true,
+	raid_protected = true,
+}
+
+-- harborheist-cjya: never show raw snake_case server reason strings to
+-- players ('Could not sell: fish_not_found' after a fast double-tap read
+-- like a bug report, not a game). Known reasons get friendly copy; anything
+-- unexpected falls back to a generic line.
+local FRIENDLY_FAILURE_REASONS = {
+	fish_not_found = "That fish is already gone.",
+	invalid_fish = "That fish can't be moved right now.",
+	rate_limited = "Slow down a moment...",
+	no_session = "Still loading — try again in a second.",
+	bad_id = "That didn't work — try again.",
+}
+
+local function friendlyFailureReason(verb, reason)
+	local friendly = FRIENDLY_FAILURE_REASONS[reason]
+	if friendly then
+		return friendly
+	end
+	return "Could not " .. verb .. " — try again."
+end
+
 sellStoreClose.Activated:Connect(function()
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
 end)
 
 sellStoreSellBtn.Activated:Connect(function()
+	-- R3 audit #4: un-pcall'd invoke + no revalidation — a fish already
+	-- sold/stored elsewhere failed silently with no toast at all.
 	if sellStoreTargetFish then
-		Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
+		local ok, result = pcall(function()
+			return Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
+		end)
+		if not ok or result == nil then
+			showNotification("Couldn't sell that fish — try again.", UI.bad)
+		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+			showNotification(friendlyFailureReason("sell", result.reason), UI.bad)
+		end
 	end
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
@@ -9890,7 +10005,14 @@ end)
 
 sellStoreStoreBtn.Activated:Connect(function()
 	if sellStoreTargetFish then
-		Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
+		local ok, result = pcall(function()
+			return Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
+		end)
+		if not ok or result == nil then
+			showNotification("Couldn't store that fish — try again.", UI.bad)
+		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+			showNotification(friendlyFailureReason("store", result.reason), UI.bad)
+		end
 	end
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
@@ -10055,7 +10177,23 @@ local function showPanel(panel)
 		return
 	end
 	if activePanel then
-		activePanel.Visible = false
+		-- R3 audit #5: switching panels on mobile hard-hid the old sheet
+		-- (Visible=false) while the new one slid up — an abrupt pop in a UI
+		-- that tweens everywhere else. Slide the old one down like hidePanels.
+		local oldPanel = activePanel
+		if IS_MOBILE then
+			local slideOut = TweenService:Create(oldPanel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
+			slideOut:Play()
+			slideOut.Completed:Once(function()
+				-- Guard against A→B→A fast switching: if the user reopened
+				-- this panel before the slide-out finished, don't hide it.
+				if activePanel ~= oldPanel then
+					oldPanel.Visible = false
+				end
+			end)
+		else
+			oldPanel.Visible = false
+		end
 	end
 	activePanel = panel
 	if updateActionBarIndicator then
@@ -10097,7 +10235,9 @@ if not IS_MOBILE then
 			if activePanel then
 				local scale = activePanel:FindFirstChildOfClass("UIScale")
 				if scale then
-					scale.Scale = desktopPanelFitScale(activePanel)
+					-- R3 audit #6: a direct assignment snapped the scale
+					-- instantly mid-pop-animation — tween to the new fit.
+					TweenService:Create(scale, EASE_FAST, { Scale = desktopPanelFitScale(activePanel) }):Play()
 				end
 			end
 		end)
@@ -10206,6 +10346,35 @@ local raidOptInButton = makeButton(aquariumContent, {
 	ZIndex = 26,
 })
 
+-- R3 audit #7: the aquarium content uses fixed pixel offsets (rarity list
+-- reserves 214px below a 110px offset ≈ 324px of content). In short
+-- landscape viewports the 0.78-scale sheet made the list NEGATIVE height
+-- (blank) and the SELL/LOCK/opt-in stack overlapped the stats. Give the
+-- sheet a pixel floor (capped at viewport-8 so it never overflows the top)
+-- and re-fit on rotation.
+local function fitAquariumPanelHeight()
+	if not IS_MOBILE then
+		return
+	end
+	local cam = workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local vy = cam.ViewportSize.Y
+	local h = math.clamp(math.floor(vy * 0.78), math.min(400, vy - 8), vy - 8)
+	aquariumPanel.Size = UDim2.new(1, -12, 0, h)
+end
+fitAquariumPanelHeight()
+if IS_MOBILE then
+	local function bindAquariumFit(cam)
+		if cam then
+			cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitAquariumPanelHeight)
+		end
+	end
+	bindAquariumFit(workspace.CurrentCamera)
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindAquariumFit)
+end
+
 -- ============================================================
 -- Inventory panel (TASK 4.4 / wqw.18): per-fish SELL + STORE management.
 -- Lists every carried fish from the snapshot's carriedFish array; each row
@@ -10258,6 +10427,9 @@ end
 -- (carry order may gain gameplay meaning later; the server contract is not
 -- the problem). Sorting upstream in renderInventory keeps the rebuild-guard
 -- signature consistent automatically.
+-- R3 audit #9: forward-declared so renderInventory can gate STORE ALL on
+-- bag-emptiness before the button instance is created below.
+local invStoreAllBtn
 local function sortCarriedForDisplay(carried)
 	local wrapped = {}
 	for i, fish in ipairs(carried) do
@@ -10283,34 +10455,8 @@ local function sortCarriedForDisplay(carried)
 	return sorted
 end
 
--- Failure reasons the server already notifies about (avoid duplicate toasts).
--- The server stays silent on rate_limited, no_session, bad_id,
--- fish_not_found, invalid_fish — those need a client-side toast.
-local SERVER_NOTIFIED_REASONS = {
-	aquarium_full = true,
-	aquarium_locked = true,
-	raid_protected = true,
-}
-
--- harborheist-cjya: never show raw snake_case server reason strings to
--- players ('Could not sell: fish_not_found' after a fast double-tap read
--- like a bug report, not a game). Known reasons get friendly copy; anything
--- unexpected falls back to a generic line.
-local FRIENDLY_FAILURE_REASONS = {
-	fish_not_found = "That fish is already gone.",
-	invalid_fish = "That fish can't be moved right now.",
-	rate_limited = "Slow down a moment...",
-	no_session = "Still loading — try again in a second.",
-	bad_id = "That didn't work — try again.",
-}
-
-local function friendlyFailureReason(verb, reason)
-	local friendly = FRIENDLY_FAILURE_REASONS[reason]
-	if friendly then
-		return friendly
-	end
-	return "Could not " .. verb .. " — try again."
-end
+-- (SERVER_NOTIFIED_REASONS / FRIENDLY_FAILURE_REASONS / friendlyFailureReason
+-- moved above the sellStore comparison prompt section — R3 audit #4.)
 
 local function fishDisplayName(fish)
 	if not fish then
@@ -10346,6 +10492,13 @@ local function renderInventory()
 		end
 	end
 	local signature = table.concat(signatureParts, "|")
+	-- R3 audit #9: STORE ALL should be dead while the bag is empty, otherwise
+	-- it fires a pointless round-trip and the server returns a confusing
+	-- toast. Reflect carry state on the bulk button every render.
+	local bagHasFish = #carried > 0
+	invStoreAllBtn.Active = bagHasFish
+	invStoreAllBtn.AutoButtonColor = bagHasFish
+	invStoreAllBtn.TextColor3 = bagHasFish and UI.ink or UI.textFaint
 	if signature == lastInventorySignature then
 		return
 	end
@@ -10447,13 +10600,29 @@ local function renderInventory()
 			ZIndex = 27,
 		})
 
-		sellBtn.Activated:Connect(function()
+		-- R3 audit #8: debounce the invoke so a double-tap during latency
+		-- can't fire two InvokeServer calls (server rejects the loser, but
+		-- the client showed a raw-reason toast for it). Disabling the button
+		-- also gives clear "I registered your tap" feedback.
+		local function debouncedAction(btn, fn)
+			btn.Activated:Connect(function()
+				if not btn.Active then
+					return
+				end
+				btn.Active = false
+				local result = fn()
+				btn.Active = true
+				return result
+			end)
+		end
+
+		debouncedAction(sellBtn, function()
 			local result = Remotes.SellFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
 				showNotification(friendlyFailureReason("sell", result.reason), UI.bad)
 			end
 		end)
-		storeBtn.Activated:Connect(function()
+		debouncedAction(storeBtn, function()
 			local result = Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
 				showNotification(friendlyFailureReason("store", result.reason), UI.bad)
@@ -10463,7 +10632,7 @@ local function renderInventory()
 end
 
 local invBulkH = IS_MOBILE and 46 or 40
-local invStoreAllBtn = makeButton(inventoryContent, {
+invStoreAllBtn = makeButton(inventoryContent, {
 	Size = UDim2.new(1, 0, 0, invBulkH),
 	Position = UDim2.new(0, 0, 1, -invBulkH),
 	Text = "STORE ALL",
@@ -10471,10 +10640,16 @@ local invStoreAllBtn = makeButton(inventoryContent, {
 	ZIndex = 26,
 })
 invStoreAllBtn.Activated:Connect(function()
+	if not invStoreAllBtn.Active then
+		return
+	end
 	Remotes.RequestStoreFish:InvokeServer()
 end)
 
 local function toggleInventoryPanel()
+	if overlayBlocksPanels() then
+		return
+	end
 	if activePanel == inventoryPanel then
 		hidePanels()
 		return
@@ -10751,7 +10926,19 @@ renderCollection = function()
 		return
 	end
 	local book = collectionBookData
-	local signature = (book.discoveredCount or 0) .. "/" .. (book.totalSpecies or 0)
+	-- R3 audit #15: signature was discovered/total only — a milestone
+	-- becoming claimable (have/need crossing) never re-rendered the panel
+	-- until an unrelated species discovery changed the count. Fold milestone
+	-- progress + claimed state into the signature.
+	local sigParts = { tostring(book.discoveredCount or 0), tostring(book.totalSpecies or 0) }
+	if book.milestones then
+		for _, milestone in ipairs(book.milestones) do
+			table.insert(sigParts, tostring(milestone.id))
+			table.insert(sigParts, tostring(milestone.have or milestone.current or 0))
+			table.insert(sigParts, tostring(milestone.claimed and 1 or 0))
+		end
+	end
+	local signature = table.concat(sigParts, "/")
 	if signature == lastCollectionSignature then
 		return
 	end
@@ -10817,22 +11004,41 @@ renderCollection = function()
 end
 
 local function toggleCollectionPanel()
+	if overlayBlocksPanels() then
+		return
+	end
 	if activePanel == collectionPanel then
 		hidePanels()
 		return
 	end
 	showPanel(collectionPanel)
-	local book = Remotes.RequestCollection:InvokeServer()
+	-- R3 audit #14: un-pcall'd invoke + no loading state — a network error
+	-- killed the handler thread and left a permanently blank panel, and slow
+	-- networks showed emptiness with no spinner.
+	clearCollectionList()
+	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Loading collection...", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
+	local ok, book = pcall(function()
+		return Remotes.RequestCollection:InvokeServer()
+	end)
+	if not ok then
+		clearCollectionList()
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.bad, LayoutOrder = 1, ZIndex = 26 })
+		return
+	end
 	if book and book.ok then
 		collectionBookData = book
+		lastCollectionSignature = nil -- fresh fetch: force rebuild over the loading row
 		renderCollection()
 	elseif book and book.reason == "rate_limited" then
 		if collectionBookData then
 			renderCollection()
 		else
+			clearCollectionList()
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
 			showNotification("Collection book loading too fast — try again.", UI.warn)
 		end
 	else
+		clearCollectionList()
 		showNotification("Collection book unavailable: " .. tostring(book and book.reason or "unknown"), UI.bad)
 	end
 end
@@ -11340,6 +11546,11 @@ local function renderRaidTargets(data)
 		})
 		
 		local subtitleText = ""
+		-- R3 audit #12: the old duplicate-label guard string-matched the
+		-- display copy ("LOCKED", "Protected", ...) — any unknown
+		-- unavailableReason fell through and rendered a SECOND overlapping
+		-- subtitle on top of the first. Track creation with a flag instead.
+		local subtitleCreated = false
 		if isAvailable then
 			subtitleText = string.format("Dock %d  •  %d stealable fish", target.dockIndex or 0, target.stealableCount or 0)
 		else
@@ -11353,7 +11564,7 @@ local function renderRaidTargets(data)
 				victim_cooldown = "Recently raided",
 				no_stealable_fish = "No fish to steal",
 			})[reason] or reason
-			
+
 			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds > 0 then
 				subtitleText = string.format("%s  •  %s", reasonLabel, formatRaidTime(target.unavailableSeconds))
 				-- Store reference for 1Hz update
@@ -11367,6 +11578,7 @@ local function renderRaidTargets(data)
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
 				})
+				subtitleCreated = true
 				raidTargetCountdownLabels[target.userId] = {
 					label = countdownLabel,
 					reason = reason,
@@ -11385,10 +11597,11 @@ local function renderRaidTargets(data)
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
 				})
+				subtitleCreated = true
 			end
 		end
-		
-		if not subtitleText:find("LOCKED") and not subtitleText:find("Protected") and not subtitleText:find("Loss cap") and not subtitleText:find("Safe Harbor") and not subtitleText:find("Recently raided") and not subtitleText:find("No fish") then
+
+		if not subtitleCreated then
 			makeLabel(row, {
 				Size = UDim2.new(1, -110, 0, 16),
 				Position = UDim2.new(0, 12, 0, 28),
@@ -11547,9 +11760,20 @@ local function computeRaidTargetsSignature(data)
 	return table.concat(parts, "|")
 end
 
-local function pollRaidTargets()
+-- R3 audit #13: generation guard against poll-chain accumulation. A quick
+-- close→reopen (&lt;3s) let the OLD chain's pending task.delay see
+-- activePanel == raidPanel again and resume alongside the NEW chain — N
+-- quick cycles meant N concurrent 3s invoke loops forever. Each start bumps
+-- the generation; stale chains die at their next tick.
+local raidPollGeneration = 0
+
+local function pollRaidTargets(generation)
 	if activePanel ~= raidPanel then
 		-- Panel closed: stop polling.
+		return
+	end
+	if generation ~= raidPollGeneration then
+		-- Superseded by a newer chain.
 		return
 	end
 	-- Fetch new targets.
@@ -11570,14 +11794,19 @@ local function pollRaidTargets()
 		end
 	end)
 	-- Schedule next poll if panel still open.
-	task.delay(3, pollRaidTargets)
+	task.delay(3, function()
+		pollRaidTargets(generation)
+	end)
 end
 
 local function startRaidPanelPolling()
 	-- Initialize signature from current data.
 	lastRaidTargetsSignature = computeRaidTargetsSignature(raidTargets)
-	-- Start polling loop.
-	task.delay(3, pollRaidTargets)
+	-- Start polling loop (new generation kills any surviving old chain).
+	raidPollGeneration += 1
+	task.delay(3, function()
+		pollRaidTargets(raidPollGeneration)
+	end)
 end
 
 -- TASK 21.4 (harborheist-7w5a): toggleRaidPanel moved BELOW
@@ -11585,6 +11814,9 @@ end
 -- the definition site, so the previous order crashed the RAID button
 -- handler with "attempt to call a nil value".
 local function toggleRaidPanel()
+	if overlayBlocksPanels() then
+		return
+	end
 	if activePanel == raidPanel then
 		hidePanels()
 		-- Polling stops automatically (activePanel check in pollRaidTargets).
@@ -12345,10 +12577,17 @@ local function render()
 	local boatLbl = actionButtons.boat_label or actionButtons.boat
 	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
 
-	local rodLevel = state.rodLevel or 1
-	local baitLevel = state.baitLevel or 1
-	local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
-	local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
+	-- R3 audit #20: the aquarium stats RichText rebuild, rarity list, capacity
+	-- tween, and lock-button state were running on EVERY 1Hz state push even
+	-- with the panel closed — wasted string churn + layout invalidation. Gate
+	-- ONLY the panel-specific block on visibility; everything after (SELL ALL
+	-- disarm, stun WalkSpeed, CLAIM button, onboarding prompts) must keep
+	-- running unconditionally. (HUD income/cash/carry are updated above.)
+	if activePanel == aquariumPanel then
+		local rodLevel = state.rodLevel or 1
+		local baitLevel = state.baitLevel or 1
+		local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
+		local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
 	-- harborheist-9ocy: reuse the HUD's adaptive formatIncomeRate here — the
 	-- raw '$%.1f / sec' form read '$0.0 / sec' for starter tanks (the exact
 	-- complaint hvfh.2.3 fixed on the HUD), in the panel where players go to
@@ -12401,6 +12640,7 @@ local function render()
 		lockButton.BackgroundColor3 = UI.warn
 		lockButton.TextColor3 = UI.ink
 	end
+	end -- R3 audit #20: end aquarium-panel-visible gate
 
 	-- TASK 25.1 (hvfh.5.1): disarm the SELL ALL confirm if the payout
 	-- changed since arming (new catch/store/sell/lock toggle) so the
@@ -12923,6 +13163,12 @@ local function doFish()
 		showNotification("Finish the raid first!", UI.warn)
 		return
 	end
+	-- harborheist-egvu: mid-bite F-presses must not fire a second RequestCast
+	-- (server backstop rejects them; shake = 'you are busy, tap the bar!').
+	if isOverlayActive("bite") then
+		shakeFishButton()
+		return
+	end
 	if casting then
 		-- TASK 22.2 (hvfh.2.2): visible "still waiting" feedback, not a dead button.
 		shakeFishButton()
@@ -12946,9 +13192,29 @@ actionButtons.collection.Activated:Connect(toggleCollectionPanel)
 -- TASK 8.12 (gdj.12): RAID button opens the raid panel.
 actionButtons.raid.Activated:Connect(toggleRaidPanel)
 -- TASK 8.12 (gdj.12): refresh + opt-in inside the raid panel.
-raidRefreshButton.Activated:Connect(refreshRaidPanel)
+-- R3 audit #21: debounce refresh so rapid taps can't stack invokes (server
+-- rate-limits the loser, which the user never sees — it just "eats" the tap).
+local lastRaidRefreshAt = 0
+raidRefreshButton.Activated:Connect(function()
+	local now = os.clock()
+	if now - lastRaidRefreshAt &lt; 1.5 then
+		return
+	end
+	lastRaidRefreshAt = now
+	refreshRaidPanel()
+end)
+-- R3 audit #19: optimistic disable until the next 1Hz state push confirms the
+-- new opt-in state — a double-tap inside that window sent two toggles and
+-- landed the player in the OPPOSITE state from what the button showed.
 raidOptInPanelButton.Activated:Connect(function()
+	if not raidOptInPanelButton.Active then
+		return
+	end
 	dismissOnboardingPrompt("raidExplain")
+	raidOptInPanelButton.Active = false
+	task.delay(1.5, function()
+		raidOptInPanelButton.Active = true
+	end)
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
 -- TASK 25.1 (hvfh.5.1): SELL ALL two-step confirmation guard.
@@ -13045,6 +13311,9 @@ claimButton.Activated:Connect(function()
 end)
 
 local function toggleQuestPanel()
+	if overlayBlocksPanels() then
+		return
+	end
 	if activePanel == questPanel then
 		hidePanels()
 		return
@@ -13059,7 +13328,18 @@ end
 
 actionButtons.quests.Activated:Connect(toggleQuestPanel)
 
+local lastBoatSpawnAt = 0
 local function trySpawnBoat()
+	-- R3 audit #16/#21: no overlay gate or debounce — spamming B / tapping the
+	-- boat button fired an InvokeServer per tap and toasted each rejection.
+	if activeOverlay then
+		return
+	end
+	local now = os.clock()
+	if now - lastBoatSpawnAt &lt; 1 then
+		return
+	end
+	lastBoatSpawnAt = now
 	local result = Remotes.SpawnBoat:InvokeServer()
 	if not result then
 		return
@@ -13093,15 +13373,27 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	elseif input.KeyCode == Enum.KeyCode.C then
 		toggleCollectionPanel()
 	elseif input.KeyCode == Enum.KeyCode.T then
-		showPanel(aquariumPanel)
+		if not overlayBlocksPanels() then
+			showPanel(aquariumPanel)
+			render() -- R3 audit #20: aquarium block is push-gated; render on open
+		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		toggleQuestPanel()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		toggleRaidPanel()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		trySpawnBoat()
-	elseif input.KeyCode == Enum.KeyCode.Escape and activePanel then
-		hidePanels()
+	elseif input.KeyCode == Enum.KeyCode.Escape then
+		-- R3 audit #17: Escape dismissed panels only — the onboarding prompt
+		-- and sell/store comparison prompt had no keyboard path out.
+		if activePanel then
+			hidePanels()
+		elseif sellStorePrompt.Visible then
+			hideSellStorePrompt()
+			markSellStoreComparisonSeen()
+		elseif onboardingPrompt.Visible and currentPromptStage then
+			dismissOnboardingPrompt(currentPromptStage)
+		end
 	end
 end)
 
@@ -13158,8 +13450,9 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		refreshRaidPanel()
 	end
 	if raidWindow.open and not wasOpen then
+		-- R3 audit #18: floor() printed '0 minutes' for sub-minute windows.
 		showNotification(
-			string.format("RAID WATERS OPEN for %d minutes! Steal fish from other docks while the window lasts.", math.floor(raidWindow.remainingSeconds / 60)),
+			string.format("RAID WATERS OPEN for %s! Steal fish from other docks while the window lasts.", formatRaidTime(raidWindow.remainingSeconds)),
 			Color3.fromRGB(255, 120, 120)
 		)
 	elseif not raidWindow.open and wasOpen then
@@ -13301,12 +13594,16 @@ end)
 
 Remotes.OpenAquarium.OnClientEvent:Connect(function()
 	showPanel(aquariumPanel)
+	render() -- R3 audit #20: aquarium block is push-gated; render on open
 end)
 
 -- TASK 24.1 (hvfh.4.1): clicking/tapping the HUD cash card opens the
 -- aquarium panel (same toggle semantics as every other panel opener).
 hudClick.Activated:Connect(function()
-	showPanel(aquariumPanel)
+	if not overlayBlocksPanels() then
+		showPanel(aquariumPanel)
+		render() -- R3 audit #20: aquarium block is push-gated; render on open
+	end
 end)
 
 Remotes.OpenShop.OnClientEvent:Connect(function()

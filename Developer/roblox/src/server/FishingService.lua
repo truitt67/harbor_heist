@@ -61,6 +61,20 @@ function FishingService.init(deps)
 		if session.casting then
 			return
 		end
+		-- harborheist-egvu: reject a new cast while a bite is pending
+		-- resolution. session.casting flips false BEFORE BiteEvent fires, so
+		-- without this guard a mid-minigame RequestCast passes the check
+		-- above and overwrites activeBites[player] — the in-flight catch
+		-- then validates against the NEW cast's zone/rod/castDeadline.
+		-- Stale entries (crashed client never submits) expire after the
+		-- window + 2s grace so fishing can never softlock.
+		local pendingBite = activeBites[player]
+		if pendingBite then
+			if os.clock() - pendingBite.biteTime < BITE_WINDOW_SECONDS + 2 then
+				return
+			end
+			activeBites[player] = nil
+		end
 		if #session.carried >= GameConfig.MaxCarried then
 			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 			return
