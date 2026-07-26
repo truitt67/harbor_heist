@@ -59,7 +59,7 @@ local UI = {
 	purple = Color3.fromRGB(167, 139, 250),
 	text = Color3.fromRGB(238, 243, 250),
 	textDim = Color3.fromRGB(148, 163, 184),
-	textFaint = Color3.fromRGB(100, 116, 139),
+	textFaint = Color3.fromRGB(130, 146, 169),
 	ink = Color3.fromRGB(10, 16, 26),
 }
 
