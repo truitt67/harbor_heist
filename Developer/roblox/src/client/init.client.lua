@@ -684,6 +684,10 @@ end
 -- ============================================================
 local MOBILE_STACK_BOTTOM = 90
 local MOBILE_STACK_PITCH = 70
+-- harborheist-hqn1: EFFECTIVE pitch after viewport-fit scaling. layoutMobileStack
+-- mutates this on short screens; updateOnboardingPromptOffset reads it so the
+-- prompt tracks the actual (possibly shrunk) stack top, not the design default.
+local mobileStackPitch = MOBILE_STACK_PITCH
 local PROMPT_STACK_GAP = 12
 local DESKTOP_BAR_BOTTOM = 18
 local DESKTOP_BAR_H = 58
@@ -897,7 +901,7 @@ local function showSellStorePrompt(fish)
 	end
 	sellStorePromptShown = true
 	sellStoreTargetFish = fish
-	sellStoreSellBtn.Text = string.format("SELL $%d", fish.BaseSellValue or 0)
+	sellStoreSellBtn.Text = string.format("SELL $%s", formatCash(fish.BaseSellValue or 0))
 	sellStoreStoreBtn.Text = string.format("STORE $%.1f/min", fish.IncomePerMinute or 0)
 	sellStorePrompt.Visible = true
 	local scale = sellStorePrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
@@ -1323,6 +1327,26 @@ local SERVER_NOTIFIED_REASONS = {
 	raid_protected = true,
 }
 
+-- harborheist-cjya: never show raw snake_case server reason strings to
+-- players ('Could not sell: fish_not_found' after a fast double-tap read
+-- like a bug report, not a game). Known reasons get friendly copy; anything
+-- unexpected falls back to a generic line.
+local FRIENDLY_FAILURE_REASONS = {
+	fish_not_found = "That fish is already gone.",
+	invalid_fish = "That fish can't be moved right now.",
+	rate_limited = "Slow down a moment...",
+	no_session = "Still loading — try again in a second.",
+	bad_id = "That didn't work — try again.",
+}
+
+local function friendlyFailureReason(verb, reason)
+	local friendly = FRIENDLY_FAILURE_REASONS[reason]
+	if friendly then
+		return friendly
+	end
+	return "Could not " .. verb .. " — try again."
+end
+
 local function fishDisplayName(fish)
 	if not fish then
 		return "Fish"
@@ -1433,7 +1457,7 @@ local function renderInventory()
 		makeLabel(row, {
 			Size = UDim2.new(0.52, -20, 0, 18),
 			Position = UDim2.new(0, 10, 0, rowH - 24),
-			Text = string.format("$%d sell  •  $%.1f/min stored", fish.BaseSellValue or 0, fish.IncomePerMinute or 0),
+			Text = string.format("$%s sell  •  $%.1f/min stored", formatCash(fish.BaseSellValue or 0), fish.IncomePerMinute or 0),
 			Font = FONT_BODY,
 			TextSize = 12,
 			TextColor3 = UI.textDim,
@@ -1461,13 +1485,13 @@ local function renderInventory()
 		sellBtn.Activated:Connect(function()
 			local result = Remotes.SellFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-				showNotification("Could not sell: " .. tostring(result.reason), UI.bad)
+				showNotification(friendlyFailureReason("sell", result.reason), UI.bad)
 			end
 		end)
 		storeBtn.Activated:Connect(function()
 			local result = Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-				showNotification("Could not store: " .. tostring(result.reason), UI.bad)
+				showNotification(friendlyFailureReason("store", result.reason), UI.bad)
 			end
 		end)
 	end
@@ -1666,6 +1690,11 @@ local function makeCollectionCard(parent, order, data, discovered)
 	return card
 end
 
+-- harborheist-y3rz: forward declaration — the milestone claim handler below
+-- calls renderCollection() (~20 lines before its definition). Without this,
+-- the handler binds a nil GLOBAL and crashes after the reward is granted.
+local renderCollection
+
 local function makeMilestoneRow(parent, order, milestone)
 	local row = Instance.new("Frame")
 	row.Size = UDim2.new(1, 0, 0, 48)
@@ -1751,7 +1780,8 @@ local function makeMilestoneRow(parent, order, milestone)
 	return row
 end
 
-local function renderCollection()
+-- Assigned to the forward-declared local (harborheist-y3rz) — see above.
+renderCollection = function()
 	if not collectionBookData then
 		return
 	end
@@ -1961,7 +1991,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 62, 0, 7),
 		Text = itemDisplayName(entry),
 		Font = FONT_BOLD,
-		TextSize = IS_MOBILE and 15 or 15,
+		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 27,
@@ -1972,7 +2002,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 10, 0, 30),
 		Text = itemSubText(entry),
 		Font = FONT_BODY,
-		TextSize = IS_MOBILE and 12 or 12,
+		TextSize = 12,
 		TextColor3 = UI.textDim,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -2123,7 +2153,7 @@ local function makeQuestRow(parent, quest, order)
 
 	makeLabel(chip, {
 		Size = UDim2.new(1, 0, 1, 0),
-		Text = quest.claimed and "CLAIMED" or string.format("%d/%d • $%d", progressVal, target, quest.reward or 0),
+		Text = quest.claimed and "CLAIMED" or string.format("%d/%d • $%s", progressVal, target, formatCash(quest.reward or 0)),
 		Font = FONT_BOLD,
 		TextSize = 11,
 		TextColor3 = quest.claimed and UI.good or UI.accentSoft,
@@ -2466,6 +2496,31 @@ end
 -- the :2409 read bound a nil global and crashed on "attempt to index nil".
 local raidWindow = { open = false, remainingSeconds = 0, nextWindowInSeconds = 0 }
 
+-- harborheist-bkn1: SINGLE renderer for both raid opt-in toggle buttons
+-- (aquarium panel + raid panel). The two copies had already drifted in copy
+-- ('or upgrade)' vs 'or upgrade needed)'); the next behavior change would
+-- have landed in one and not the other. TASK 25.3 (hvfh.5.3): the DEC-4 gate
+-- is single-sourced server-side (GameConfig.Raid.unlockTotalCatches via
+-- StateSync raidEligible); the client renders snapshot fields only.
+local function renderRaidOptInButton(btn)
+	if not state then
+		return
+	end
+	if state.raidOptIn then
+		btn.Text = "RAID OPT-IN: ON (can be targeted)"
+		btn.BackgroundColor3 = UI.bad
+		btn.TextColor3 = UI.ink
+	elseif not state.raidEligible then
+		btn.Text = string.format("RAID OPT-IN: LOCKED (%d/%d catches or upgrade needed)", state.totalCatches or 0, state.raidUnlockCatches or GameConfig.Raid.unlockTotalCatches)
+		btn.BackgroundColor3 = UI.surfaceHi
+		btn.TextColor3 = UI.textFaint
+	else
+		btn.Text = "RAID OPT-IN: OFF (safe)"
+		btn.BackgroundColor3 = UI.surfaceHi
+		btn.TextColor3 = UI.text
+	end
+end
+
 local function updateRaidPanelStatic()
 	if not state then
 		return
@@ -2478,25 +2533,8 @@ local function updateRaidPanelStatic()
 		raidStatusLabel.Text = "Raid waters are calm"
 		raidStatusLabel.TextColor3 = UI.text
 	end
-	-- Update opt-in toggle mirror.
-	if state.raidOptIn then
-		raidOptInPanelButton.Text = "RAID OPT-IN: ON (can be targeted)"
-		raidOptInPanelButton.BackgroundColor3 = UI.bad
-		raidOptInPanelButton.TextColor3 = UI.ink
-	else
-		-- TASK 25.3 (hvfh.5.3): the DEC-4 gate is single-sourced server-side
-		-- (GameConfig.Raid.unlockTotalCatches via StateSync raidEligible);
-		-- the client renders snapshot fields only — no local eligibility logic.
-		if not state.raidEligible then
-			raidOptInPanelButton.Text = string.format("RAID OPT-IN: LOCKED (%d/%d catches or upgrade)", state.totalCatches or 0, state.raidUnlockCatches or GameConfig.Raid.unlockTotalCatches)
-			raidOptInPanelButton.BackgroundColor3 = UI.surfaceHi
-			raidOptInPanelButton.TextColor3 = UI.textFaint
-		else
-			raidOptInPanelButton.Text = "RAID OPT-IN: OFF (safe)"
-			raidOptInPanelButton.BackgroundColor3 = UI.surfaceHi
-			raidOptInPanelButton.TextColor3 = UI.text
-		end
-	end
+	-- Update opt-in toggle mirror (harborheist-bkn1: shared helper).
+	renderRaidOptInButton(raidOptInPanelButton)
 end
 
 local function refreshRaidPanel()
@@ -2683,7 +2721,7 @@ function startRaidMinigame(challenge)
 				raidInProgress = false
 				if ok and result then
 					if result.success then
-						showNotification(string.format("Heist %s! Stole a %s %s worth $%d.", result.tier or "", result.rarity or "", result.speciesId or "", result.value or 0), UI.good)
+						showNotification(string.format("Heist %s! Stole a %s %s worth $%s.", result.tier or "", result.rarity or "", result.speciesId or "", formatCash(result.value or 0)), UI.good)
 					elseif result.ok and not result.success then
 						showNotification("Heist failed — the fish slipped away.", UI.warn)
 					end
@@ -2751,9 +2789,10 @@ local ACTIONS = {
 -- compute re-introduced the collision on rotation.
 local function updateOnboardingPromptOffset()
 	if IS_MOBILE then
-		-- Stack top = MOBILE_STACK_BOTTOM + #ACTIONS*MOBILE_STACK_PITCH px
+		-- Stack top = MOBILE_STACK_BOTTOM + #ACTIONS*mobileStackPitch px
 		-- above the screen bottom; the prompt bottom clears it by the gap.
-		local offset = MOBILE_STACK_BOTTOM + #ACTIONS * MOBILE_STACK_PITCH + PROMPT_STACK_GAP
+		-- (harborheist-hqn1: reads the viewport-fit pitch, not the default.)
+		local offset = MOBILE_STACK_BOTTOM + #ACTIONS * mobileStackPitch + PROMPT_STACK_GAP
 		-- Short landscape phones: the derived offset would push the prompt
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
@@ -2810,6 +2849,7 @@ if IS_MOBILE then
 	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	stackLayout.Parent = stack
 
+	local mobileStackButtons = {}
 	for i, action in ipairs(ACTIONS) do
 		local holder = Instance.new("Frame")
 		holder.Size = UDim2.new(0, 60, 0, 60)
@@ -2826,25 +2866,73 @@ if IS_MOBILE then
 		})
 		btn.BackgroundTransparency = 0.16
 		stroke(btn, 0.58, action.color, 1.5)
-		makeLabel(btn, {
+		-- harborheist-m32r: on mobile there IS no keyboard — the hero glyph
+		-- is the ACTION NAME, and the key letter demotes to the small
+		-- footnote (kept for cross-platform players). Previously the 20px
+		-- hero showed 'F'/'G'/... and the actual action name was 9px.
+		local heroLabel = makeLabel(btn, {
 			Size = UDim2.new(1, 0, 0, 26),
 			Position = UDim2.new(0, 0, 0, 9),
-			Text = action.key,
+			Text = action.short,
 			Font = FONT_HEAD,
-			TextSize = 20,
+			TextSize = 18,
 			TextColor3 = action.color,
 		})
-		local mobileLabel = makeLabel(btn, {
+		makeLabel(btn, {
 			Size = UDim2.new(1, 0, 0, 16),
 			Position = UDim2.new(0, 0, 1, -20),
-			Text = action.short,
+			Text = action.key,
 			Font = FONT_BOLD,
 			TextSize = 9,
-			TextColor3 = UI.text,
+			TextColor3 = UI.textFaint,
 		})
 		actionButtons[action.id] = btn
-		actionButtons[action.id .. "_label"] = mobileLabel
+		actionButtons[action.id .. "_label"] = heroLabel
+		mobileStackButtons[i] = { holder = holder, hero = heroLabel }
 	end
+
+	-- harborheist-hqn1: fit the stack to the viewport height. The fixed
+	-- 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
+	-- short landscape phones (~375px) pushed the top buttons (QUEST/RAID/
+	-- BOAT) off-screen and unreachable. Mirrors the desktop bar's
+	-- responsive shrink (TASK 28.1). mobileStackPitch is shared with
+	-- updateOnboardingPromptOffset so the prompt tracks the shrunk stack.
+	local function layoutMobileStack(viewportH)
+		local cam = workspace.CurrentCamera
+		viewportH = viewportH or (cam and cam.ViewportSize.Y) or 800
+		local fullH = MOBILE_STACK_BOTTOM + #ACTIONS * MOBILE_STACK_PITCH
+		-- Keep the stack top clear of the HUD / raid-banner zone.
+		local availH = viewportH - (SAFE_TOP + 60)
+		local scale = math.clamp(availH / fullH, 0.6, 1)
+		local btnSize = math.floor(60 * scale + 0.5)
+		mobileStackPitch = math.floor(MOBILE_STACK_PITCH * scale + 0.5)
+		stack.Size = UDim2.new(0, btnSize + 4, 0, #ACTIONS * mobileStackPitch)
+		for _, entry in ipairs(mobileStackButtons) do
+			entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+			entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+		end
+	end
+	layoutMobileStack()
+
+	local stackViewportConn
+	local function bindStackViewport(cam)
+		if not cam then
+			return
+		end
+		if stackViewportConn then
+			stackViewportConn:Disconnect()
+		end
+		stackViewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+			layoutMobileStack(cam.ViewportSize.Y)
+			updateOnboardingPromptOffset()
+		end)
+	end
+	bindStackViewport(workspace.CurrentCamera)
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindStackViewport(workspace.CurrentCamera)
+		layoutMobileStack()
+		updateOnboardingPromptOffset()
+	end)
 else
 	-- TASK 28.1 (hvfh.8.1): bar width is derived from the content so an
 	-- extra action can never silently overflow; on narrow windows the buttons
@@ -3296,9 +3384,13 @@ local function render()
 	local baitLevel = state.baitLevel or 1
 	local rodName = (GameConfig.Rods[rodLevel] and GameConfig.Rods[rodLevel].name) or "Basic Rod"
 	local baitName = (GameConfig.Baits[baitLevel] and GameConfig.Baits[baitLevel].name) or "Worms"
+	-- harborheist-9ocy: reuse the HUD's adaptive formatIncomeRate here — the
+	-- raw '$%.1f / sec' form read '$0.0 / sec' for starter tanks (the exact
+	-- complaint hvfh.2.3 fixed on the HUD), in the panel where players go to
+	-- understand income.
 	aquariumStats.Text = string.format(
-		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>$%.1f / sec</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
-		state.liveWellCount, state.capacity, state.incomePerSec, rodName, baitName,
+		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>%s</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
+		state.liveWellCount, state.capacity, formatIncomeRate(state.incomePerSec), rodName, baitName,
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
 	local capacityRatio = math.clamp(state.liveWellCount / math.max(1, state.capacity), 0, 1)
@@ -3352,25 +3444,9 @@ local function render()
 		disarmSellButton()
 	end
 
-	-- TASK 8.2/8.3: Raid opt-in toggle button state.
-	if state.raidOptIn then
-		raidOptInButton.Text = "RAID OPT-IN: ON (can be targeted)"
-		raidOptInButton.BackgroundColor3 = UI.bad
-		raidOptInButton.TextColor3 = UI.ink
-	else
-		-- TASK 25.3 (hvfh.5.3): the DEC-4 gate is single-sourced server-side
-		-- (GameConfig.Raid.unlockTotalCatches via StateSync raidEligible);
-		-- the client renders snapshot fields only — no local eligibility logic.
-		if not state.raidEligible then
-			raidOptInButton.Text = string.format("RAID OPT-IN: LOCKED (%d/%d catches or upgrade needed)", state.totalCatches or 0, state.raidUnlockCatches or GameConfig.Raid.unlockTotalCatches)
-			raidOptInButton.BackgroundColor3 = UI.surfaceHi
-			raidOptInButton.TextColor3 = UI.textFaint
-		else
-			raidOptInButton.Text = "RAID OPT-IN: OFF (safe)"
-			raidOptInButton.BackgroundColor3 = UI.surfaceHi
-			raidOptInButton.TextColor3 = UI.text
-		end
-	end
+	-- TASK 8.2/8.3: Raid opt-in toggle button state (harborheist-bkn1: shared
+	-- helper — single source for both toggle buttons).
+	renderRaidOptInButton(raidOptInButton)
 
 	local character = player.Character
 	if character then
@@ -3391,7 +3467,7 @@ local function render()
 		claimButton.Text = "SAVING UNAVAILABLE"
 		claimButton.BackgroundColor3 = Color3.fromRGB(100, 60, 60)
 	elseif state.unclaimedIncome > 0 then
-		claimButton.Text = string.format("CLAIM $%d", state.unclaimedIncome)
+		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
 		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
 	else
 		claimButton.Text = "CLAIM $0"
@@ -3505,7 +3581,7 @@ vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), UI.bg)
 local minigameTitle = makeLabel(minigameFrame, {
 	Size = UDim2.new(1, -20, 0, 24),
 	Position = UDim2.new(0, 10, 0, 10),
-	Text = "FISH ON! Tap when the marker is in the zone!",
+	Text = IS_MOBILE and "FISH ON! Tap when the marker is in the zone!" or "FISH ON! Click when the marker is in the zone!",
 	Font = FONT_HEAD,
 	TextSize = IS_MOBILE and 15 or 16,
 	TextColor3 = UI.warn,
@@ -3729,11 +3805,11 @@ local function showRevealCard(speciesId, rarity, value)
 		ZIndex = 51,
 	})
 
-	-- Sell value + income/min line
+	-- Sell value + income/min line (harborheist-gw38: formatCash separators)
 	makeLabel(card, {
 		Size = UDim2.new(1, -20, 0, 20),
 		Position = UDim2.new(0, 10, 0, 92),
-		Text = string.format("$%d  •  $%.1f/min", value or 0, incomePerMin),
+		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
 		Font = FONT_BODY,
 		TextSize = 14,
 		TextColor3 = UI.textDim,
@@ -3972,9 +4048,9 @@ sellButton.Activated:Connect(function()
 		sellArmPayout = payout
 		local locked = (state.lockedUntil or 0) > 0
 		if locked then
-			sellButton.Text = string.format("SELL BAG $%d? TAP", payout)
+			sellButton.Text = string.format("SELL BAG $%s? TAP", formatCash(payout))
 		else
-			sellButton.Text = string.format("SELL ALL $%d? TAP", payout)
+			sellButton.Text = string.format("SELL ALL $%s? TAP", formatCash(payout))
 		end
 		sellButton.BackgroundColor3 = UI.bad
 		sellButton.TextColor3 = UI.ink
