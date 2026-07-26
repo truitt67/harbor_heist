@@ -4,6 +4,8 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
 local HapticService = game:GetService("HapticService")
+local SoundService = game:GetService("SoundService")
+local Debris = game:GetService("Debris")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
@@ -82,6 +84,12 @@ local castDeadline = 0
 -- old per-cast InputBegan closure captured this by upvalue; the single
 -- overlay router (see CastState handler below) needs it as file scope.
 local castOverlayDuration = 0
+-- harborheist-njqm: idle-cast coach toast. True while an OPENED cast
+-- overlay is still waiting for its first tap; a CastState(false) arriving
+-- in that window means the cast timed out with zero input and the server
+-- silently assigned luckBonus 0. Coached once per session.
+local castAwaitingInput = false
+local coachShownIdleCast = false
 -- TASK 23.1 (hvfh.3.1): central minigame/overlay manager. ONE owner for
 -- "which timed-input overlay is active", replacing four independent global
 -- InputBegan listeners (cast overlay, raid minigame, bite minigame x2).
@@ -294,6 +302,50 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 
 	return frame, title, barTrack, goodZone, perfectZone, subtitle, marker, markerGlow
 end
+
+-- ============================================================
+-- harborheist-6qyq: Sound design — client-local SoundService one-shots.
+-- The entire game was silent; sound is the cheapest premium-feel
+-- multiplier for a cozy game. Every asset ID below is a Roblox-OWNED
+-- classic/library upload, verified public via the economy v2 details API
+-- (2026-07-26): a wrong/unauthorized ID fails SILENTLY (no error, no
+-- sound), so never add an unverified ID to this table.
+-- ============================================================
+local SOUNDS = {
+	buttonTick = "rbxassetid://12221967", -- button.wav (classic click)
+	castLaunch = "rbxassetid://12222103", -- Rubber band sling shot.wav
+	biteAlert = "rbxassetid://12221990", -- electronicpingshort.wav
+	catchSplash = "rbxassetid://12222054", -- Kerplunk.wav
+	catchRare = "rbxassetid://12221990", -- ping, brightened via PlaybackSpeed
+	catchEpic = "rbxassetid://12221996", -- flashbulb.wav
+	catchLegendary = "rbxassetid://12222030", -- HalloweenThunder.wav
+	claimCoins = "rbxassetid://4612375233", -- gem_pickup (Roblox SFX library)
+	raidOpen = "rbxassetid://12222095", -- Rocket whoosh 01.wav
+	raidClose = "rbxassetid://12221944", -- bass.wav
+	raidVictim = "rbxassetid://12222005", -- glassbreak.wav
+}
+
+-- Server-toast categories that carry a stinger (consumed in
+-- showNotification, the single funnel for all server toasts).
+local NOTIFY_SOUNDS = {
+	-- ALARM-at-attempt, robbed, and defended toasts all share this
+	-- category (RaidService.lua) — one shatter sting = 'your dock!'.
+	["raid-victim"] = { id = SOUNDS.raidVictim, volume = 0.7 },
+}
+
+-- Fire-and-forget one-shot: no channel management or pooling (a few
+-- plays/minute at most); Debris collects the instance after the longest
+-- plausible tail. PlayLocalSound bypasses 3D so UI sounds never pan.
+local function playSound(soundId, volume, speed)
+	local s = Instance.new("Sound")
+	s.Name = "HH_OneShot"
+	s.SoundId = soundId
+	s.Volume = volume or 0.5
+	s.PlaybackSpeed = speed or 1
+	s.Parent = SoundService
+	SoundService:PlayLocalSound(s)
+	Debris:AddItem(s, 6)
+end
 -- Micro-interaction: quick squash on press, spring back on release.
 -- hoverGlow (optional, desktop): a white-wash Frame makeButton created —
 -- MouseEnter fades it in for a color-lift affordance that never fights
@@ -308,6 +360,7 @@ local function pressFeedback(button, hoverGlow)
 		if not button.Active then
 			return
 		end
+		playSound(SOUNDS.buttonTick, 0.3) -- harborheist-6qyq: every button ticks
 		TweenService:Create(scale, EASE_FAST, { Scale = 0.96 }):Play()
 	end)
 	button.MouseButton1Up:Connect(function()
@@ -832,6 +885,13 @@ end
 local function showNotification(message, color, category)
 	color = color or UI.accentSoft
 	category = category or "info"
+	-- harborheist-6qyq: server-toast categories with a stinger attached.
+	-- showNotification is the single funnel for every server toast, so
+	-- category sounds live here (raid-victim: ALARM / robbed / defended).
+	local stinger = NOTIFY_SOUNDS[category]
+	if stinger then
+		playSound(stinger.id, stinger.volume, stinger.speed)
+	end
 	if activeToastCount < MAX_VISIBLE_TOASTS then
 		showToastDirect(message, color, category)
 	else
@@ -2552,6 +2612,17 @@ local function buildShopRow(entry)
 		if not buyButton.Active then
 			return
 		end
+		-- harborheist-cl05: unaffordable next tier — explain the shortfall
+		-- locally instead of firing an invoke that earns the server's
+		-- generic 'Not enough cash!' error toast.
+		if entry.affordable == false then
+			local shortfall = math.max(0, (entry.item.cost or 0) - ((state and state.cash) or 0))
+			showNotification(
+				string.format("Need $%s more for %s", formatCash(shortfall), entry.item.name or "that upgrade"),
+				UI.warn
+			)
+			return
+		end
 		local result = Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
 		if result and result.ok then
 			refreshShop()
@@ -2592,9 +2663,15 @@ function refreshShop()
 			entry.buyButton.Active = false
 		elseif entry.level == currentLevel + 1 then
 			local affordable = state.cash >= (entry.item.cost or 0)
+			entry.affordable = affordable -- harborheist-cl05: read by the buy handler
 			entry.buyButton.Text = "$" .. formatCash(entry.item.cost)
-			entry.buyButton.BackgroundColor3 = affordable and UI.good or UI.surfaceHi
-			entry.buyButton.TextColor3 = affordable and UI.ink or UI.textDim
+			-- harborheist-cl05: unaffordable-but-tappable must not read as
+			-- DISABLED — surfaceHi+textDim was pixel-identical to OWNED, so
+			-- players tapped a 'dead' button and earned a generic error.
+			-- Distinct surface + amber price = 'not yet'; the tap explains
+			-- the shortfall (see buyButton.Activated).
+			entry.buyButton.BackgroundColor3 = affordable and UI.good or UI.surface
+			entry.buyButton.TextColor3 = affordable and UI.ink or UI.warn
 			entry.buyButton.Active = true
 		else
 			entry.buyButton.Text = "LOCKED"
@@ -3678,6 +3755,7 @@ overlayInputHandlers.cast = function(input, gp)
 		end
 		local elapsed = os.clock() - (castDeadline - castOverlayDuration)
 		local accuracy = math.clamp(elapsed / castOverlayDuration, 0, 1)
+		castAwaitingInput = false -- harborheist-njqm: input received, no coach toast
 		stopCastOverlay()
 		Remotes.CastResult:FireServer(accuracy)
 	end
@@ -4422,6 +4500,10 @@ local function showRevealCard(speciesId, rarity, value)
 	card.Parent = screenGui
 	corner(card, 14)
 	local cardStroke = stroke(card, 0.4, rarityColor, 2)
+	-- harborheist-s0yp: unified surface treatment — every other surface
+	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
+	-- moment was the one flat card in the game.
+	vGradient(card, Color3.fromRGB(26, 38, 57), UI.bg)
 
 	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
 	-- should feel different per tier. Rare: the standard pop. Epic: adds a
@@ -4499,25 +4581,39 @@ local function showRevealCard(speciesId, rarity, value)
 		ZIndex = 52,
 	})
 
-	-- Species display name (big, centered)
+	-- harborheist-s0yp: rarity-tinted fish silhouette beside the species
+	-- name — the collection book's visual, earned at the reveal moment.
+	local icon = Instance.new("Frame")
+	icon.Size = UDim2.new(0, 48, 0, 48)
+	icon.Position = UDim2.new(0, 18, 0, 52)
+	icon.BackgroundColor3 = UI.surfaceHi
+	icon.ZIndex = 51
+	icon.Parent = card
+	corner(icon, 999)
+	buildFishSilhouette(icon, rarityColor)
+
+	-- Species display name (big, right of the icon)
 	makeLabel(card, {
-		Size = UDim2.new(1, -20, 0, 30),
-		Position = UDim2.new(0, 10, 0, 54),
+		Size = UDim2.new(1, -92, 0, 30),
+		Position = UDim2.new(0, 76, 0, 54),
 		Text = displayName,
 		Font = FONT_HEAD,
 		TextSize = 22,
 		TextColor3 = UI.text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 51,
 	})
 
 	-- Sell value + income/min line (harborheist-gw38: formatCash separators)
 	makeLabel(card, {
-		Size = UDim2.new(1, -20, 0, 20),
-		Position = UDim2.new(0, 10, 0, 92),
+		Size = UDim2.new(1, -92, 0, 20),
+		Position = UDim2.new(0, 76, 0, 92),
 		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
 		Font = FONT_BODY,
 		TextSize = 14,
 		TextColor3 = UI.textDim,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 51,
 	})
 
@@ -4614,6 +4710,16 @@ local function onMinigameTap()
 	if result and result.ok == true then
 		catchesThisSession += 1
 		local rarity = result.rarity or "Common"
+		-- harborheist-6qyq: every catch splashes; rarity layers a sting on
+		-- top (ping -> flashbulb -> thunder) so the tiers ASCEND audibly.
+		playSound(SOUNDS.catchSplash, 0.55)
+		if rarity == "Rare" then
+			playSound(SOUNDS.catchRare, 0.6, 1.3)
+		elseif rarity == "Epic" then
+			playSound(SOUNDS.catchEpic, 0.65)
+		elseif rarity == "Legendary" then
+			playSound(SOUNDS.catchLegendary, 0.8)
+		end
 		if catchesThisSession == 1
 			or rarity == "Rare" or rarity == "Epic" or rarity == "Legendary" then
 			showRevealCard(result.speciesId, rarity, result.value)
@@ -4833,7 +4939,11 @@ raidOptInButton.Activated:Connect(function()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
-	Remotes.RequestClaimIncome:InvokeServer()
+	local result = Remotes.RequestClaimIncome:InvokeServer()
+	-- harborheist-6qyq: cha-ching only when income actually landed.
+	if result and result.ok and (result.amount or 0) > 0 then
+		playSound(SOUNDS.claimCoins, 0.6)
+	end
 end)
 
 local function toggleQuestPanel()
@@ -4845,11 +4955,14 @@ local function toggleQuestPanel()
 		return
 	end
 	showPanel(questPanel)
+	-- harborheist-p8v7: ALWAYS ask the server for fresh quests on open
+	-- (fire-and-forget; QuestProgressChanged re-renders the panel). Cached
+	-- data renders immediately as a placeholder — previously a reopen after
+	-- daily rotation showed yesterday's quests until the next server push.
 	if questData then
 		renderQuestPanel(questData)
-	else
-		Remotes.OpenQuests:FireServer()
 	end
+	Remotes.OpenQuests:FireServer()
 end
 
 actionButtons.quests.Activated:Connect(toggleQuestPanel)
@@ -4984,12 +5097,14 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		refreshRaidPanel()
 	end
 	if raidWindow.open and not wasOpen then
+		playSound(SOUNDS.raidOpen, 0.65) -- harborheist-6qyq: window-open stinger
 		-- R3 audit #18: floor() printed '0 minutes' for sub-minute windows.
 		showNotification(
 			string.format("RAID WATERS OPEN for %s! Steal fish from other docks while the window lasts.", formatRaidTime(raidWindow.remainingSeconds)),
 			Color3.fromRGB(255, 120, 120)
 		)
 	elseif not raidWindow.open and wasOpen then
+		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
 		showNotification("Raid waters closed. The harbor is safe... for now.", UI.accentSoft)
 	end
 end)
@@ -5075,6 +5190,8 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		-- opens; the cast resolves server-side with no CastResult input
 		-- (same accepted-race philosophy as rule 3, see BiteEvent handler).
 		if requestOverlay("cast") then
+			castAwaitingInput = true -- harborheist-njqm: overlay open, watching for a tap
+			playSound(SOUNDS.castLaunch, 0.5) -- harborheist-6qyq: sling-shot cast
 			castOverlayDuration = duration
 			castOverlay.Visible = true
 			marker.Position = UDim2.new(0, 0, 0, -3)
@@ -5094,6 +5211,17 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			markTween:Play()
 		end
 	else
+		-- harborheist-njqm: a CastState(false) arriving while the overlay
+		-- still awaited input means the cast timed out with ZERO taps — the
+		-- server assigned luckBonus 0 with no player-facing explanation.
+		-- Coach once per session so the miss teaches the mechanic.
+		if castAwaitingInput then
+			castAwaitingInput = false
+			if not coachShownIdleCast then
+				coachShownIdleCast = true
+				showNotification("No timing bonus — tap the bar next cast!", UI.warn)
+			end
+		end
 		-- CastState(false) with no bite: the cast resolved/cancelled. Only
 		-- clear the waiting state — never bite-ready (a BiteEvent may be
 		-- arriving in this same deferred callback right after this; clearing
@@ -5123,6 +5251,7 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 	if isOverlayActive("raid") then
 		return
 	end
+	playSound(SOUNDS.biteAlert, 0.65) -- harborheist-6qyq: FISH ON! ping
 	runMinigame(windowSeconds)
 end)
 
