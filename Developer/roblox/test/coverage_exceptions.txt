@@ -30,6 +30,7 @@ DataManager.startAutosave: starts an infinite task.wait loop (EPIC 19.2 covers a
 DataManager.bindToClose: wires game:BindToClose (EPIC 19.2 covers at runtime)
 DataManager.isHealthy: reads DataStoreService state (EPIC 19.6 covers at runtime)
 DataManager.tryRecover: requires live DataStoreService retry path (EPIC 19.6 covers at runtime)
+DataManager._setStores: E2E-only test seam for mock DataStore injection (EPIC 19.6 exercises it at runtime)
 
 # AntiExploitService.init: wires RemoteEvent.OnServerEvent handlers — needs DataModel
 AntiExploitService.init: wires RemoteEvent handlers (EPIC 19.9 abuse/rate-limit covers at runtime)

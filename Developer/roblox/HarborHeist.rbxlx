@@ -3643,6 +3643,22 @@ end
 
 local sessions = {}
 
+-- E2E test seam (TASK 19.6): swap the DataStore handles so the E2E runner
+-- can inject an in-memory mock. Studio blocks ALL DataStore access for
+-- unpublished local builds (GetDataStore throws "You must publish this
+-- place to the web"), which leaves dataStore/dataStoreV1 nil here and turns
+-- save() into a silent no-op — the mock lets the suite exercise the real
+-- save/load/sanitize/migration logic in that environment. Pass nil to
+-- restore the real handles captured at module load.
+local realDataStore, realDataStoreV1 = dataStore, dataStoreV1
+function DataManager._setStores(v2, v1)
+	if v2 == nil then
+		dataStore, dataStoreV1 = realDataStore, realDataStoreV1
+	else
+		dataStore, dataStoreV1 = v2, v1
+	end
+end
+
 -- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
 -- checks this BEFORE GetAsync so a rapid same-UserId rejoin doesn't read stale
 -- pre-save data (the wqw.20 deferred leave-save can be mid-UpdateAsync when the
@@ -3801,15 +3817,6 @@ local function sanitize(data)
 		if type(aq.LockCooldownUntilTimestamp) == "number" then
 			clean.Aquarium.LockCooldownUntilTimestamp = aq.LockCooldownUntilTimestamp
 		end
-		-- N6: Recompute capacity from UpgradeLevel against the authoritative tier
-		-- table so a crafted/exploited Capacity value cannot inflate storage.
-		local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
-		local upLevel = clean.Aquarium.UpgradeLevel or 1
-		if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
-			upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
-			clean.Aquarium.UpgradeLevel = upLevel
-			clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
-		end
 		if type(aq.RaidProtectionUntilTimestamp) == "number" then
 			clean.Aquarium.RaidProtectionUntilTimestamp = aq.RaidProtectionUntilTimestamp
 		end
@@ -3823,6 +3830,23 @@ local function sanitize(data)
 		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel &gt;= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 			clean.Aquarium.AlarmLevel = math.floor(aq.AlarmLevel)
 		end
+	end
+
+	-- N6: Recompute capacity from UpgradeLevel against the authoritative tier
+	-- table so a crafted/exploited Capacity value cannot inflate storage.
+	-- E2E 19.6: hoisted OUT of the `data.Aquarium` block above — the legacy
+	-- v1 `capacityLevel` conversion (top of sanitize) sets UpgradeLevel on
+	-- payloads that have NO Aquarium sub-table, so the recompute never ran
+	-- and migrated players silently kept the tier-1 default Capacity (20)
+	-- despite a higher UpgradeLevel. StateSync.getCapacity reads Capacity as
+	-- authoritative, so the invariant Capacity == tiers[UpgradeLevel] must
+	-- hold on EVERY path, not just v2 payloads.
+	local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
+	local upLevel = clean.Aquarium.UpgradeLevel or 1
+	if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
+		upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
+		clean.Aquarium.UpgradeLevel = upLevel
+		clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
 	end
 
 	-- Dock

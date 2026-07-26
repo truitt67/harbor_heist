@@ -1893,6 +1893,220 @@ DockManager.release(shopper)
 DataManager.remove(shopper)
 
 -- ============================================================
+-- TASK 19.6: Persistence round-trip + v1->v2 migration vs real DataStore
+-- ============================================================
+print("[E2E 19.6] === Persistence & Migration ===")
+
+local DataStoreService = game:GetService("DataStoreService")
+
+-- Store acquisition: prefer the REAL DataStore (published place), fall back
+-- to a faithful in-memory mock injected via DataManager._setStores when
+-- Studio blocks DataStore access. DISCOVERY: in an unpublished local build,
+-- GetDataStore itself throws "You must publish this place to the web" —
+-- DataManager's module-level pcall swallows this, leaving its store handles
+-- nil and turning every save() into a SILENT NO-OP (19.2's save/reload
+-- phases passed vacuously in this environment). The mock deep-copies on
+-- every read/write, mirroring real DataStore serialization semantics, so
+-- reference-aliasing between "stored" data and live profiles can't hide
+-- bugs. Everything except the Roblox transport is the real code path.
+local function deepCopy196(t)
+	if type(t) ~= "table" then return t end
+	local c = {}
+	for k, v in pairs(t) do
+		c[deepCopy196(k)] = deepCopy196(v)
+	end
+	return c
+end
+
+local function makeMockDataStore()
+	local data = {}
+	return {
+		GetAsync = function(_self, key)
+			return deepCopy196(data[key])
+		end,
+		SetAsync = function(_self, key, value)
+			data[key] = deepCopy196(value)
+		end,
+		RemoveAsync = function(_self, key)
+			local old = data[key]
+			data[key] = nil
+			return deepCopy196(old)
+		end,
+		UpdateAsync = function(_self, key, transform)
+			local newValue = transform(deepCopy196(data[key]))
+			if newValue ~= nil then
+				data[key] = deepCopy196(newValue)
+			end
+			return deepCopy196(newValue)
+		end,
+	}
+end
+
+local v1Store, v2Store
+local realStoreAvailable = pcall(function()
+	local probe = DataStoreService:GetDataStore("HarborHeist_PlayerData_v2")
+	probe:GetAsync("__e2e_probe__") -- force a real call; GetDataStore alone may not throw
+end)
+if realStoreAvailable then
+	print("[E2E 19.6] store mode: REAL DataStore (published place)")
+	v2Store = DataStoreService:GetDataStore("HarborHeist_PlayerData_v2")
+	v1Store = DataStoreService:GetDataStore("HarborHeist_PlayerData_v1")
+else
+	print("[E2E 19.6] store mode: in-memory mock (Studio blocks DataStore for unpublished places)")
+	v2Store = makeMockDataStore()
+	v1Store = makeMockDataStore()
+	DataManager._setStores(v2Store, v1Store)
+end
+
+-- Phase A: save -> reload round-trip with MUTATED state (19.2 only
+-- round-tripped defaults, which can't detect a broken save — defaults
+-- survive anything). Mutate distinctive values, save synchronously
+-- (isShutdown=true blocks), wipe the session, reload, verify every field.
+local persistPlayer = {
+	UserId = 555666777,
+	Name = "E2EPersist",
+	DisplayName = "E2EPersist",
+	Parent = Players,
+	Character = nil,
+}
+local persistSession = DataManager.load(persistPlayer)
+assertTrue("19.6 persist session created", persistSession ~= nil)
+
+if persistSession then
+	local pp = persistSession.profile
+	pp.Coins = 777
+	pp.Equipment.EquippedRodLevel = 2
+	pp.Equipment.OwnedRodLevels = { 1, 2 }
+	pp.Aquarium.UpgradeLevel = 2
+	pp.Aquarium.UnclaimedIncome = 123
+	local persistFish = FishInstance.new("Tuna", "StarterPier")
+	table.insert(pp.Aquarium.StoredFish, persistFish)
+
+	local saveOk, saveErr = pcall(function()
+		DataManager.save(persistPlayer, true) -- isShutdown: synchronous, waits for in-flight
+	end)
+	assertTrue("19.6 round-trip save succeeds", saveOk)
+	if not saveOk then
+		print("[E2E 19.6] save error: " .. tostring(saveErr))
+	end
+
+	DataManager.remove(persistPlayer)
+	task.wait(0.5)
+	local reloaded = DataManager.load(persistPlayer)
+	assertTrue("19.6 reload creates session", reloaded ~= nil)
+	if reloaded then
+		local rp = reloaded.profile
+		assertEq("19.6 round-trip Coins", 777, rp.Coins)
+		assertEq("19.6 round-trip EquippedRodLevel", 2, rp.Equipment.EquippedRodLevel)
+		assertEq("19.6 round-trip OwnedRodLevels count", 2, #rp.Equipment.OwnedRodLevels)
+		assertEq("19.6 round-trip Aquarium.UpgradeLevel", 2, rp.Aquarium.UpgradeLevel)
+		-- sanitize recomputes Capacity from UpgradeLevel against the tier table
+		assertEq("19.6 round-trip Capacity recomputed", GameConfig.AquariumUpgradeTiers[2].capacity, rp.Aquarium.Capacity)
+		assertEq("19.6 round-trip UnclaimedIncome", 123, rp.Aquarium.UnclaimedIncome)
+		assertEq("19.6 round-trip StoredFish count", 1, #rp.Aquarium.StoredFish)
+		if #rp.Aquarium.StoredFish > 0 then
+			assertEq("19.6 round-trip fish SpeciesId", "Tuna", rp.Aquarium.StoredFish[1].SpeciesId)
+		end
+		print("[E2E 19.6] round-trip verified: coins=" .. rp.Coins .. " rod=" .. rp.Equipment.EquippedRodLevel
+			.. " storedFish=" .. #rp.Aquarium.StoredFish)
+	end
+	DataManager.remove(persistPlayer)
+end
+
+-- Phase B: v1 -> v2 migration against the real (Studio) DataStores.
+-- Seed the LEGACY v1 store directly with a flat-format payload, ensure the
+-- v2 key is empty, then DataManager.load must: read v1, sanitize the flat
+-- fields into the v2 schema, and persist the migrated profile to v2.
+local legacyPlayer = {
+	UserId = 666777888,
+	Name = "E2ELegacy",
+	DisplayName = "E2ELegacy",
+	Parent = Players,
+	Character = nil,
+}
+local legacyKey = "player_" .. legacyPlayer.UserId
+-- v1Store/v2Store were acquired above (real when available, else the
+-- injected mocks DataManager is now using).
+
+-- Clean slate: no v2 data (v2 is checked first; leftover v2 from a previous
+-- run would bypass the migration path entirely).
+pcall(function() v2Store:RemoveAsync(legacyKey) end)
+local seedOk, seedErr = pcall(function()
+	v1Store:SetAsync(legacyKey, {
+		cash = 4242,
+		rodLevel = 3,
+		baitLevel = 2,
+		capacityLevel = 1, -- 0-based in v1 -> UpgradeLevel 2 in v2
+		liveWell = { 2, 3 }, -- legacy rarity indices -> FishInstance conversion
+	})
+end)
+assertTrue("19.6 v1 legacy payload seeded", seedOk)
+if not seedOk then
+	print("[E2E 19.6] v1 seed error: " .. tostring(seedErr))
+end
+
+local migSession = DataManager.load(legacyPlayer)
+assertTrue("19.6 migration load creates session", migSession ~= nil)
+if migSession then
+	local mp = migSession.profile
+	assertEq("19.6 migration cash -> Coins", 4242, mp.Coins)
+	assertEq("19.6 migration rodLevel", 3, mp.Equipment.EquippedRodLevel)
+	assertEq("19.6 migration baitLevel", 2, mp.Equipment.EquippedBaitLevel)
+	assertEq("19.6 migration capacityLevel+1 -> UpgradeLevel", 2, mp.Aquarium.UpgradeLevel)
+	assertEq("19.6 migration Capacity recomputed", GameConfig.AquariumUpgradeTiers[2].capacity, mp.Aquarium.Capacity)
+	assertEq("19.6 migration liveWell converted", 2, #mp.Aquarium.StoredFish)
+	if #mp.Aquarium.StoredFish > 0 then
+		assertTrue("19.6 migrated fish have SpeciesId", mp.Aquarium.StoredFish[1].SpeciesId ~= nil)
+		assertTrue("19.6 migrated fish have Rarity", mp.Aquarium.StoredFish[1].Rarity ~= nil)
+	end
+	print("[E2E 19.6] migration verified: coins=" .. mp.Coins .. " rod=" .. mp.Equipment.EquippedRodLevel
+		.. " bait=" .. mp.Equipment.EquippedBaitLevel .. " fish=" .. #mp.Aquarium.StoredFish)
+
+	-- The migration save to v2 is deferred (task.defer + async DataStore
+	-- write). Wait for it, then prove it landed by reading v2 DIRECTLY —
+	-- a reload alone can't distinguish "v2 write landed" from "v1 read
+	-- and migrated a second time".
+	task.wait(3)
+	local v2Data
+	local v2ReadOk, v2ReadErr = pcall(function()
+		v2Data = v2Store:GetAsync(legacyKey)
+	end)
+	assertTrue("19.6 v2 direct read succeeds", v2ReadOk)
+	if not v2ReadOk then
+		print("[E2E 19.6] v2 read error: " .. tostring(v2ReadErr))
+	end
+	assertTrue("19.6 migrated profile persisted to v2", v2Data ~= nil)
+	if v2Data then
+		assertEq("19.6 v2 store has v2-schema Coins", 4242, v2Data.Coins)
+		assertTrue("19.6 v2 store has Equipment sub-table", type(v2Data.Equipment) == "table")
+		if type(v2Data.Equipment) == "table" then
+			assertEq("19.6 v2 store rod level", 3, v2Data.Equipment.EquippedRodLevel)
+		end
+	end
+
+	-- Final: reload from v2 (session wipe) yields identical values.
+	DataManager.remove(legacyPlayer)
+	task.wait(0.5)
+	local migReloaded = DataManager.load(legacyPlayer)
+	assertTrue("19.6 post-migration reload creates session", migReloaded ~= nil)
+	if migReloaded then
+		assertEq("19.6 post-migration reload Coins", 4242, migReloaded.profile.Coins)
+		assertEq("19.6 post-migration reload rod", 3, migReloaded.profile.Equipment.EquippedRodLevel)
+		assertEq("19.6 post-migration reload fish count", 2, #migReloaded.profile.Aquarium.StoredFish)
+	end
+	DataManager.remove(legacyPlayer)
+
+	-- Leave the DataStore clean for the next run (v1 re-seeded each run;
+	-- v2 removed so the migration path is exercised again).
+	pcall(function() v2Store:RemoveAsync(legacyKey) end)
+end
+
+-- Restore the real store handles if mocks were injected.
+if not realStoreAvailable then
+	DataManager._setStores(nil)
+end
+
+-- ============================================================
 -- Summary
 -- ============================================================
 print(string.format("[E2E] SUMMARY: %d passed, %d failed", PASS, FAIL))
@@ -4223,6 +4437,22 @@ end
 
 local sessions = {}
 
+-- E2E test seam (TASK 19.6): swap the DataStore handles so the E2E runner
+-- can inject an in-memory mock. Studio blocks ALL DataStore access for
+-- unpublished local builds (GetDataStore throws "You must publish this
+-- place to the web"), which leaves dataStore/dataStoreV1 nil here and turns
+-- save() into a silent no-op — the mock lets the suite exercise the real
+-- save/load/sanitize/migration logic in that environment. Pass nil to
+-- restore the real handles captured at module load.
+local realDataStore, realDataStoreV1 = dataStore, dataStoreV1
+function DataManager._setStores(v2, v1)
+	if v2 == nil then
+		dataStore, dataStoreV1 = realDataStore, realDataStoreV1
+	else
+		dataStore, dataStoreV1 = v2, v1
+	end
+end
+
 -- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
 -- checks this BEFORE GetAsync so a rapid same-UserId rejoin doesn't read stale
 -- pre-save data (the wqw.20 deferred leave-save can be mid-UpdateAsync when the
@@ -4381,15 +4611,6 @@ local function sanitize(data)
 		if type(aq.LockCooldownUntilTimestamp) == "number" then
 			clean.Aquarium.LockCooldownUntilTimestamp = aq.LockCooldownUntilTimestamp
 		end
-		-- N6: Recompute capacity from UpgradeLevel against the authoritative tier
-		-- table so a crafted/exploited Capacity value cannot inflate storage.
-		local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
-		local upLevel = clean.Aquarium.UpgradeLevel or 1
-		if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
-			upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
-			clean.Aquarium.UpgradeLevel = upLevel
-			clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
-		end
 		if type(aq.RaidProtectionUntilTimestamp) == "number" then
 			clean.Aquarium.RaidProtectionUntilTimestamp = aq.RaidProtectionUntilTimestamp
 		end
@@ -4403,6 +4624,23 @@ local function sanitize(data)
 		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel &gt;= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 			clean.Aquarium.AlarmLevel = math.floor(aq.AlarmLevel)
 		end
+	end
+
+	-- N6: Recompute capacity from UpgradeLevel against the authoritative tier
+	-- table so a crafted/exploited Capacity value cannot inflate storage.
+	-- E2E 19.6: hoisted OUT of the `data.Aquarium` block above — the legacy
+	-- v1 `capacityLevel` conversion (top of sanitize) sets UpgradeLevel on
+	-- payloads that have NO Aquarium sub-table, so the recompute never ran
+	-- and migrated players silently kept the tier-1 default Capacity (20)
+	-- despite a higher UpgradeLevel. StateSync.getCapacity reads Capacity as
+	-- authoritative, so the invariant Capacity == tiers[UpgradeLevel] must
+	-- hold on EVERY path, not just v2 payloads.
+	local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
+	local upLevel = clean.Aquarium.UpgradeLevel or 1
+	if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
+		upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
+		clean.Aquarium.UpgradeLevel = upLevel
+		clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
 	end
 
 	-- Dock
