@@ -1329,6 +1329,8 @@ return ZoneDefinitions
         <token name="RunContext">0</token>
         <string name="Source">local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local ServerScriptService = game:GetService("ServerScriptService")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
 local Remotes = require(script.Remotes)
@@ -1376,9 +1378,11 @@ local deps = {
 AntiExploitService.init(deps) -- EPIC 10: must init first so rate limiting is available
 AuditLogService.init(deps) -- EPIC 10 / TASK 10.3
 DockManager.init(deps) -- TASK 24.1 (hvfh.4.1): dock sign income-rate readout
-local fishingCleanup = FishingService.init(deps).onPlayerRemoving
+local fishingInit = FishingService.init(deps)
+local fishingCleanup = fishingInit.onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)
+
 FishInventoryService.init(deps)
 QuestService.init(deps)
 BoatService.init(deps)
@@ -1388,6 +1392,24 @@ RaidService.init(deps) -- EPIC 8 / TASK 8.1 (raid-window scheduler)
 AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
+
+-- E2E test bridge: expose internal service state for the E2E runner
+-- (tests/e2e/runner.server.lua). The _G table is per-VM and never
+-- replicates to clients. Guarded by the E2ERunner script existing (only
+-- present in the E2E place, not in production builds).
+if ServerScriptService:FindFirstChild("E2ERunner") then
+	_G.HARBORHEIST_TEST = {
+		activeBites = fishingInit._activeBites,
+		setFishingRng = fishingInit._setRng,
+		submitCatch = fishingInit._submitCatch,
+		fishingCleanup = fishingCleanup,
+		aquariumStoreFish = AquariumService._requestStoreFish,
+		aquariumClaimIncome = AquariumService._requestClaimIncome,
+		aquariumSellFish = AquariumService._requestSellFish,
+		aquariumActivateLock = AquariumService._requestActivateLock,
+		shopPurchase = ShopService._requestPurchaseUpgrade, -- TASK 19.5
+	}
+end
 
 -- R2.3 (dt9.3): boot-time config assertion — prevents income definition
 -- divergence from being reintroduced silently after R2.2 unification.
@@ -2088,7 +2110,7 @@ function AquariumService.init(deps)
 	-- one; this wrapper was a duplicate that added an unnecessary function
 	-- call layer and confusingly overwrote itself.
 
-	remotes.RequestStoreFish.OnServerInvoke = function(player)
+	local function handleStoreFish(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "store")
 			if not ok then return { ok = false, reason = reason } end
@@ -2153,8 +2175,9 @@ function AquariumService.init(deps)
 		end
 		return { ok = stored > 0, stored = stored }
 	end
+	remotes.RequestStoreFish.OnServerInvoke = handleStoreFish
 
-	remotes.RequestClaimIncome.OnServerInvoke = function(player)
+	local function handleClaimIncome(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "claim")
 			if not ok then return { ok = false, reason = reason } end
@@ -2198,8 +2221,9 @@ function AquariumService.init(deps)
 		end
 		return { ok = true, amount = unclaimed }
 	end
+	remotes.RequestClaimIncome.OnServerInvoke = handleClaimIncome
 
-	remotes.RequestSellFish.OnServerInvoke = function(player)
+	local function handleSellFish(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "sell")
 			if not ok then return { ok = false, reason = reason } end
@@ -2277,6 +2301,7 @@ function AquariumService.init(deps)
 		end
 		return { ok = true, payout = payout }
 	end
+	remotes.RequestSellFish.OnServerInvoke = handleSellFish
 
 	-- TASK 8.4 (gdj.4): Lock system rework — limited free uses + cooldown.
 	-- PRD PVP-03: "activate a temporary aquarium lock using an earned in-game
@@ -2285,7 +2310,7 @@ function AquariumService.init(deps)
 	-- gates further uses. Free uses regenerate PER SESSION via
 	-- onSessionLoaded below (vaz2); daily-reset / purchase top-ups remain
 	-- possible future directions.
-	remotes.RequestActivateLock.OnServerInvoke = function(player)
+	local function handleActivateLock(player)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "lock")
 			if not ok then return { ok = false, reason = reason } end
@@ -2388,6 +2413,7 @@ function AquariumService.init(deps)
 		end)
 		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
 	end
+	remotes.RequestActivateLock.OnServerInvoke = handleActivateLock
 
 	-- TASK 8.2 (gdj.2): Raid opt-in toggle. PRD PVP-02: "A player can raid only
 	-- during a clearly labeled raid window or after explicitly opting into a
@@ -2453,6 +2479,12 @@ function AquariumService.init(deps)
 	end
 
 	AquariumService.refreshVisual = refreshVisual
+	
+	-- Test seams for E2E runner (must be inside init where remotes is in scope)
+	AquariumService._requestStoreFish = handleStoreFish
+	AquariumService._requestClaimIncome = handleClaimIncome
+	AquariumService._requestSellFish = handleSellFish
+	AquariumService._requestActivateLock = handleActivateLock
 end
 
 --- vaz2 (PVP-03): per-session lock free-use regen. The 8.4 design is "3 free
@@ -5634,7 +5666,7 @@ function FishingService.init(deps)
 	end)
 
 	-- TASK 3.3: Client submits catch input after the minigame
-	remotes.SubmitCatchInput.OnServerInvoke = function(player, timingResult)
+	local function handleSubmitCatchInput(player, timingResult)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "submit_catch")
 			if not ok then
@@ -5813,8 +5845,20 @@ function FishingService.init(deps)
 		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue }
 	end
 
+	remotes.SubmitCatchInput.OnServerInvoke = handleSubmitCatchInput
+
+	-- Test seams (same pattern as RaidService): expose internal state so E2E
+	-- tests can inspect/seed bite state and substitute the RNG for
+	-- deterministic catch rolls, without needing to fire remote events
+	-- (which require a real client connection the server can't simulate).
 	return {
 		onPlayerRemoving = onPlayerRemoving,
+		_activeBites = activeBites,
+		_setRng = function(newRng) rng = newRng end,
+		-- Expose the submit handler for direct E2E invocation (bypasses the
+		-- RemoteFunction which passes nil as the player when called from
+		-- server context via InvokeServer).
+		_submitCatch = handleSubmitCatchInput,
 	}
 end
 
@@ -7952,7 +7996,10 @@ function ShopService.init(deps)
 	local analytics = deps.analytics -- EPIC 11
 	local dockManager = deps.dockManager -- TASK 6.4 (dock cosmetic refresh)
 
-	remotes.RequestPurchaseUpgrade.OnServerInvoke = function(player, kind, level)
+	-- TASK 19.5: handler extracted to a local so it can be exposed as a test
+	-- seam (OnServerInvoke is write-only; the E2E runner calls the handler
+	-- directly with a table-fake player, bypassing the RemoteFunction).
+	local function handlePurchaseUpgrade(player, kind, level)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "buy")
 			if not ok then return { ok = false, reason = reason } end
@@ -8094,6 +8141,11 @@ function ShopService.init(deps)
 		end
 		return { ok = true }
 	end
+
+	remotes.RequestPurchaseUpgrade.OnServerInvoke = handlePurchaseUpgrade
+	-- E2E test seam (TASK 19.5): init.server.lua bridges this into
+	-- _G.HARBORHEIST_TEST.shopPurchase for the E2E runner.
+	ShopService._requestPurchaseUpgrade = handlePurchaseUpgrade
 end
 
 return ShopService
@@ -8281,6 +8333,18 @@ return StateSync
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="28">
+        <Properties>
+          <string name="Name">TestBridge</string>
+          <string name="Source"><![CDATA[-- Test bridge module for E2E testing
+-- This module is populated by init.server.lua and required by E2E tests
+
+local TestBridge = {}
+
+return TestBridge
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="29">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[local WorldBuilder = {}
@@ -8832,20 +8896,20 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="ServerStorage" referent="29">
+  <Item class="ServerStorage" referent="30">
     <Properties>
       <string name="Name">ServerStorage</string>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="30">
+  <Item class="StarterPlayer" referent="31">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="31">
+    <Item class="StarterPlayerScripts" referent="32">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="32">
+      <Item class="LocalScript" referent="33">
         <Properties>
           <string name="Name">HarborHeistClient</string>
           <string name="Source">local Players = game:GetService("Players")
@@ -13160,7 +13224,7 @@ end)</string>
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="33">
+  <Item class="Workspace" referent="34">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="NeedsPivotMigration">false</bool>

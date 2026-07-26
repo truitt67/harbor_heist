@@ -53,6 +53,7 @@ local fishingInit = FishingService.init(deps)
 local fishingCleanup = fishingInit.onPlayerRemoving
 AquariumService.init(deps)
 ShopService.init(deps)
+
 FishInventoryService.init(deps)
 QuestService.init(deps)
 BoatService.init(deps)
@@ -67,14 +68,17 @@ DataManager.bindToClose()
 -- (tests/e2e/runner.server.lua). The _G table is per-VM and never
 -- replicates to clients. Guarded by the E2ERunner script existing (only
 -- present in the E2E place, not in production builds).
-local hasE2E = ServerScriptService:FindFirstChild("E2ERunner") ~= nil
-print("[HarborHeist] init.server: E2ERunner present=" .. tostring(hasE2E))
-if hasE2E then
+if ServerScriptService:FindFirstChild("E2ERunner") then
 	_G.HARBORHEIST_TEST = {
 		activeBites = fishingInit._activeBites,
 		setFishingRng = fishingInit._setRng,
 		submitCatch = fishingInit._submitCatch,
 		fishingCleanup = fishingCleanup,
+		aquariumStoreFish = AquariumService._requestStoreFish,
+		aquariumClaimIncome = AquariumService._requestClaimIncome,
+		aquariumSellFish = AquariumService._requestSellFish,
+		aquariumActivateLock = AquariumService._requestActivateLock,
+		shopPurchase = ShopService._requestPurchaseUpgrade, -- TASK 19.5
 	}
 end
 

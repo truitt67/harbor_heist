@@ -12,7 +12,10 @@ function ShopService.init(deps)
 	local analytics = deps.analytics -- EPIC 11
 	local dockManager = deps.dockManager -- TASK 6.4 (dock cosmetic refresh)
 
-	remotes.RequestPurchaseUpgrade.OnServerInvoke = function(player, kind, level)
+	-- TASK 19.5: handler extracted to a local so it can be exposed as a test
+	-- seam (OnServerInvoke is write-only; the E2E runner calls the handler
+	-- directly with a table-fake player, bypassing the RemoteFunction).
+	local function handlePurchaseUpgrade(player, kind, level)
 		if antiExploit then
 			local ok, reason = antiExploit.checkRate(player, "buy")
 			if not ok then return { ok = false, reason = reason } end
@@ -154,6 +157,11 @@ function ShopService.init(deps)
 		end
 		return { ok = true }
 	end
+
+	remotes.RequestPurchaseUpgrade.OnServerInvoke = handlePurchaseUpgrade
+	-- E2E test seam (TASK 19.5): init.server.lua bridges this into
+	-- _G.HARBORHEIST_TEST.shopPurchase for the E2E runner.
+	ShopService._requestPurchaseUpgrade = handlePurchaseUpgrade
 end
 
 return ShopService

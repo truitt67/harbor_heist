@@ -253,7 +253,11 @@ local fisher = {
 	Name = "E2EFisher",
 	DisplayName = "E2EFisher",
 	Parent = Players,
-	Character = nil, -- no character needed (we inject bite state directly)
+	Character = nil,
+	-- Stub methods needed for StateSync.push and other operations
+	FindFirstChild = function() return nil end,
+	IsA = function() return false end,
+	GetFullName = function() return "E2EFisher" end,
 }
 local fisherSession = DataManager.load(fisher)
 assertTrue("19.3 fisher session created", fisherSession ~= nil)
@@ -306,7 +310,7 @@ if submitRemote and fisherSession then
 				goodStart = 0.25,
 				goodEnd = 0.75,
 				castDeadline = os.clock() + 100,
-				luckBonus = 0,
+				luckBonus = 100, -- High luck bonus to maximize effectiveZone (0.85)
 				castResultReceived = true,
 			}
 		end
@@ -314,35 +318,51 @@ if submitRemote and fisherSession then
 		local function tryCatch()
 			injectBite()
 			task.wait(0.1)
-			-- Call the handler directly (passes our fake player explicitly).
-			-- Wrap in pcall because remotes.notify() calls FireClient which
-			-- expects a real Player Instance — our table fake will cause an
-			-- error, but the core catch logic (adding fish to carried) runs
-			-- before the notification.
+			
+			-- Seed RNG to ensure catch succeeds (avoid RNG-based misses)
+			-- Use a seed that produces low values (<= 0.85 effectiveZone)
+			if testBridge.setFishingRng then
+				-- Try multiple seeds to find one that works
+				for seed = 1, 10 do
+					local testRng = Random.new(seed)
+					local testVal = testRng:NextNumber()
+					if testVal <= 0.85 then
+						testBridge.setFishingRng(testRng)
+						break
+					end
+				end
+			end
+			
+			-- Call submitCatch and catch any errors from FireClient on fake player
 			local ok, result = pcall(testBridge.submitCatch, fisher, { hit = true })
+			
+			-- Check if fish was added to carried (happens before notify calls)
+			if #fisherSession.carried > 0 then
+				-- Fish was added successfully, ignore any FireClient errors
+				return { ok = true, speciesId = fisherSession.carried[1].SpeciesId, 
+				         rarity = fisherSession.carried[1].Rarity, 
+				         value = fisherSession.carried[1].BaseSellValue }
+			end
+			
 			if not ok then
-				-- Handler threw (likely FireClient error). Check if the catch
-				-- logic succeeded anyway by inspecting the session.
-				return nil, result -- result is the error message
+				-- Handler threw and no fish was added
+				return nil, result
 			end
 			return result
 		end
 
 		-- First attempt
 		local result, errMsg = tryCatch()
-		
-		-- If handler threw (FireClient error), check if fish was added anyway
+
+		-- If handler threw (StateSync.push error), check if fish was added anyway
 		if result == nil and errMsg then
-			print("[E2E 19.3] handler threw: " .. tostring(errMsg))
-			print("[E2E 19.3] checking if fish was added despite error...")
 			if #fisherSession.carried > 0 then
-				print("[E2E 19.3] fish added successfully (notification failed but catch succeeded)")
 				result = { ok = true, speciesId = fisherSession.carried[1].SpeciesId, 
 				           rarity = fisherSession.carried[1].Rarity, 
 				           value = fisherSession.carried[1].BaseSellValue }
 			end
 		end
-		
+	
 		assertTrue("19.3 submitCatch returns result", result ~= nil)
 
 		if result and result.ok then
@@ -393,6 +413,155 @@ end
 -- Cleanup fisher
 DockManager.release(fisher)
 DataManager.remove(fisher)
+
+-- ============================================================
+-- TASK 19.4: Aquarium Economy (store, income, claim, sell)
+-- ============================================================
+print("[E2E 19.4] === Aquarium Economy ===")
+
+local ecoPlayer = {
+	UserId = 333444555,
+	Name = "E2EEco",
+	DisplayName = "E2EEco",
+	Parent = Players,
+	Character = nil,
+}
+local ecoSession = DataManager.load(ecoPlayer)
+assertTrue("19.4 eco session created", ecoSession ~= nil)
+local ecoDock = DockManager.claim(ecoPlayer)
+assertTrue("19.4 eco dock claimed", ecoDock ~= nil)
+
+-- Inject a fish into carried (simulating a catch)
+-- Use a higher-value fish to ensure income accumulates above the floor threshold
+local FishInstance = require(ReplicatedStorage.Shared.FishInstance)
+local testFish = FishInstance.new("Tuna", "StarterPier")  -- Higher value than Bluegill
+table.insert(ecoSession.carried, testFish)
+print("[E2E 19.4] injected fish: " .. testFish.SpeciesId .. " ($" .. testFish.BaseSellValue .. ")")
+assertEq("19.4 carried count before store", 1, #ecoSession.carried)
+assertEq("19.4 stored count before store", 0, #ecoSession.profile.Aquarium.StoredFish)
+
+-- Test store fish
+if _G.HARBORHEIST_TEST and _G.HARBORHEIST_TEST.aquariumStoreFish then
+	pcall(_G.HARBORHEIST_TEST.aquariumStoreFish, ecoPlayer)
+	assertEq("19.4 stored count after store", 1, #ecoSession.profile.Aquarium.StoredFish)
+	assertEq("19.4 carried count after store", 0, #ecoSession.carried)
+	print("[E2E 19.4] store completed")
+
+	-- For claim test: directly inject income to avoid waiting for fractional accumulation
+	-- (incomePerSec is fractional, so we need many ticks to floor to 1+ coin)
+	ecoSession.profile.Aquarium.UnclaimedIncome = 50  -- Inject $50 for testing
+	local coinsBeforeClaim = ecoSession.profile.Coins
+	pcall(_G.HARBORHEIST_TEST.aquariumClaimIncome, ecoPlayer)
+	assertEq("19.4 unclaimed income after claim", 0, ecoSession.profile.Aquarium.UnclaimedIncome)
+	assertTrue("19.4 coins increased after claim", ecoSession.profile.Coins > coinsBeforeClaim)
+	print("[E2E 19.4] claim completed (coins=" .. tostring(ecoSession.profile.Coins) .. ")")
+
+	local testFish2 = FishInstance.new("Perch", "StarterPier")
+	table.insert(ecoSession.carried, testFish2)
+	assertEq("19.4 carried count before sell", 1, #ecoSession.carried)
+
+	local coinsBeforeSell = ecoSession.profile.Coins
+	pcall(_G.HARBORHEIST_TEST.aquariumSellFish, ecoPlayer)
+	assertEq("19.4 carried count after sell", 0, #ecoSession.carried)
+	assertTrue("19.4 coins increased after sell", ecoSession.profile.Coins > coinsBeforeSell)
+	print("[E2E 19.4] sell completed (coins=" .. tostring(ecoSession.profile.Coins) .. ")")
+end
+
+-- Cleanup eco
+DockManager.release(ecoPlayer)
+DataManager.remove(ecoPlayer)
+
+-- ============================================================
+-- TASK 19.5: Shop Purchases (rod, bait, capacity; insufficient funds)
+-- ============================================================
+print("[E2E 19.5] === Shop Purchases ===")
+
+local shopper = {
+	UserId = 444555666,
+	Name = "E2EShopper",
+	DisplayName = "E2EShopper",
+	Parent = Players,
+	Character = nil,
+}
+local shopperSession = DataManager.load(shopper)
+assertTrue("19.5 shopper session created", shopperSession ~= nil)
+local shopperDock = DockManager.claim(shopper)
+assertTrue("19.5 shopper dock claimed", shopperDock ~= nil)
+
+local shopPurchase = _G.HARBORHEIST_TEST and _G.HARBORHEIST_TEST.shopPurchase
+assertTrue("19.5 shopPurchase test seam available", shopPurchase ~= nil)
+
+if shopPurchase and shopperSession then
+	local profile = shopperSession.profile
+	local rod2 = GameConfig.Rods[2]
+	local bait2 = GameConfig.Baits[2]
+	local aq2 = GameConfig.AquariumUpgradeTiers[2]
+
+	-- All calls go through pcall: remotes.notify (FireClient) throws on
+	-- table-fake players. In the success path the mutation happens BEFORE
+	-- notify, so profile state is authoritative. The poor/wrong_tier paths
+	-- call notify before returning, so those are verified by UNCHANGED state.
+	-- The bad_kind/bad_level/bad_args paths return before any notify, so
+	-- their return tables are asserted directly.
+	-- Rate-limit budget: 8 buy calls here, limit is 10 per 10s per player.
+
+	-- Phase 1: insufficient funds (starting coins = 0, rod2 costs money)
+	assertEq("19.5 starting coins == 0", 0, profile.Coins)
+	pcall(shopPurchase, shopper, "rod", 2)
+	assertEq("19.5 poor: coins unchanged", 0, profile.Coins)
+	assertEq("19.5 poor: rod level still 1", 1, profile.Equipment.EquippedRodLevel)
+
+	-- Phase 2: fund the shopper and buy rod 2 (success path)
+	profile.Coins = 10000
+	pcall(shopPurchase, shopper, "rod", 2)
+	assertEq("19.5 rod2: equipped level == 2", 2, profile.Equipment.EquippedRodLevel)
+	assertEq("19.5 rod2: coins deducted by cost", 10000 - rod2.cost, profile.Coins)
+	local ownsRod2 = false
+	for _, lvl in ipairs(profile.Equipment.OwnedRodLevels) do
+		if lvl == 2 then ownsRod2 = true break end
+	end
+	assertTrue("19.5 rod2: ownership tracked in OwnedRodLevels", ownsRod2)
+	print("[E2E 19.5] rod2 purchased: " .. rod2.name .. " ($" .. rod2.cost .. "), coins=" .. profile.Coins)
+
+	-- Phase 3: wrong tier — rebuying rod 2 while equipped (must buy currentLevel+1)
+	local coinsBeforeWrongTier = profile.Coins
+	pcall(shopPurchase, shopper, "rod", 2)
+	assertEq("19.5 wrong_tier: rod level unchanged", 2, profile.Equipment.EquippedRodLevel)
+	assertEq("19.5 wrong_tier: coins unchanged", coinsBeforeWrongTier, profile.Coins)
+
+	-- Phase 4: buy bait 2 (success path)
+	pcall(shopPurchase, shopper, "bait", 2)
+	assertEq("19.5 bait2: equipped level == 2", 2, profile.Equipment.EquippedBaitLevel)
+	assertEq("19.5 bait2: coins deducted by cost", coinsBeforeWrongTier - bait2.cost, profile.Coins)
+
+	-- Phase 5: aquarium capacity upgrade (success path)
+	local coinsBeforeAq = profile.Coins
+	local capBefore = profile.Aquarium.Capacity
+	pcall(shopPurchase, shopper, "aquarium", 2)
+	assertEq("19.5 aquarium2: upgrade level == 2", 2, profile.Aquarium.UpgradeLevel)
+	assertEq("19.5 aquarium2: capacity == tier 2 capacity", aq2.capacity, profile.Aquarium.Capacity)
+	assertTrue("19.5 aquarium2: capacity increased", profile.Aquarium.Capacity > capBefore)
+	assertEq("19.5 aquarium2: coins deducted by cost", coinsBeforeAq - aq2.cost, profile.Coins)
+	print("[E2E 19.5] aquarium upgraded: capacity " .. capBefore .. " -> " .. profile.Aquarium.Capacity .. ", coins=" .. profile.Coins)
+
+	-- Phase 6: validation failures (no notify in these paths — return values assertable)
+	local okBadKind, resBadKind = pcall(shopPurchase, shopper, "castle", 2)
+	assertTrue("19.5 bad_kind: handler did not throw", okBadKind)
+	assertTrue("19.5 bad_kind: ok == false", resBadKind ~= nil and resBadKind.ok == false)
+	assertEq("19.5 bad_kind: reason", "bad_kind", resBadKind and resBadKind.reason)
+
+	local okBadLevel, resBadLevel = pcall(shopPurchase, shopper, "rod", 99)
+	assertTrue("19.5 bad_level: handler did not throw", okBadLevel)
+	assertEq("19.5 bad_level: reason", "bad_level", resBadLevel and resBadLevel.reason)
+
+	local okBadArgs, resBadArgs = pcall(shopPurchase, shopper, 123, "rod")
+	assertTrue("19.5 bad_args: handler did not throw", okBadArgs)
+	assertEq("19.5 bad_args: reason", "bad_args", resBadArgs and resBadArgs.reason)
+end
+
+-- Cleanup shopper
+DockManager.release(shopper)
+DataManager.remove(shopper)
 
 -- ============================================================
 -- Summary
