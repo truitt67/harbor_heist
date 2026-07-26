@@ -76,6 +76,56 @@ local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirectio
 -- slowest, most visible part of the exit was the tail.
 local EASE_IN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
+-- ============================================================
+-- Design tokens (harborheist-uabg.7): canonical foundation for
+-- spacing, typography, color, radii, shadows and button variants.
+--
+-- DEFINITION-only pass. Existing call sites still read the flat
+-- `UI` / `FONT_*` palette above and are NOT migrated here — that is
+-- the separate harborheist-uabg.6 bead. `Theme` aliases those same
+-- values (no duplication, no behavioral change) so new UI code opts
+-- into the semantic system incrementally:
+--   Theme.color.surface.secondary   instead of  UI.surface
+--   Theme.color.text.primary        instead of  UI.text
+--   Theme.corners.md                instead of  literal 12
+--   makeButton(parent, { Variant = "danger", ... })
+-- ============================================================
+local Theme = {
+	spacing = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 },
+	type = {
+		sizes = { xs = 12, sm = 15, md = 19, lg = 24, xl = 30 }, -- 1.25 ratio
+		fonts = { head = FONT_HEAD, bold = FONT_BOLD, med = FONT_MED, body = FONT_BODY },
+	},
+	color = {
+		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi },
+		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink },
+		stroke = UI.stroke,
+		accent = { base = UI.accent, soft = UI.accentSoft },
+		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft },
+		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
+	},
+	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
+	-- Roblox UI has no native shadow; elevation is faked with layered
+	-- Frames. Consumed by EPIC 35 (harborheist-i39g.1); defined here so
+	-- the token system is complete and that bead reads a single source.
+	shadows = {
+		low = { layers = 2, spread = 4, alpha = 0.15 },
+		medium = { layers = 3, spread = 8, alpha = 0.2 },
+		high = { layers = 4, spread = 16, alpha = 0.3 },
+	},
+	buttonVariants = {
+		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
+		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7 },
+		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
+		danger = { bg = UI.bad, text = UI.stroke, strokeColor = nil, strokeTransparency = 1 },
+	},
+}
+-- Link button-variant radii to the single corner token (corners.md == 12),
+-- so the radius scale has one source of truth.
+for _, variant in pairs(Theme.buttonVariants) do
+	variant.radius = Theme.corners.md
+end
+
 local state = nil
 local casting = false
 local castHitZone = { perfectStart_ = 0.35, perfectEnd_ = 0.65, goodStart_ = 0.15, goodEnd_ = 0.85 }
@@ -415,18 +465,28 @@ end
 
 local function makeButton(parent, props)
 	local button = Instance.new("TextButton")
-	button.BackgroundColor3 = UI.accent
-	button.TextColor3 = UI.ink
-	button.Font = FONT_BOLD
-	button.TextSize = IS_MOBILE and 16 or 15
-	button.AutoButtonColor = false
 	local cornerRadius = props.CornerRadius
 	props.CornerRadius = nil
+	-- harborheist-uabg.7: optional Variant seeds bg/text/corner (+ a stroke
+	-- for secondary/ghost) from Theme.buttonVariants. No caller passes
+	-- Variant today, so the defaults below match the prior accent/ink/12.
+	local variantName = props.Variant
+	props.Variant = nil
+	local variant = variantName and Theme.buttonVariants[variantName]
+	button.BackgroundColor3 = (variant and variant.bg) or UI.accent
+	button.TextColor3 = (variant and variant.text) or UI.ink
+	button.Font = FONT_BOLD
+	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
+	button.AutoButtonColor = false
 	for key, value in pairs(props) do
 		button[key] = value
 	end
 	button.Parent = parent
-	corner(button, cornerRadius or 12)
+	local resolveRadius = cornerRadius or (variant and variant.radius) or Theme.corners.md
+	corner(button, resolveRadius)
+	if variant and variant.strokeColor then
+		stroke(button, variant.strokeTransparency, variant.strokeColor, 1)
+	end
 	-- R4 polish (desktop): white-wash hover glow. A child Frame instead of a
 	-- BackgroundColor3 lerp so buttons whose color is owned elsewhere
 	-- (claim/lock/sell state machines) get the affordance without conflicts.
@@ -440,7 +500,7 @@ local function makeButton(parent, props)
 		hoverGlow.BackgroundTransparency = 1
 		hoverGlow.ZIndex = button.ZIndex + 1
 		hoverGlow.Parent = button
-		corner(hoverGlow, cornerRadius or 12)
+		corner(hoverGlow, resolveRadius)
 	end
 	pressFeedback(button, hoverGlow)
 	return button
