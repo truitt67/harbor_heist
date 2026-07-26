@@ -1057,8 +1057,9 @@ local onboardingLabel = makeLabel(onboardingPrompt, {
 })
 
 local onboardingDismiss = makeButton(onboardingPrompt, {
-	Size = UDim2.new(0, IS_MOBILE and 36 or 24, 0, IS_MOBILE and 36 or 24),
-	Position = UDim2.new(1, IS_MOBILE and -42 or -30, 0.5, IS_MOBILE and -18 or -12),
+	-- harborheist-bpem.1: 36px was below the 44pt mobile touch-target minimum.
+	Size = UDim2.new(0, IS_MOBILE and 44 or 24, 0, IS_MOBILE and 44 or 24),
+	Position = UDim2.new(1, IS_MOBILE and -50 or -30, 0.5, IS_MOBILE and -22 or -12),
 	Text = "✕",
 	TextSize = IS_MOBILE and 14 or 12,
 	BackgroundColor3 = UI.surfaceHi,
@@ -1159,8 +1160,9 @@ makeLabel(sellStorePrompt, {
 })
 
 local sellStoreClose = makeButton(sellStorePrompt, {
-	Size = UDim2.new(0, IS_MOBILE and 36 or 26, 0, IS_MOBILE and 36 or 26),
-	Position = UDim2.new(1, IS_MOBILE and -41 or -31, 0, IS_MOBILE and 4 or 8),
+	-- harborheist-bpem.1: 36px was below the 44pt mobile touch-target minimum.
+	Size = UDim2.new(0, IS_MOBILE and 44 or 26, 0, IS_MOBILE and 44 or 26),
+	Position = UDim2.new(1, IS_MOBILE and -49 or -31, 0, IS_MOBILE and 4 or 8),
 	Text = "✕",
 	TextSize = 13,
 	BackgroundColor3 = UI.surfaceHi,
@@ -2929,8 +2931,11 @@ raidTargetLayout.SortOrder = Enum.SortOrder.LayoutOrder
 raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
-	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 36 or 28),
-	Position = UDim2.new(1, IS_MOBILE and -104 or -94, 0, IS_MOBILE and 104 or 112),
+	-- harborheist-bpem.1: 36px was below the 44pt mobile touch-target
+	-- minimum. Grown upward (Y 104->96) so the bottom edge stays at 140
+	-- and no new overlap with the target list (top 144) is introduced.
+	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 44 or 28),
+	Position = UDim2.new(1, IS_MOBILE and -104 or -94, 0, IS_MOBILE and 96 or 112),
 	Text = "REFRESH",
 	BackgroundColor3 = UI.surfaceHi,
 	TextColor3 = UI.text,
