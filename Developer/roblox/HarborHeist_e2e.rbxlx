@@ -1412,6 +1412,7 @@ local DockManager = require(hh:WaitForChild("DockManager"))
 local StateSync = require(hh:WaitForChild("StateSync"))
 local AquariumService = require(hh:WaitForChild("AquariumService"))
 local RaidService = require(hh:WaitForChild("RaidService"))
+local AntiExploitService = require(hh:WaitForChild("AntiExploitService"))
 local PlayerProfile = require(ReplicatedStorage.Shared:WaitForChild("PlayerProfile"))
 local GameConfig = require(ReplicatedStorage.Shared:WaitForChild("GameConfig"))
 
@@ -2439,6 +2440,131 @@ if atkS and vicS then
 end
 DataManager.remove(raider)
 DataManager.remove(raidVictim)
+
+-- ============================================================
+-- TASK 19.9: Abuse & anti-exploit battery (spam, forgery, bad payloads)
+-- ============================================================
+print("[E2E 19.9] === Abuse & Anti-Exploit Battery ===")
+
+-- One abuser pokes every validation surface with malformed/rushed/forged
+-- input. Handlers under test are the SAME code production remotes run
+-- (checkRate lives inside the handlers, so the _G seams carry it).
+-- Raid-side forgery (instant submit, no_active_raid, bad_input, self-raid)
+-- is covered in 19.8 and not duplicated here.
+
+local abuser = {
+	UserId = 333000333,
+	Name = "E2EAbuser",
+	DisplayName = "E2EAbuser",
+	Parent = Players,
+	Character = nil,
+}
+local abuS = DataManager.load(abuser)
+assertTrue("19.9 abuser session created", abuS ~= nil)
+
+if abuS then
+	abuS.profile.Coins = 100000 -- prove rejects never charge
+
+	-- ===== 1. SPAM: rate limiting (lock action, 5 calls / 10s) =====
+	local activateLock99 = _G.HARBORHEIST_TEST.aquariumActivateLock
+	local lastRes = nil
+	for _ = 1, 6 do
+		local _, res = pcall(activateLock99, abuser)
+		lastRes = res -- calls may throw at notify (fake player); 6th returns cleanly
+	end
+	assertEq("19.9 spam: 6th lock call rate_limited", "rate_limited", lastRes and lastRes.reason)
+	local spamLog = AntiExploitService.getLog(abuser.UserId)
+	assertTrue("19.9 spam: rate breach recorded in suspicious log", #spamLog >= 1)
+	if #spamLog >= 1 then
+		assertEq("19.9 spam: log entry names the action", "lock", spamLog[#spamLog].action)
+	end
+	-- Unknown actions warn but ALLOW (fail-open by design)
+	local unknownOk = AntiExploitService.checkRate(abuser, "definitely_not_a_real_action")
+	assertTrue("19.9 unknown rate-limit action allowed (warn-only)", unknownOk == true)
+
+	-- ===== 2. BAD PAYLOADS: shop purchases =====
+	local shopPurchase99 = _G.HARBORHEIST_TEST.shopPurchase
+	local coinsBefore = abuS.profile.Coins
+	local s1 = shopPurchase99(abuser, nil, 1)
+	assertEq("19.9 shop: nil kind rejected", "bad_args", s1 and s1.reason)
+	local s2 = shopPurchase99(abuser, "rod", "two")
+	assertEq("19.9 shop: non-number level rejected", "bad_args", s2 and s2.reason)
+	local s3 = shopPurchase99(abuser, "yacht", 1)
+	assertEq("19.9 shop: unknown kind rejected", "bad_kind", s3 and s3.reason)
+	local s4 = shopPurchase99(abuser, "rod", 99)
+	assertEq("19.9 shop: out-of-range level rejected", "bad_level", s4 and s4.reason)
+	-- Tier-skip forgery: at rod 1, try to buy rod 3 directly (notify throws
+	-- on fakes BEFORE the return — verify via state instead)
+	pcall(shopPurchase99, abuser, "rod", 3)
+	assertEq("19.9 shop: tier-skip forgery does not apply", 1, abuS.profile.Equipment.EquippedRodLevel)
+	assertEq("19.9 shop: all rejects charged nothing", coinsBefore, abuS.profile.Coins)
+
+	-- ===== 3. FORGERY: fishing submit-catch =====
+	local submitCatch99 = _G.HARBORHEIST_TEST.submitCatch
+	local activeBites99 = _G.HARBORHEIST_TEST.activeBites
+	local setFishingRng99 = _G.HARBORHEIST_TEST.setFishingRng
+	assertTrue("19.9 fishing test seams available",
+		submitCatch99 ~= nil and activeBites99 ~= nil and setFishingRng99 ~= nil)
+
+	-- Submit with no active bite (clean table return)
+	local f1 = submitCatch99(abuser, { hit = true })
+	assertEq("19.9 fish: submit with no active bite", "no_active_bite", f1 and f1.reason)
+
+	-- Garbage payload type with a fresh injected bite (clean return; the
+	-- bite must NOT be consumed — the player may still legitimately submit)
+	activeBites99[abuser] = {
+		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+		biteTime = os.clock(), luckBonus = 0,
+	}
+	local f2 = submitCatch99(abuser, "garbage")
+	assertEq("19.9 fish: garbage timingResult rejected", "bad_input", f2 and f2.reason)
+	assertTrue("19.9 fish: bad_input does not consume the bite", activeBites99[abuser] ~= nil)
+
+	-- Stale bite (submitted long after the window) — notify throws on fakes
+	-- after clearing; the observable is the consumed bite
+	activeBites99[abuser].biteTime = os.clock() - 999
+	pcall(submitCatch99, abuser, { hit = true })
+	assertTrue("19.9 fish: stale bite consumed (too_slow)", activeBites99[abuser] == nil)
+
+	-- Always-hit exploiter: the client hit claim is only a REQUEST — the
+	-- server re-rolls against effectiveZone (rod-1 base 0.30 with no cast
+	-- luck). Seed the fishing rng above the zone -> miss, no fish granted.
+	local rod1Zone = (GameConfig.RodDefinitions[1] and GameConfig.RodDefinitions[1].minigameZoneSize) or 0.30
+	local function seedFishingRng99(wantMiss)
+		for seed = 1, 200 do
+			local probe = Random.new(seed)
+			local roll = probe:NextNumber() -- call 1: the server re-roll
+			if (wantMiss and roll > rod1Zone) or (not wantMiss and roll <= rod1Zone) then
+				setFishingRng99(Random.new(seed))
+				return true
+			end
+		end
+		return false
+	end
+	assertTrue("19.9 fishing rng seeded for miss", seedFishingRng99(true))
+	activeBites99[abuser] = {
+		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+		biteTime = os.clock(), luckBonus = 0,
+	}
+	pcall(submitCatch99, abuser, { hit = true }) -- exploiter claims a hit
+	assertEq("19.9 fish: always-hit exploiter gains nothing on missed re-roll", 0, #abuS.carried)
+
+	-- Contrast: same claim with a roll inside the zone lands a SERVER-ROLLED
+	-- fish (species/rarity/value are never client-controlled)
+	assertTrue("19.9 fishing rng seeded for catch", seedFishingRng99(false))
+	activeBites99[abuser] = {
+		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+		biteTime = os.clock(), luckBonus = 0,
+	}
+	pcall(submitCatch99, abuser, { hit = true })
+	assertEq("19.9 fish: successful re-roll lands one carried fish", 1, #abuS.carried)
+	if #abuS.carried == 1 then
+		local caught = abuS.carried[1]
+		assertTrue("19.9 fish: caught fish is server-constructed",
+			caught.SpeciesId ~= nil and caught.BaseSellValue ~= nil and caught.BaseSellValue > 0)
+	end
+end
+DataManager.remove(abuser)
 
 -- ============================================================
 -- Summary
