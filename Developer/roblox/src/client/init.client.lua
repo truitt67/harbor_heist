@@ -944,6 +944,27 @@ local TOAST_CATEGORIES = {
 }
 local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
 
+-- harborheist-6388.1: Toast variant system — 5 variants with distinct
+-- colors, durations, and persistence. Categories map to variants so
+-- showToastDirect can resolve the right duration/behavior from the
+-- category alone (works for both showNotification and drainToastQueue).
+-- Caller-passed colors take precedence (variant.color is a default).
+local TOAST_VARIANTS = {
+	info = { color = UI.accentSoft, duration = 3.6, persistent = false },
+	success = { color = UI.good, duration = 3.6, persistent = false },
+	warning = { color = UI.warn, duration = 4.5, persistent = false },
+	error = { color = UI.bad, duration = 6, persistent = false },
+	critical = { color = UI.bad, duration = 0, persistent = true },
+}
+
+local CATEGORY_TO_VARIANT = {
+	catch = "success", quest = "info", raid = "warning",
+	["raid-victim"] = "critical", ["raid-attacker"] = "warning",
+	["raid-info"] = "info", lock = "info", economy = "info",
+	discovery = "info", cast = "info", missed = "warning",
+	datastore = "critical", info = "info",
+}
+
 -- Host geometry is consumed by the onboarding prompt clamp (TASK 28.2,
 -- updateOnboardingPromptOffset) — single-sourced here, never re-literal'd.
 local TOAST_HOST_TOP_OFFSET = 8
@@ -1045,7 +1066,18 @@ local function showToastDirect(message, color, category)
 	toastScale.Scale = 0.94
 	toastScale.Parent = toast
 	TweenService:Create(toastScale, EASE_POP, { Scale = 1 }):Play()
-	task.delay(TOAST_LIFETIME, function()
+	-- harborheist-6388.1: variant-aware duration from CATEGORY_TO_VARIANT.
+	-- Unmapped categories and variant.duration=0 fall back to TOAST_LIFETIME.
+	local vName = CATEGORY_TO_VARIANT[category]
+	local vConf = vName and TOAST_VARIANTS[vName]
+	local lifetime = (vConf and vConf.duration > 0) and vConf.duration or TOAST_LIFETIME
+	local persistent = vConf and vConf.persistent
+	-- Shared dismiss logic (fade out + destroy + counter + queue drain).
+	-- Used by both the auto-dismiss timer (non-persistent) and the close
+	-- button (persistent). Runs the count decrement unconditionally so
+	-- external destruction doesn't leak activeToastCount (fresh-eyes fix
+	-- preserved from the original implementation).
+	local function dismissToast()
 		if toast.Parent then
 			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
@@ -1057,12 +1089,25 @@ local function showToastDirect(message, color, category)
 			t.Completed:Wait()
 			toast:Destroy()
 		end
-		-- Runs even if the toast was destroyed externally (fresh-eyes fix):
-		-- an early return here leaked activeToastCount, and 3 leaks would
-		-- permanently stall the queue (counter stuck at the cap).
 		activeToastCount -= 1
 		drainToastQueue()
-	end)
+	end
+	if not persistent then
+		task.delay(lifetime, dismissToast)
+	else
+		-- Persistent toasts require manual dismissal via a close button.
+		local closeBtn = makeButton(toast, {
+			Size = UDim2.new(0, 20, 0, 20),
+			Position = UDim2.new(1, -24, 0, 4),
+			Text = "✕",
+			TextSize = 12,
+			BackgroundColor3 = UI.surfaceHi,
+			TextColor3 = UI.textDim,
+			CornerRadius = 999,
+			ZIndex = 59,
+		})
+		closeBtn.Activated:Connect(dismissToast)
+	end
 end
 
 -- Assign to the forward-declared local
@@ -1074,8 +1119,12 @@ drainToastQueue = function()
 end
 
 local function showNotification(message, color, category)
-	color = color or UI.accentSoft
 	category = category or "info"
+	-- harborheist-6388.1: resolve toast variant from category for the
+	-- color default (caller-passed color still takes precedence).
+	local variantName = CATEGORY_TO_VARIANT[category]
+	local variant = variantName and TOAST_VARIANTS[variantName]
+	color = color or (variant and variant.color) or UI.accentSoft
 	-- harborheist-6qyq: server-toast categories with a stinger attached.
 	-- showNotification is the single funnel for every server toast, so
 	-- category sounds live here (raid-victim: ALARM / robbed / defended).
