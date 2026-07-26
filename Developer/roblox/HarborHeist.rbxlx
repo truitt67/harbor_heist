@@ -9325,6 +9325,17 @@ local function pressFeedback(button, hoverGlow)
 		button.MouseLeave:Connect(function()
 			playerMouse.Icon = ""
 		end)
+		-- Fresh-eyes fix: MouseLeave does NOT fire when a button is
+		-- destroyed mid-hover (list rebuild under the cursor, panel swap) —
+		-- without this the pointing-hand cursor sticks for the rest of the
+		-- session. Over-clears in the rare case another button is hovered
+		-- when this one dies; that self-heals on the next MouseEnter, which
+		-- is the better failure side (arrow > phantom hand).
+		button.Destroying:Connect(function()
+			if playerMouse.Icon == "rbxasset://SystemCursors/PointingHand" then
+				playerMouse.Icon = ""
+			end
+		end)
 	end
 end
 
@@ -10379,7 +10390,23 @@ local function showPanel(panel)
 				end
 			end)
 		else
-			oldPanel.Visible = false
+			-- Fresh-eyes fix (R4 #8 twin): the desktop SWITCH path still
+			-- hard-hid the old panel — hidePanels got the animated close but
+			-- this twin didn't. Same shrink, same reopen guard.
+			local scale = oldPanel:FindFirstChildOfClass("UIScale")
+			if not scale then
+				scale = Instance.new("UIScale")
+				scale.Parent = oldPanel
+			end
+			local fit = scale.Scale
+			local shrink = TweenService:Create(scale, EASE_IN, { Scale = fit * 0.9 })
+			shrink:Play()
+			shrink.Completed:Once(function()
+				if activePanel ~= oldPanel then
+					oldPanel.Visible = false
+					scale.Scale = fit
+				end
+			end)
 		end
 	end
 	activePanel = panel
@@ -10496,7 +10523,14 @@ task.spawn(function()
 	local GLOW_LO = Color3.fromRGB(50, 160, 80)
 	local GLOW_HI = Color3.fromRGB(74, 198, 114)
 	while true do
-		if state and (state.unclaimedIncome or 0) > 0 and activePanel == aquariumPanel then
+		-- Fresh-eyes fix: the pulse must NOT mask the DataStore-unhealthy
+		-- state — render() paints the button danger-red "SAVING UNAVAILABLE"
+		-- then, and a green glow over it would lie about a dead feature.
+		if state
+			and (state.unclaimedIncome or 0) > 0
+			and state.dataStoreHealthy ~= false
+			and activePanel == aquariumPanel
+		then
 			local phase = (os.clock() % 2.0) / 2.0
 			local alpha = 0.5 * (1 - math.abs(phase * 2 - 1))
 			claimButton.BackgroundColor3 = GLOW_LO:Lerp(GLOW_HI, alpha)
