@@ -317,6 +317,18 @@ local function formatCash(n)
 	return formatted
 end
 
+-- harborheist-akdb (P1 load-order fix): formatRaidTime must be declared
+-- BEFORE its earliest caller (renderRaidTargets, ~:2351). It previously sat
+-- ~1600 lines lower (~:4084); Luau binds locals lexically at the definition
+-- site, so the renderRaidTargets call read a nil GLOBAL and every locked /
+-- cooldown raid-target row crashed the render thread at runtime.
+local function formatRaidTime(seconds)
+	seconds = math.max(0, math.floor(seconds))
+	local m = math.floor(seconds / 60)
+	local s = seconds % 60
+	return string.format("%d:%02d", m, s)
+end
+
 -- ============================================================
 -- HUD: cash card (top-left) — glass card with animated counter
 -- ============================================================
@@ -4081,13 +4093,8 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 -- raidWindow is forward-declared above (before render()) so the onboarding
 -- prompt logic can reference raidWindow.open for the HasSeenRaidExplanation
 -- stage. The OnClientEvent handler here is the sole writer.
-local function formatRaidTime(seconds)
-	seconds = math.max(0, math.floor(seconds))
-	local m = math.floor(seconds / 60)
-	local s = seconds % 60
-	return string.format("%d:%02d", m, s)
-end
-
+-- NOTE (harborheist-akdb): formatRaidTime moved up next to formatCash — the
+-- declaration must precede renderRaidTargets (its earliest caller).
 local function updateRaidCountdown()
 	if raidWindow.open then
 		raidBanner.Visible = true
