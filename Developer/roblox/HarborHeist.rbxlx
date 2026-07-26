@@ -10157,7 +10157,11 @@ local function hidePanels()
 			local slide = TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
 			slide:Play()
 			slide.Completed:Once(function()
-				panel.Visible = false
+				-- Fresh-eyes: same reopen race as showPanel's switch path —
+				-- a close→reopen inside the slide would hide the live panel.
+				if activePanel ~= panel then
+					panel.Visible = false
+				end
 			end)
 		else
 			panel.Visible = false
@@ -10604,29 +10608,36 @@ local function renderInventory()
 		-- can't fire two InvokeServer calls (server rejects the loser, but
 		-- the client showed a raw-reason toast for it). Disabling the button
 		-- also gives clear "I registered your tap" feedback.
-		local function debouncedAction(btn, fn)
+		-- Fresh-eyes fix: pcall the invoke — an error (network drop) would
+		-- otherwise leave Active=false FOREVER (state didn't change → no
+		-- re-render → dead button until the panel is reopened).
+		local function debouncedAction(btn, verb, fn)
 			btn.Activated:Connect(function()
 				if not btn.Active then
 					return
 				end
 				btn.Active = false
-				local result = fn()
+				local ok, result = pcall(fn)
 				btn.Active = true
-				return result
+				if not ok or result == nil then
+					showNotification(friendlyFailureReason(verb, "bad_id"), UI.bad)
+				end
 			end)
 		end
 
-		debouncedAction(sellBtn, function()
+		debouncedAction(sellBtn, "sell", function()
 			local result = Remotes.SellFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
 				showNotification(friendlyFailureReason("sell", result.reason), UI.bad)
 			end
+			return result
 		end)
-		debouncedAction(storeBtn, function()
+		debouncedAction(storeBtn, "store", function()
 			local result = Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
 			if result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
 				showNotification(friendlyFailureReason("store", result.reason), UI.bad)
 			end
+			return result
 		end)
 	end
 end
@@ -10894,8 +10905,9 @@ local function makeMilestoneRow(parent, order, milestone)
 			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
 			if result and result.ok then
 				milestone.claimed = true
-				-- The signature is based on discovered/total counts, which don't
-				-- change when claiming, so invalidate it to force a re-render.
+				-- Invalidate the rebuild signature to force a re-render (the
+				-- signature now also covers claimed state — R3 #15 — but nil-ing
+				-- keeps this correct even if the shape changes again).
 				-- Server fires its own notification via remotes.notify, so no
 				-- duplicate client-side showNotification here.
 				lastCollectionSignature = nil
@@ -10929,13 +10941,16 @@ renderCollection = function()
 	-- R3 audit #15: signature was discovered/total only — a milestone
 	-- becoming claimable (have/need crossing) never re-rendered the panel
 	-- until an unrelated species discovery changed the count. Fold milestone
-	-- progress + claimed state into the signature.
+	-- progress + complete/claimed state into the signature. (Fresh-eyes:
+	-- field names verified against makeMilestoneRow — have/need/complete/
+	-- claimed; an earlier draft read a nonexistent .current fallback.)
 	local sigParts = { tostring(book.discoveredCount or 0), tostring(book.totalSpecies or 0) }
 	if book.milestones then
 		for _, milestone in ipairs(book.milestones) do
 			table.insert(sigParts, tostring(milestone.id))
-			table.insert(sigParts, tostring(milestone.have or milestone.current or 0))
-			table.insert(sigParts, tostring(milestone.claimed and 1 or 0))
+			table.insert(sigParts, tostring(milestone.have or 0))
+			table.insert(sigParts, milestone.complete and "1" or "0")
+			table.insert(sigParts, milestone.claimed and "1" or "0")
 		end
 	end
 	local signature = table.concat(sigParts, "/")
@@ -11015,30 +11030,49 @@ local function toggleCollectionPanel()
 	-- R3 audit #14: un-pcall'd invoke + no loading state — a network error
 	-- killed the handler thread and left a permanently blank panel, and slow
 	-- networks showed emptiness with no spinner.
-	clearCollectionList()
-	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Loading collection...", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
+	-- Fresh-eyes fix: show cached data IMMEDIATELY when we have it (nil the
+	-- signature to force a rebuild) and only show the loading row on a cold
+	-- open — otherwise a rate_limited refresh left the loading row up
+	-- forever (renderCollection early-returns on the unchanged signature).
+	if collectionBookData then
+		lastCollectionSignature = nil
+		renderCollection()
+	else
+		clearCollectionList()
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Loading collection...", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
+	end
 	local ok, book = pcall(function()
 		return Remotes.RequestCollection:InvokeServer()
 	end)
 	if not ok then
-		clearCollectionList()
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.bad, LayoutOrder = 1, ZIndex = 26 })
+		if collectionBookData then
+			-- Keep showing the cached book; just say the refresh failed.
+			showNotification("Couldn't refresh the collection — showing saved data.", UI.bad)
+		else
+			clearCollectionList()
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.bad, LayoutOrder = 1, ZIndex = 26 })
+		end
 		return
 	end
 	if book and book.ok then
 		collectionBookData = book
-		lastCollectionSignature = nil -- fresh fetch: force rebuild over the loading row
+		lastCollectionSignature = nil -- fresh fetch: force rebuild
 		renderCollection()
 	elseif book and book.reason == "rate_limited" then
 		if collectionBookData then
-			renderCollection()
+			-- Cached book already rendered above — nothing to fix up.
+			showNotification("Collection book loading too fast — try again.", UI.warn)
 		else
 			clearCollectionList()
 			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
 			showNotification("Collection book loading too fast — try again.", UI.warn)
 		end
 	else
-		clearCollectionList()
+		-- Unknown failure: keep the cached book if we rendered one above;
+		-- only blank the panel when there is nothing to show.
+		if not collectionBookData then
+			clearCollectionList()
+		end
 		showNotification("Collection book unavailable: " .. tostring(book and book.reason or "unknown"), UI.bad)
 	end
 end
@@ -11804,8 +11838,14 @@ local function startRaidPanelPolling()
 	lastRaidTargetsSignature = computeRaidTargetsSignature(raidTargets)
 	-- Start polling loop (new generation kills any surviving old chain).
 	raidPollGeneration += 1
+	-- Fresh-eyes fix: capture the generation NOW. Passing the upvalue
+	-- (pollRaidTargets(raidPollGeneration)) reads it when the delay FIRES —
+	-- a close→reopen inside 3s bumps the generation and the stale chain's
+	-- first tick would adopt the NEW value, reviving alongside the new chain
+	-- (the exact leak the guard exists to kill).
+	local generation = raidPollGeneration
 	task.delay(3, function()
-		pollRaidTargets(raidPollGeneration)
+		pollRaidTargets(generation)
 	end)
 end
 
@@ -13302,7 +13342,16 @@ end)
 -- TASK 9.2 (0jc.2): dismiss the raid explanation onboarding prompt when the
 -- player interacts with the opt-in button — they've now "seen" the explanation.
 raidOptInButton.Activated:Connect(function()
+	-- R3 audit #19 (fresh-eyes: the raid PANEL's toggle got this guard in the
+	-- first pass but the aquarium twin was missed — same double-tap hazard).
+	if not raidOptInButton.Active then
+		return
+	end
 	dismissOnboardingPrompt("raidExplain")
+	raidOptInButton.Active = false
+	task.delay(1.5, function()
+		raidOptInButton.Active = true
+	end)
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
