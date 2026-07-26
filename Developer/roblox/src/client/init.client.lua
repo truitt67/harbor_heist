@@ -591,6 +591,52 @@ local function createSkeletonRows(parent, config)
 	return bars
 end
 
+-- ============================================================
+-- harborheist-i39g.1: Fake elevation/shadow system.
+-- Roblox UI has no native drop-shadows, so elevation is faked with
+-- layered black Frames behind the element, each progressively larger
+-- and more transparent — the further out, the fainter. Consumes the
+-- Theme.shadows configs defined in the design-token system (uabg.7),
+-- proving those tokens are usable (single source of truth).
+--
+-- Shadow layers are parented to the element itself (ZIndex = element's
+-- ZIndex - 1) and auto-destroy when the element is destroyed. They
+-- extend past the element bounds via Size > 1 and negative Position.
+-- IMPORTANT: apply to elements WITHOUT a UIListLayout on them (panels,
+-- toasts, prompts, cards) — a UIListLayout would override the shadow
+-- frames' explicit Position. For layout containers, wrap in a plain
+-- Frame and apply elevation to the wrapper.
+--
+-- Duplicate-safe: if the element already has Shadow_N children, they
+-- are removed and recreated (supports re-elevation on state change).
+-- ============================================================
+local function applyElevation(element, level)
+	local config = Theme.shadows[level] or Theme.shadows.low
+	-- Remove existing shadow layers (re-elevation support).
+	for _, child in ipairs(element:GetChildren()) do
+		if child.Name:match("^Shadow_%d+$") then
+			child:Destroy()
+		end
+	end
+	for i = 1, config.layers do
+		local shadow = Instance.new("Frame")
+		shadow.Name = "Shadow_" .. i
+		shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+		shadow.BackgroundTransparency = 1 - (config.alpha * (1 - (i - 1) / config.layers))
+		shadow.Size = UDim2.new(1, config.spread * i, 1, config.spread * i)
+		shadow.Position = UDim2.new(0, -config.spread * i / 2, 0, -config.spread * i / 2)
+		shadow.ZIndex = element.ZIndex - 1
+		shadow.Active = false
+		shadow.Parent = element
+		corner(shadow, Theme.corners.lg)
+	end
+end
+
+-- Register on Theme so the function is exported as part of the design
+-- system (silences FunctionUnused; downstream beads call
+-- Theme.applyElevation(element, "low")).
+Theme.applyElevation = applyElevation
+
 -- R4 polish: staggered list entrance. Rows in a rebuilt list fade + settle
 -- in with a per-index delay (35ms, capped at 8) — the Stripe/Linear list
 -- feel. Walks descendants, captures their CURRENT transparencies, zeroes
