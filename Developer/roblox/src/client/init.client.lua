@@ -3425,7 +3425,16 @@ local function refreshRaidPanel()
 	-- round-trip. raidTargetsLoaded distinguishes "loading" from "server
 	-- returned empty" — the initial {} alone can't tell them apart.
 	-- Self-terminates when renderRaidTargets destroys the bars on arrival.
+	-- Clear first: the manual REFRESH button (1.5s debounce) can call this
+	-- before the first InvokeServer returns, stacking duplicate skeleton bars
+	-- — matching showCollectionSkeleton's clearCollectionList guard pattern.
 	if not raidTargetsLoaded and activePanel == raidPanel then
+		for _, child in ipairs(raidTargetList:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
+		raidTargetCountdownLabels = {}
 		createSkeletonRows(raidTargetList, {
 			rows = 3,
 			rowHeight = IS_MOBILE and 68 or 60,
@@ -5245,6 +5254,15 @@ local function toggleQuestPanel()
 		-- harborheist-7h69.4: skeleton rows on cold open (questData nil)
 		-- while waiting for the server's QuestProgressChanged push. Self-
 		-- terminates when renderQuestPanel destroys the bars on data arrival.
+		-- Clear first: a reopen before the server responds (questData still
+		-- nil) would otherwise stack duplicate skeleton bars on top of the
+		-- previous set — matching showCollectionSkeleton's clearCollectionList
+		-- guard pattern.
+		for _, child in ipairs(questList:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
 		createSkeletonRows(questList, {
 			rows = 4,
 			rowHeight = IS_MOBILE and 72 or 64,
