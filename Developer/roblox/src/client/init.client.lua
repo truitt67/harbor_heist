@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local HapticService = game:GetService("HapticService")
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
@@ -16,11 +17,27 @@ end
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+-- R4 polish #1 (desktop): pointing-hand cursor over interactive buttons.
+local playerMouse = player:GetMouse()
 
 -- ============================================================
 -- Device profile: hyper-optimize layout per modality.
 -- ============================================================
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- R4 polish #2 (mobile): light haptic tick at celebration moments (Epic+
+-- reveal, milestone claim). Fully pcall-guarded — HapticService.Play only
+-- does anything on haptic-capable touch devices; everywhere else it is a
+-- silent no-op. Deliberately NOT wired to every button press — haptics
+-- everywhere is haptics nowhere.
+local function hapticTick()
+	if not IS_MOBILE then
+		return
+	end
+	pcall(function()
+		HapticService:Play(Enum.HapticEffectType.UI_Click)
+	end)
+end
 
 -- ============================================================
 -- Design system
@@ -52,6 +69,10 @@ local FONT_BODY = Enum.Font.Gotham
 local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
+-- paths (mobile slide, desktop shrink) used decelerating easings — the
+-- slowest, most visible part of the exit was the tail.
+local EASE_IN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
 local state = nil
 local casting = false
@@ -273,8 +294,11 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 
 	return frame, title, barTrack, goodZone, perfectZone, subtitle, marker, markerGlow
 end
-
-local function pressFeedback(button)
+-- Micro-interaction: quick squash on press, spring back on release.
+-- hoverGlow (optional, desktop): a white-wash Frame makeButton created —
+-- MouseEnter fades it in for a color-lift affordance that never fights
+-- dynamic BackgroundColor3 owners (claim/lock/sell buttons).
+local function pressFeedback(button, hoverGlow)
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
 	button.MouseButton1Down:Connect(function()
@@ -291,6 +315,9 @@ local function pressFeedback(button)
 	end)
 	button.MouseLeave:Connect(function()
 		TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
+		if hoverGlow then
+			TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+		end
 	end)
 	-- R3 audit #1: on touch, Button1Up/MouseLeave are unreliable when the
 	-- finger slides off the button — the squash could stick at 0.96,
@@ -308,7 +335,16 @@ local function pressFeedback(button)
 			if not button.Active then
 				return
 			end
+			-- R4 polish #1: pointing-hand cursor — the universal desktop
+			-- "this is clickable" affordance (official SystemCursors asset).
+			playerMouse.Icon = "rbxasset://SystemCursors/PointingHand"
 			TweenService:Create(scale, EASE_FAST, { Scale = 1.025 }):Play()
+			if hoverGlow then
+				TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 0.9 }):Play()
+			end
+		end)
+		button.MouseLeave:Connect(function()
+			playerMouse.Icon = ""
 		end)
 	end
 end
@@ -327,8 +363,71 @@ local function makeButton(parent, props)
 	end
 	button.Parent = parent
 	corner(button, cornerRadius or 12)
-	pressFeedback(button)
+	-- R4 polish (desktop): white-wash hover glow. A child Frame instead of a
+	-- BackgroundColor3 lerp so buttons whose color is owned elsewhere
+	-- (claim/lock/sell state machines) get the affordance without conflicts.
+	-- At 0.9 transparency it reads as a ~10% lift even over the label.
+	local hoverGlow = nil
+	if not IS_MOBILE then
+		hoverGlow = Instance.new("Frame")
+		hoverGlow.Name = "HoverGlow"
+		hoverGlow.Size = UDim2.new(1, 0, 1, 0)
+		hoverGlow.BackgroundColor3 = Color3.new(1, 1, 1)
+		hoverGlow.BackgroundTransparency = 1
+		hoverGlow.ZIndex = button.ZIndex + 1
+		hoverGlow.Parent = button
+		corner(hoverGlow, cornerRadius or 12)
+	end
+	pressFeedback(button, hoverGlow)
 	return button
+end
+
+-- R4 polish: staggered list entrance. Rows in a rebuilt list fade + settle
+-- in with a per-index delay (35ms, capped at 8) — the Stripe/Linear list
+-- feel. Walks descendants, captures their CURRENT transparencies, zeroes
+-- them, then tweens back after the stagger delay. Positions are untouched
+-- (UIListLayout owns them — tweening Position would fight the layout).
+-- Callers: inventory rows, raid target rows, collection cards.
+local STAGGER_STEP = 0.035
+local STAGGER_MAX_INDEX = 8
+local function staggerFadeIn(root, index)
+	local delay = math.min(math.max(index - 1, 0), STAGGER_MAX_INDEX) * STAGGER_STEP
+	local targets = {}
+	local function capture(obj)
+		if obj:IsA("GuiObject") then
+			local entry = { bg = obj.BackgroundTransparency }
+			if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
+				entry.text = obj.TextTransparency
+				obj.TextTransparency = 1
+			end
+			obj.BackgroundTransparency = 1
+			targets[obj] = entry
+		end
+	end
+	capture(root)
+	for _, descendant in ipairs(root:GetDescendants()) do
+		if descendant:IsA("GuiObject") then
+			capture(descendant)
+		elseif descendant:IsA("UIStroke") then
+			targets[descendant] = { stroke = descendant.Transparency }
+			descendant.Transparency = 1
+		end
+	end
+	task.delay(delay, function()
+		for obj, entry in pairs(targets) do
+			if obj.Parent then
+				if entry.bg ~= nil then
+					TweenService:Create(obj, EASE_OUT, { BackgroundTransparency = entry.bg }):Play()
+				end
+				if entry.text ~= nil then
+					TweenService:Create(obj, EASE_OUT, { TextTransparency = entry.text }):Play()
+				end
+				if entry.stroke ~= nil then
+					TweenService:Create(obj, EASE_OUT, { Transparency = entry.stroke }):Play()
+				end
+			end
+		end
+	end)
 end
 
 local function formatCash(n)
@@ -511,7 +610,10 @@ local function animateCashTo(target)
 		return
 	end
 	local t0 = os.clock()
-	local dur = 0.45
+	-- R4 polish #4: duration scales with the delta — +$12 snaps, +$48,000
+	-- savors. Fixed 0.45s made jackpots feel identical to minnows.
+	local delta = math.abs(target - from)
+	local dur = math.clamp(0.35 + math.log10(math.max(1, delta)) * 0.25, 0.4, 1.4)
 	cashTweenConn = game:GetService("RunService").RenderStepped:Connect(function()
 		local a = math.clamp((os.clock() - t0) / dur, 0, 1)
 		a = 1 - (1 - a) ^ 3
@@ -660,6 +762,13 @@ local function showToastDirect(message, color, category)
 	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()
 	TweenService:Create(chip, EASE_OUT, { TextTransparency = 0 }):Play()
 	TweenService:Create(text, EASE_OUT, { TextTransparency = 0 }):Play()
+	-- R4 polish: spring pop on entrance — the comment header promises
+	-- "slide + fade" but only fades ran; a quick 0.94→1 pop reads as motion
+	-- without fighting the UIListLayout (which owns Position).
+	local toastScale = Instance.new("UIScale")
+	toastScale.Scale = 0.94
+	toastScale.Parent = toast
+	TweenService:Create(toastScale, EASE_POP, { Scale = 1 }):Play()
 	task.delay(TOAST_LIFETIME, function()
 		if toast.Parent then
 			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
@@ -1056,6 +1165,10 @@ backdrop.ZIndex = 20
 backdrop.Parent = screenGui
 
 local activePanel = nil
+-- R4 polish: forward declaration — makePanel's mobile drag-to-dismiss
+-- handlers (defined below, before hidePanels' body) need the upvalue.
+-- Assigned where the original `local function hidePanels()` stood.
+local hidePanels
 -- TASK 25.1 (hvfh.5.1): forward-declared so hidePanels + render can
 -- reference them before the sellButton handler section assigns them.
 -- Lua closures capture upvalues lexically at definition time — a local
@@ -1127,6 +1240,51 @@ local function makePanel(title, titleColor, desktopSize)
 		grabber.ZIndex = 26
 		grabber.Parent = panel
 		corner(grabber, 2)
+
+		-- R4 polish (mobile): drag-to-dismiss — THE bottom-sheet pattern.
+		-- The grabber was decorative; now the header strip is a drag surface.
+		-- Pull down >90px (or fling) to dismiss; release short of that and
+		-- the sheet springs back. hidePanels is forward-declared above.
+		local dragSurface = Instance.new("TextButton")
+		dragSurface.Name = "DragDismiss"
+		dragSurface.Size = UDim2.new(1, 0, 0, 60)
+		dragSurface.Position = UDim2.new(0, 0, 0, 0)
+		dragSurface.BackgroundTransparency = 1
+		dragSurface.Text = ""
+		dragSurface.AutoButtonColor = false
+		dragSurface.ZIndex = 26
+		dragSurface.Parent = panel
+
+		local dragInput = nil
+		local dragStartY = 0
+		local dragDy = 0
+		dragSurface.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch and activePanel == panel then
+				dragInput = input
+				dragStartY = input.Position.Y
+				dragDy = 0
+			end
+		end)
+		UserInputService.TouchMoved:Connect(function(input)
+			if input == dragInput then
+				dragDy = math.max(0, input.Position.Y - dragStartY)
+				panel.Position = UDim2.new(0.5, 0, 1, dragDy)
+				-- R4 polish #3b: the world lightens as the sheet descends —
+				-- sells the dismiss before it commits.
+				backdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
+			end
+		end)
+		UserInputService.TouchEnded:Connect(function(input)
+			if input == dragInput then
+				dragInput = nil
+				if dragDy > 90 then
+					hidePanels()
+				else
+					TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
+					TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
+				end
+			end
+		end)
 	end
 
 	local headerY = IS_MOBILE and 20 or 14
@@ -1142,8 +1300,10 @@ local function makePanel(title, titleColor, desktopSize)
 	})
 
 	local close = makeButton(panel, {
-		Size = UDim2.new(0, IS_MOBILE and 40 or 32, 0, IS_MOBILE and 40 or 32),
-		Position = UDim2.new(1, IS_MOBILE and -52 or -44, 0, headerY - (IS_MOBILE and 6 or 2)),
+		-- R4 polish #11: 40px was under the 44pt mobile touch-target
+		-- guideline for the primary sheet exit.
+		Size = UDim2.new(0, IS_MOBILE and 44 or 32, 0, IS_MOBILE and 44 or 32),
+		Position = UDim2.new(1, IS_MOBILE and -56 or -44, 0, headerY - (IS_MOBILE and 8 or 2)),
 		Text = "✕",
 		TextSize = IS_MOBILE and 18 or 15,
 		BackgroundColor3 = UI.surfaceHi,
@@ -1163,7 +1323,9 @@ local function makePanel(title, titleColor, desktopSize)
 	return panel, content, close
 end
 
-local function hidePanels()
+-- Assigned to the forward-declared local (see above makePanel) so the
+-- mobile drag-to-dismiss handlers can reference it.
+hidePanels = function()
 	if activePanel then
 		-- TASK 25.1 (hvfh.5.1): disarm SELL ALL confirm on panel close.
 		if disarmSellButton then
@@ -1175,7 +1337,11 @@ local function hidePanels()
 			updateActionBarIndicator()
 		end
 		if IS_MOBILE then
-			local slide = TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
+			-- R4 polish #7: exits accelerate (EASE_IN) and slide FULLY clear —
+			-- the old 1.35 target left ~43% of the sheet on screen when the
+			-- hide snapped (bottom anchor + 0.78 height ⇒ full clear is
+			-- 1 + 0.78 = 1.78). Fling distance matches the fling feel.
+			local slide = TweenService:Create(panel, EASE_IN, { Position = UDim2.new(0.5, 0, 1.78, 0) })
 			slide:Play()
 			slide.Completed:Once(function()
 				-- Fresh-eyes: same reopen race as showPanel's switch path —
@@ -1185,7 +1351,23 @@ local function hidePanels()
 				end
 			end)
 		else
-			panel.Visible = false
+			-- R4 polish #8: desktop close mirrors the open pop — accelerate
+			-- down to 0.9x, then hide (was an instant Visible=false that
+			-- felt like a crash next to the springy open).
+			local scale = panel:FindFirstChildOfClass("UIScale")
+			if not scale then
+				scale = Instance.new("UIScale")
+				scale.Parent = panel
+			end
+			local fit = scale.Scale
+			local shrink = TweenService:Create(scale, EASE_IN, { Scale = fit * 0.9 })
+			shrink:Play()
+			shrink.Completed:Once(function()
+				if activePanel ~= panel then
+					panel.Visible = false
+					scale.Scale = fit -- restore for the next open
+				end
+			end)
 		end
 	end
 	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 1 }):Play()
@@ -1207,7 +1389,8 @@ local function showPanel(panel)
 		-- that tweens everywhere else. Slide the old one down like hidePanels.
 		local oldPanel = activePanel
 		if IS_MOBILE then
-			local slideOut = TweenService:Create(oldPanel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1.35, 0) })
+			-- R4 polish #7: accelerating exit, fully clear (1 + 0.78 height).
+			local slideOut = TweenService:Create(oldPanel, EASE_IN, { Position = UDim2.new(0.5, 0, 1.78, 0) })
 			slideOut:Play()
 			slideOut.Completed:Once(function()
 				-- Guard against A→B→A fast switching: if the user reopened
@@ -1306,7 +1489,10 @@ capacityFill.BackgroundColor3 = UI.purple
 capacityFill.ZIndex = 27
 capacityFill.Parent = capacityBar
 corner(capacityFill, 5)
-vGradient(capacityFill, Color3.fromRGB(196, 181, 253), UI.purple)
+-- Captured for R4 #10: render() tweens the threshold color through BOTH
+-- the fill and its gradient (a UIGradient multiplies the background — a
+-- red fill under a purple gradient would read muddy).
+local capacityGradient = vGradient(capacityFill, Color3.fromRGB(196, 181, 253), UI.purple)
 
 -- TASK 5.1: claim accumulated aquarium income
 local claimButton = makeButton(aquariumPanel, {
@@ -1319,6 +1505,28 @@ local claimButton = makeButton(aquariumPanel, {
 	-- steal input in the overlapping region.
 	ZIndex = 27,
 })
+
+-- R4 polish: gentle CLAIM glow while income is ready and the panel is open.
+-- The HUD income-line pulse (TASK 24.1) covers the closed-panel case; this
+-- covers the in-panel "what do I press next" moment. Runs at 10Hz only
+-- while ready > 0 and the aquarium panel is active; render()'s 1Hz color
+-- set loses the fight visually (same pattern as the income line).
+-- Defined here — NOT in the income-line loop — because claimButton and
+-- aquariumPanel don't exist at that point in the file (lexical binding).
+task.spawn(function()
+	local GLOW_LO = Color3.fromRGB(50, 160, 80)
+	local GLOW_HI = Color3.fromRGB(74, 198, 114)
+	while true do
+		if state and (state.unclaimedIncome or 0) > 0 and activePanel == aquariumPanel then
+			local phase = (os.clock() % 2.0) / 2.0
+			local alpha = 0.5 * (1 - math.abs(phase * 2 - 1))
+			claimButton.BackgroundColor3 = GLOW_LO:Lerp(GLOW_HI, alpha)
+			task.wait(0.1)
+		else
+			task.wait(0.5)
+		end
+	end
+end)
 
 makeLabel(aquariumContent, {
 	Size = UDim2.new(1, 0, 0, 16),
@@ -1660,6 +1868,8 @@ local function renderInventory()
 			end
 			return result
 		end)
+		-- R4 polish: staggered entrance on rebuild.
+		staggerFadeIn(row, i)
 	end
 end
 
@@ -1926,6 +2136,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
 			if result and result.ok then
 				milestone.claimed = true
+				hapticTick() -- R4 polish #2: reward moment
 				-- Invalidate the rebuild signature to force a re-render (the
 				-- signature now also covers claimed state — R3 #15 — but nil-ing
 				-- keeps this correct even if the shape changes again).
@@ -2020,7 +2231,12 @@ renderCollection = function()
 				gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
 				gridLayout.Parent = rarityGrid
 			end
-			makeCollectionCard(rarityGrid, i, data, book.discovered[speciesId] ~= nil)
+			local card = makeCollectionCard(rarityGrid, i, data, book.discovered[speciesId] ~= nil)
+			-- R4 polish: staggered entrance (delay caps at index 8 so large
+			-- collections still appear promptly).
+			if card then
+				staggerFadeIn(card, i)
+			end
 		end
 	end
 
@@ -2037,6 +2253,39 @@ renderCollection = function()
 	else
 		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = order, ZIndex = 26 })
 	end
+end
+
+-- R4 polish: skeleton shimmer rows for the collection cold-load — three
+-- ghost cards with a cascading transparency wave read as "premium loading"
+-- where a bare "Loading..." label reads as "broken". The shimmer loop
+-- self-terminates when clearCollectionList destroys the bars (refresh or
+-- error path).
+local function showCollectionSkeleton()
+	clearCollectionList()
+	local bars = {}
+	for i = 1, 3 do
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.new(1, 0, 0, IS_MOBILE and 110 or 120)
+		bar.BackgroundColor3 = UI.surfaceHi
+		bar.BackgroundTransparency = 0.5
+		bar.LayoutOrder = i
+		bar.ZIndex = 26
+		bar.Parent = collectionList
+		corner(bar, 12)
+		bars[i] = bar
+	end
+	task.spawn(function()
+		while bars[1].Parent do
+			local phase = (os.clock() % 1.4) / 1.4
+			for i, bar in ipairs(bars) do
+				if bar.Parent then
+					local wave = math.abs(((phase + (i - 1) * 0.18) % 1) * 2 - 1)
+					bar.BackgroundTransparency = 0.35 + 0.35 * wave
+				end
+			end
+			task.wait(0.08)
+		end
+	end)
 end
 
 local function toggleCollectionPanel()
@@ -2059,8 +2308,7 @@ local function toggleCollectionPanel()
 		lastCollectionSignature = nil
 		renderCollection()
 	else
-		clearCollectionList()
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Loading collection...", Font = FONT_BODY, TextSize = 14, TextColor3 = UI.textFaint, LayoutOrder = 1, ZIndex = 26 })
+		showCollectionSkeleton()
 	end
 	local ok, book = pcall(function()
 		return Remotes.RequestCollection:InvokeServer()
@@ -2718,6 +2966,9 @@ local function renderRaidTargets(data)
 				startRaidMinigame(result)
 			end)
 		end
+		-- R4 polish: staggered entrance on rebuild (signature-gated, so it
+		-- only replays on real target changes — not every poll tick).
+		staggerFadeIn(row, i)
 	end
 end
 
@@ -3604,17 +3855,22 @@ local function updateZoneCue(dockIndex, hasCaught)
 	end)
 end
 
+-- R4 polish #15: last-applied lock-button state class — render() tweens
+-- colors only on class change (never on the 1Hz countdown text updates).
+local lastLockClass = nil
+
 local function render()
 	if not state then
 		return
 	end
 	-- TASK 10.5: DataStore failure handling — show warning when unhealthy
+	-- (R4 polish #12: token colors — raw literals were off-palette)
 	if state.dataStoreHealthy == false and not dataStoreWarningShown then
 		dataStoreWarningShown = true
-		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", Color3.fromRGB(255, 100, 100))
+		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", UI.bad)
 	elseif state.dataStoreHealthy ~= false and dataStoreWarningShown then
 		dataStoreWarningShown = false
-		showNotification("Saving restored!", Color3.fromRGB(100, 255, 100))
+		showNotification("Saving restored!", UI.good)
 	end
 	animateCashTo(state.cash)
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
@@ -3659,7 +3915,22 @@ local function render()
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
 	local capacityRatio = math.clamp(state.liveWellCount / math.max(1, state.capacity), 0, 1)
-	TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0) }):Play()
+	-- R4 polish: capacity bar doubles as ambient status — purple while
+	-- comfortable, amber past 60%, red past 85% ("nearly full, sell or
+	-- upgrade"). Color tweens with the size so transitions stay smooth.
+	local capacityColor = UI.purple
+	if capacityRatio >= 0.85 then
+		capacityColor = UI.bad
+	elseif capacityRatio >= 0.6 then
+		capacityColor = UI.warn
+	end
+	TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0), BackgroundColor3 = capacityColor }):Play()
+	-- The gradient multiplies the fill color — retint it to match or the
+	-- threshold colors read muddy (light top ~45% toward white, matching
+	-- the original 196,181,253-over-purple relationship).
+	TweenService:Create(capacityGradient, EASE_OUT, {
+		Color = ColorSequence.new(capacityColor:Lerp(Color3.new(1, 1, 1), 0.45), capacityColor),
+	}):Play()
 
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
@@ -3678,28 +3949,32 @@ local function render()
 	rarityList.Text = table.concat(lines, "\n")
 	-- Lock button state (LOCAL field names per StateSync.lua)
 	-- TASK 8.4: show free-use count in lock button text.
+	-- R4 polish #15: color transitions tween instead of snapping on the 1Hz
+	-- push. Only re-assert when the state CLASS changes — the countdown text
+	-- updates every second and would restart the tween constantly.
+	local lockClass, lockBg, lockFg
 	if (state.lockedUntil or 0) > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
-		lockButton.BackgroundColor3 = UI.bad
-		lockButton.TextColor3 = UI.ink
+		lockClass, lockBg, lockFg = "locked", UI.bad, UI.ink
 	elseif (state.lockCooldownUntil or 0) > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
-		lockButton.BackgroundColor3 = UI.surfaceHi
-		lockButton.TextColor3 = UI.textDim
+		lockClass, lockBg, lockFg = "recharge", UI.surfaceHi, UI.textDim
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
 		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
 			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
 		end
 		local freeUses = state.lockFreeUsesRemaining or 0
-		local freeMax = state.lockFreeUsesMax or 3
 		if freeUses > 0 then
 			lockButton.Text = string.format("LOCK %ds — %d quick locks left", lockDur, freeUses)
 		else
 			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
 		end
-		lockButton.BackgroundColor3 = UI.warn
-		lockButton.TextColor3 = UI.ink
+		lockClass, lockBg, lockFg = "ready", UI.warn, UI.ink
+	end
+	if lockClass ~= lastLockClass then
+		lastLockClass = lockClass
+		TweenService:Create(lockButton, EASE_FAST, { BackgroundColor3 = lockBg, TextColor3 = lockFg }):Play()
 	end
 	end -- R3 audit #20: end aquarium-panel-visible gate
 
@@ -3987,6 +4262,9 @@ end
 -- ============================================================
 local revealCard = nil
 local revealDismissToken = 0
+-- R4 polish #9: the Epic/Legendary stroke-breath tween, cancelled on
+-- dismiss/replacement so it never writes to a destroyed UIStroke.
+local revealStrokePulse = nil
 
 local function showRevealCard(speciesId, rarity, value)
 	if revealCard then
@@ -4026,13 +4304,57 @@ local function showRevealCard(speciesId, rarity, value)
 	card.Active = true
 	card.Parent = screenGui
 	corner(card, 14)
-	stroke(card, 0.4, rarityColor, 2)
+	local cardStroke = stroke(card, 0.4, rarityColor, 2)
 
-	-- Scale-in (EASE_POP per bead spec)
+	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
+	-- should feel different per tier. Rare: the standard pop. Epic: adds a
+	-- breathing rarity-stroke pulse. Legendary: slower/bigger entrance plus
+	-- a full-screen rarity flash behind the card.
+	local isEpicPlus = rarity == "Epic" or rarity == "Legendary"
+	local isLegendary = rarity == "Legendary"
+
+	-- Scale-in (EASE_POP per bead spec; Legendary gets the grander 0.35 start)
 	local cardScale = Instance.new("UIScale")
-	cardScale.Scale = 0.5
+	cardScale.Scale = isLegendary and 0.35 or 0.5
 	cardScale.Parent = card
-	TweenService:Create(cardScale, EASE_POP, { Scale = 1 }):Play()
+	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
+
+	-- Epic+: stroke breathes while the card is up. Stored so dismiss() and
+	-- the next card can cancel it (a tween on a destroyed stroke errors).
+	if revealStrokePulse then
+		revealStrokePulse:Cancel()
+		revealStrokePulse = nil
+	end
+	if isEpicPlus then
+		hapticTick() -- R4 polish #2: the catch deserves a physical tick
+		revealStrokePulse = TweenService:Create(
+			cardStroke,
+			TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Transparency = 0.05 }
+		)
+		revealStrokePulse:Play()
+	end
+
+	-- Legendary: full-screen rarity flash (fast in, slow out, then gone).
+	if isLegendary then
+		local flash = Instance.new("Frame")
+		flash.Size = UDim2.new(1, 0, 1, 0)
+		flash.BackgroundColor3 = rarityColor
+		flash.BackgroundTransparency = 1
+		flash.ZIndex = 49
+		flash.Parent = screenGui
+		TweenService:Create(flash, EASE_FAST, { BackgroundTransparency = 0.82 }):Play()
+		task.delay(0.14, function()
+			if flash.Parent then
+				TweenService:Create(flash, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
+			end
+		end)
+		task.delay(0.65, function()
+			if flash.Parent then
+				flash:Destroy()
+			end
+		end)
+	end
 
 	-- Rarity top bar
 	local topBar = Instance.new("Frame")
@@ -4082,11 +4404,11 @@ local function showRevealCard(speciesId, rarity, value)
 		ZIndex = 51,
 	})
 
-	-- "tap to dismiss" hint
+	-- "tap to dismiss" hint (R4 #9c: platform-correct copy)
 	makeLabel(card, {
 		Size = UDim2.new(1, 0, 0, 16),
 		Position = UDim2.new(0, 0, 0, 130),
-		Text = "tap to dismiss",
+		Text = IS_MOBILE and "tap to dismiss" or "click to dismiss",
 		Font = FONT_BODY,
 		TextSize = 11,
 		TextColor3 = UI.textFaint,
@@ -4103,7 +4425,24 @@ local function showRevealCard(speciesId, rarity, value)
 		end
 		revealDismissToken = revealDismissToken + 1
 		if revealCard == card then
+			if revealStrokePulse then
+				revealStrokePulse:Cancel()
+				revealStrokePulse = nil
+			end
 			TweenService:Create(cardScale, EASE_FAST, { Scale = 0.5 }):Play()
+			-- R4 polish #9b: fade alongside the shrink — the old shrink-only
+			-- dismiss hard-popped at Destroy.
+			TweenService:Create(card, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+			for _, d in ipairs(card:GetDescendants()) do
+				if d:IsA("GuiObject") then
+					TweenService:Create(d, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+					if d:IsA("TextLabel") or d:IsA("TextButton") then
+						TweenService:Create(d, EASE_FAST, { TextTransparency = 1 }):Play()
+					end
+				elseif d:IsA("UIStroke") then
+					TweenService:Create(d, EASE_FAST, { Transparency = 1 }):Play()
+				end
+			end
 			task.delay(0.15, function()
 				if revealCard == card then
 					card:Destroy()
