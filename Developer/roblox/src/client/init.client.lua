@@ -3066,6 +3066,7 @@ local raidRefreshButton = makeButton(raidContent, {
 })
 
 local raidTargets = {}
+local raidTargetsLoaded = false
 local raidInProgress = false
 
 
@@ -3342,6 +3343,18 @@ end
 
 local function refreshRaidPanel()
 	updateRaidPanelStatic()
+	-- harborheist-7h69.5: skeleton rows on cold open (before first server
+	-- response) so the target list isn't blank during the InvokeServer
+	-- round-trip. raidTargetsLoaded distinguishes "loading" from "server
+	-- returned empty" — the initial {} alone can't tell them apart.
+	-- Self-terminates when renderRaidTargets destroys the bars on arrival.
+	if not raidTargetsLoaded and activePanel == raidPanel then
+		createSkeletonRows(raidTargetList, {
+			rows = 3,
+			rowHeight = IS_MOBILE and 68 or 60,
+			zIndex = 26,
+		})
+	end
 	-- Fetch targets from server asynchronously (window open/close or manual refresh).
 	task.spawn(function()
 		local ok, data = pcall(function()
@@ -3349,6 +3362,7 @@ local function refreshRaidPanel()
 		end)
 		if ok then
 			raidTargets = data or {}
+			raidTargetsLoaded = true
 			if activePanel == raidPanel then
 				renderRaidTargets(raidTargets)
 			end
@@ -5150,6 +5164,15 @@ local function toggleQuestPanel()
 	-- daily rotation showed yesterday's quests until the next server push.
 	if questData then
 		renderQuestPanel(questData)
+	else
+		-- harborheist-7h69.4: skeleton rows on cold open (questData nil)
+		-- while waiting for the server's QuestProgressChanged push. Self-
+		-- terminates when renderQuestPanel destroys the bars on data arrival.
+		createSkeletonRows(questList, {
+			rows = 4,
+			rowHeight = IS_MOBILE and 72 or 64,
+			zIndex = 26,
+		})
 	end
 	Remotes.OpenQuests:FireServer()
 end
