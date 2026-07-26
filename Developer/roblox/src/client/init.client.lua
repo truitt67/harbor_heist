@@ -69,7 +69,13 @@ local FONT_MED = Enum.Font.GothamMedium
 local FONT_BODY = Enum.Font.Gotham
 
 local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+-- harborheist-2wuo.1: Back -> Spring for the "pop" easing (scale-in
+-- reveals, button bounce-back). Spring gives physics-based overshoot that
+-- feels more natural than Back's synthetic curve. NOT applied to EASE_FAST
+-- (Quad) or EASE_IN (Quad) — those control press compression, hover glows,
+-- fades, and exit acceleration where Spring overshoot would cause flicker
+-- or feel wrong.
+local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out)
 local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 -- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
 -- paths (mobile slide, desktop shrink) used decelerating easings — the
@@ -4651,7 +4657,9 @@ local function showRevealCard(speciesId, rarity, value)
 	local cardScale = Instance.new("UIScale")
 	cardScale.Scale = isLegendary and 0.35 or 0.5
 	cardScale.Parent = card
-	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
+	-- harborheist-2wuo.1: Legendary reveal also uses Spring (was Back) for
+	-- physics-based overshoot — the most dramatic catch gets the bounciest pop.
+	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Spring, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
 
 	-- Epic+: stroke breathes while the card is up. Stored so dismiss() and
 	-- the next card can cancel it (a tween on a destroyed stroke errors).
