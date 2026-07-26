@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# CI runs the machine-portable gates only. The datamodel (TestEZ) and E2E
+# suites require Roblox Studio via run-in-roblox (macOS/Windows runner +
+# signed-in Studio), so they run locally — see docs/TESTING.md.
+
+jobs:
+  pure:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Developer/roblox
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lune 0.10.5
+        run: |
+          curl -sSL https://github.com/lune-org/lune/releases/download/v0.10.5/lune-0.10.5-linux-x86_64.zip -o /tmp/lune.zip
+          unzip -o /tmp/lune.zip -d /tmp
+          sudo mv /tmp/lune /usr/local/bin/lune
+          lune --version
+
+      - name: Pure suite + remote arity gate + coverage gate
+        run: bash scripts/run_tests.sh --pure
+        # Runs, in order: remote_arity_check.py (TASK 21.2 gate),
+        # lune pure_specs (100 tests), coverage_report.py --gate
+        # (TASK 18.13). python3 is preinstalled on ubuntu runners.
