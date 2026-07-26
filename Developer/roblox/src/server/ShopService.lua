@@ -11,6 +11,7 @@ function ShopService.init(deps)
 	local auditLog = deps.auditLog -- EPIC 10 / TASK 10.3
 	local analytics = deps.analytics -- EPIC 11
 	local dockManager = deps.dockManager -- TASK 6.4 (dock cosmetic refresh)
+	local rodService = deps.rodService -- ydf6 (re-equip visual on rod purchase)
 
 	-- TASK 19.5: handler extracted to a local so it can be exposed as a test
 	-- seam (OnServerInvoke is write-only; the E2E runner calls the handler
@@ -93,6 +94,11 @@ function ShopService.init(deps)
 			end
 			if not alreadyOwned then
 				table.insert(owned, level)
+			end
+			-- ydf6: refresh the held rod visual immediately (previously the new
+			-- tier only showed after respawn — equip reads EquippedRodLevel).
+			if rodService then
+				rodService.equip(player, session)
 			end
 		elseif kind == "bait" then
 			session.profile.Equipment.EquippedBaitLevel = level

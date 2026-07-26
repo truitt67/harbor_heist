@@ -24,23 +24,11 @@ function FishingService.init(deps)
 	local auditLog = deps.auditLog
 	local rodService = deps.rodService
 
-	local function failCast(player, reason)
-		-- RELIABILITY: Always clear the pending entry, even when the session is
-		-- already gone (player left) - otherwise the Player key leaks in the table.
-		if rodService then
-			rodService.endCast(player, false)
-		end
-		local session = dataManager.get(player)
-		if not session then
-			return
-		end
-		session.casting = false
-		session.castDeadline = 0
-		remotes.CastState:FireClient(player, false, 0, nil)
-		if reason and session.player and session.player.Parent then
-			remotes.notify(player, reason, Color3.fromRGB(255, 120, 120))
-		end
-		stateSync.push(session)
+	-- ydf6: rarity-name -> definition lookup (color etc.) so the catch FX
+	-- (RodService.endCast -> leapFish) can be fed from the rolled rarity.
+	local rarityByName = {}
+	for _, rarityDef in ipairs(GameConfig.Rarities) do
+		rarityByName[rarityDef.name] = rarityDef
 	end
 
 	-- Track active bite state per player (not persisted)
@@ -176,6 +164,11 @@ function FishingService.init(deps)
 			castResultReceived = false,
 		}
 
+		-- ydf6: rod FX — swing, bobber flight + splash, line beam from rod tip.
+		if rodService then
+			rodService.startCast(player, dock, biteDelay)
+		end
+
 		-- Fire the bite event to the client when the bite occurs
 		task.delay(biteDelay, function()
 			if not player.Parent then
@@ -198,11 +191,17 @@ function FishingService.init(deps)
 			if not stillInZone or currentZoneId ~= zoneId then
 				remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
 				activeBites[player] = nil
+				if rodService then
+					rodService.endCast(player, false)
+				end
 				return
 			end
 			if #session.carried >= GameConfig.MaxCarried then
 				remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
 				activeBites[player] = nil
+				if rodService then
+					rodService.endCast(player, false)
+				end
 				return
 			end
 
@@ -304,6 +303,9 @@ function FishingService.init(deps)
 		if elapsed > BITE_WINDOW_SECONDS then
 			activeBites[player] = nil
 			remotes.notify(player, "Too slow! The fish got away...", Color3.fromRGB(255, 120, 120))
+			if rodService then
+				rodService.endCast(player, false)
+			end
 			if analytics then
 				analytics.track(player, "fish_catch_failed", { reason = "too_slow" })
 			end
@@ -320,6 +322,9 @@ function FishingService.init(deps)
 
 		if not timingResult.hit then
 			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			if rodService then
+				rodService.endCast(player, false)
+			end
 			if analytics then
 				analytics.track(player, "fish_catch_failed", { reason = "missed" })
 			end
@@ -357,6 +362,9 @@ function FishingService.init(deps)
 		effectiveZone = math.clamp(effectiveZone, baseZone, ceiling)
 		if rng:NextNumber() > effectiveZone then
 			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			if rodService then
+				rodService.endCast(player, false)
+			end
 			if analytics then
 				analytics.track(player, "fish_catch_failed", { reason = "missed_reroll" })
 			end
@@ -387,6 +395,12 @@ function FishingService.init(deps)
 		-- Create FishInstance record
 		local fish = FishInstance.new(speciesDef.SpeciesId, zoneId)
 		table.insert(session.carried, fish)
+
+		-- ydf6: rod FX — reel the bobber in and leap the caught fish (rarity
+		-- colored) from the water to the player's chest.
+		if rodService then
+			rodService.endCast(player, true, rarityByName[fish.Rarity])
+		end
 
 		-- TASK 10.3: audit log for high-value catches (Legendary/Epic)
 		if auditLog then
