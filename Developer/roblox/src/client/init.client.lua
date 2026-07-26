@@ -506,6 +506,85 @@ local function makeButton(parent, props)
 	return button
 end
 
+-- ============================================================
+-- harborheist-7h69.1: Universal skeleton loader factory.
+-- Creates N ghost-card bars in a parent with a cascading transparency
+-- pulse — the proven animation from showCollectionSkeleton, generalized
+-- for reuse across any panel. NOT a UIGradient shimmer: Roblox
+-- ColorSequenceKeypoint has no alpha channel (the bead's proposed
+-- Color3.new(1,1,1,0) is technically invalid), so the pulse pattern is
+-- the correct approach and is already runtime-verified.
+--
+-- The animation self-terminates: the task.spawn loop exits when
+-- bars[1].Parent becomes nil (happens when the caller clears/replaces
+-- the parent's children — e.g. clearCollectionList or rendering real
+-- content). No manual cleanup needed.
+--
+-- config:
+--   rows       — number of bars (default 3)
+--   rowHeight  — bar height in px (default IS_MOBILE 110 / desktop 120)
+--   gap        — bar spacing; sets UIListLayout.Padding if the factory
+--                creates one (default Theme.spacing.md). Ignored if the
+--                parent already has a UIListLayout (_preserved_ as-is).
+--   zIndex     — ZIndex for bars (default 26)
+--   animated   — run the pulse loop (default true)
+--   barColor   — bar background (default Theme.color.surface.elevated)
+--   radius     — corner radius (default Theme.corners.md)
+-- Returns: bars table (for caller reference; destroying any bar triggers
+-- self-termination).
+-- ============================================================
+local function createSkeletonRows(parent, config)
+	config = config or {}
+	local rows = config.rows or 3
+	local rowHeight = config.rowHeight or (IS_MOBILE and 110 or 120)
+	local gap = config.gap or Theme.spacing.md
+	local zIndex = config.zIndex or 26
+	local animated = config.animated ~= false
+	local barColor = config.barColor or Theme.color.surface.elevated
+	local radius = config.radius or Theme.corners.md
+
+	local bars = {}
+	for i = 1, rows do
+		local bar = Instance.new("Frame")
+		bar.Name = "SkeletonRow"
+		bar.Size = UDim2.new(1, 0, 0, rowHeight)
+		bar.BackgroundColor3 = barColor
+		bar.BackgroundTransparency = 0.5
+		bar.LayoutOrder = i
+		bar.ZIndex = zIndex
+		bar.Parent = parent
+		corner(bar, radius)
+		bars[i] = bar
+	end
+
+	-- Ensure a UIListLayout exists for sequential positioning + gap. If the
+	-- parent already has one (e.g. collectionList's configured layout), leave
+	-- it untouched — only add one for parents that don't.
+	if not parent:FindFirstChildOfClass("UIListLayout") then
+		local layout = Instance.new("UIListLayout")
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0, gap)
+		layout.Parent = parent
+	end
+
+	if animated then
+		task.spawn(function()
+			while bars[1] and bars[1].Parent do
+				local phase = (os.clock() % 1.4) / 1.4
+				for i, bar in ipairs(bars) do
+					if bar.Parent then
+						local wave = math.abs(((phase + (i - 1) * 0.18) % 1) * 2 - 1)
+						bar.BackgroundTransparency = 0.35 + 0.35 * wave
+					end
+				end
+				task.wait(0.08)
+			end
+		end)
+	end
+
+	return bars
+end
+
 -- R4 polish: staggered list entrance. Rows in a rebuilt list fade + settle
 -- in with a per-index delay (35ms, capped at 8) — the Stripe/Linear list
 -- feel. Walks descendants, captures their CURRENT transparencies, zeroes
@@ -2435,37 +2514,20 @@ renderCollection = function()
 	end
 end
 
--- R4 polish: skeleton shimmer rows for the collection cold-load — three
+-- R4 polish / harborheist-7h69.1: skeleton rows for the collection cold-
+-- load. Delegates to the universal createSkeletonRows factory — three
 -- ghost cards with a cascading transparency wave read as "premium loading"
--- where a bare "Loading..." label reads as "broken". The shimmer loop
+-- where a bare "Loading..." label reads as "broken". The animation loop
 -- self-terminates when clearCollectionList destroys the bars (refresh or
--- error path).
+-- error path). The factory detects collectionList's existing UIListLayout
+-- (Padding=14) and preserves it.
 local function showCollectionSkeleton()
 	clearCollectionList()
-	local bars = {}
-	for i = 1, 3 do
-		local bar = Instance.new("Frame")
-		bar.Size = UDim2.new(1, 0, 0, IS_MOBILE and 110 or 120)
-		bar.BackgroundColor3 = UI.surfaceHi
-		bar.BackgroundTransparency = 0.5
-		bar.LayoutOrder = i
-		bar.ZIndex = 26
-		bar.Parent = collectionList
-		corner(bar, 12)
-		bars[i] = bar
-	end
-	task.spawn(function()
-		while bars[1].Parent do
-			local phase = (os.clock() % 1.4) / 1.4
-			for i, bar in ipairs(bars) do
-				if bar.Parent then
-					local wave = math.abs(((phase + (i - 1) * 0.18) % 1) * 2 - 1)
-					bar.BackgroundTransparency = 0.35 + 0.35 * wave
-				end
-			end
-			task.wait(0.08)
-		end
-	end)
+	createSkeletonRows(collectionList, {
+		rows = 3,
+		rowHeight = IS_MOBILE and 110 or 120,
+		zIndex = 26,
+	})
 end
 
 local function toggleCollectionPanel()
