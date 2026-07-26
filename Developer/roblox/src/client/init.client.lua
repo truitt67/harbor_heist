@@ -520,6 +520,27 @@ hudClick.AutoButtonColor = false
 hudClick.ZIndex = 4
 hudClick.Parent = hud
 
+-- harborheist-kecr: desktop hover affordance — the whole card opens the
+-- aquarium panel but nothing signaled clickability, so players discovered
+-- it by accident. MouseEnter lifts the background and brightens the card
+-- stroke (the pressFeedback language buttons already speak); touch has no
+-- hover, so this is desktop-only.
+if not IS_MOBILE then
+	local hudStroke = hud:FindFirstChildOfClass("UIStroke")
+	hudClick.MouseEnter:Connect(function()
+		TweenService:Create(hud, EASE_FAST, { BackgroundTransparency = 0.08 }):Play()
+		if hudStroke then
+			TweenService:Create(hudStroke, EASE_FAST, { Transparency = 0.45 }):Play()
+		end
+	end)
+	hudClick.MouseLeave:Connect(function()
+		TweenService:Create(hud, EASE_FAST, { BackgroundTransparency = 0.18 }):Play()
+		if hudStroke then
+			TweenService:Create(hudStroke, EASE_FAST, { Transparency = 0.85 }):Play()
+		end
+	end)
+end
+
 -- TASK 24.1 (hvfh.4.1): dual-purpose income line — rate always shown, plus a
 -- claim-green "$N ready" segment while unclaimed income exists. One line: no
 -- HUD height change, no carryPill shift. #32A050 == Color3.fromRGB(50,160,80),
@@ -3892,6 +3913,13 @@ end
 -- R4 polish #15: last-applied lock-button state class — render() tweens
 -- colors only on class change (never on the 1Hz countdown text updates).
 local lastLockClass = nil
+-- harborheist-tzgk/03mo: lazily-created boat state dot, owned by render().
+local boatStateDot = nil
+-- harborheist-rxz0: last-applied capacity-bar state — tween only on change.
+local lastCapacityRatio = nil
+local lastCapacityClass = nil
+-- harborheist-yi2q: lazily-created BAG count badge, owned by render().
+local bagBadge, bagBadgeLabel = nil, nil
 
 local function render()
 	if not state then
@@ -3911,6 +3939,35 @@ local function render()
 	-- pulse loop re-asserts it while ready > 0; this covers every state push).
 	updateIncomeLine()
 	carryLabel.Text = string.format("On line: %d / %d fish", state.carried or 0, state.maxCarried or 0)
+	-- harborheist-yi2q: carried-count badge on the BAG action button — the
+	-- carry pill showed the count but the button itself gave none, and a
+	-- player at cap learned it only AFTER their cast was refused. The badge
+	-- floats at the button's top-right corner (clear of the desktop key
+	-- chip and the mobile hero label) and tints red at cap.
+	if not bagBadge then
+		bagBadge = Instance.new("Frame")
+		bagBadge.Name = "BagCountBadge"
+		bagBadge.AnchorPoint = Vector2.new(1, 0)
+		bagBadge.Size = UDim2.new(0, 26, 0, 12)
+		bagBadge.Position = UDim2.new(1, -4, 0, -4)
+		bagBadge.BackgroundColor3 = UI.surfaceHi
+		bagBadge.BorderSizePixel = 0
+		bagBadge.ZIndex = 10
+		bagBadge.Parent = actionButtons.store
+		corner(bagBadge, 999)
+		bagBadgeLabel = makeLabel(bagBadge, {
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = "",
+			Font = FONT_BOLD,
+			TextSize = 9,
+			TextColor3 = UI.textDim,
+		})
+	end
+	local maxCarry = state.maxCarried or 0
+	local bagFull = maxCarry > 0 and (state.carried or 0) >= maxCarry
+	bagBadgeLabel.Text = string.format("%d/%d", state.carried or 0, maxCarry)
+	bagBadge.BackgroundColor3 = bagFull and UI.bad or UI.surfaceHi
+	bagBadgeLabel.TextColor3 = bagFull and UI.ink or UI.textDim
 	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
 	-- state push (catch, per-fish sell/store, bulk actions) while it is open.
 	if activePanel == inventoryPanel then
@@ -3925,8 +3982,25 @@ local function render()
 	-- flips — progress-gated, never dismiss-gated.
 	updateZoneCue(state.dockIndex, (state.onboarding or {}).HasCaughtFirstFish == true)
 
-	local boatLbl = actionButtons.boat_label or actionButtons.boat
-	boatLbl.Text = state.hasBoat and (IS_MOBILE and "SAIL" or "SAILING") or "BOAT"
+	-- harborheist-tzgk + harborheist-03mo: render() no longer writes the
+	-- boat LABEL. layoutDesktopBar / the mobile stack builder own button
+	-- text — the 1Hz 'SAILING'/'SAIL' stomp fought the short-label layout
+	-- (tzgk), and a STATE string on a COMMAND button read as a command, so
+	-- tapping it earned the 'already have a boat' error toast (03mo).
+	-- render() owns a state dot instead: cyan dot top-right = boat is out.
+	if not boatStateDot then
+		boatStateDot = Instance.new("Frame")
+		boatStateDot.Name = "BoatStateDot"
+		boatStateDot.AnchorPoint = Vector2.new(1, 0)
+		boatStateDot.Size = UDim2.new(0, 8, 0, 8)
+		boatStateDot.Position = UDim2.new(1, -5, 0, 5)
+		boatStateDot.BackgroundColor3 = UI.boat
+		boatStateDot.BorderSizePixel = 0
+		boatStateDot.ZIndex = 10
+		boatStateDot.Parent = actionButtons.boat
+		corner(boatStateDot, 4)
+	end
+	boatStateDot.Visible = state.hasBoat == true
 
 	-- R3 audit #20: the aquarium stats RichText rebuild, rarity list, capacity
 	-- tween, and lock-button state were running on EVERY 1Hz state push even
@@ -3952,19 +4026,28 @@ local function render()
 	-- R4 polish: capacity bar doubles as ambient status — purple while
 	-- comfortable, amber past 60%, red past 85% ("nearly full, sell or
 	-- upgrade"). Color tweens with the size so transitions stay smooth.
-	local capacityColor = UI.purple
+	local capacityClass = "low"
 	if capacityRatio >= 0.85 then
-		capacityColor = UI.bad
+		capacityClass = "high"
 	elseif capacityRatio >= 0.6 then
-		capacityColor = UI.warn
+		capacityClass = "mid"
 	end
-	TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0), BackgroundColor3 = capacityColor }):Play()
-	-- The gradient multiplies the fill color — retint it to match or the
-	-- threshold colors read muddy (light top ~45% toward white, matching
-	-- the original 196,181,253-over-purple relationship).
-	TweenService:Create(capacityGradient, EASE_OUT, {
-		Color = ColorSequence.new(capacityColor:Lerp(Color3.new(1, 1, 1), 0.45), capacityColor),
-	}):Play()
+	local capacityColor = capacityClass == "high" and UI.bad or capacityClass == "mid" and UI.warn or UI.purple
+	-- harborheist-rxz0: tween only on CHANGE — every 1Hz push was spawning
+	-- a fresh tween pair on the same properties, orphaning the previous
+	-- ones and restarting the easing so the bar never settled (same
+	-- class-gate pattern as the lock button below).
+	if capacityClass ~= lastCapacityClass or not lastCapacityRatio or math.abs(capacityRatio - lastCapacityRatio) >= 0.01 then
+		lastCapacityClass = capacityClass
+		lastCapacityRatio = capacityRatio
+		TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0), BackgroundColor3 = capacityColor }):Play()
+		-- The gradient multiplies the fill color — retint it to match or the
+		-- threshold colors read muddy (light top ~45% toward white, matching
+		-- the original 196,181,253-over-purple relationship).
+		TweenService:Create(capacityGradient, EASE_OUT, {
+			Color = ColorSequence.new(capacityColor:Lerp(Color3.new(1, 1, 1), 0.45), capacityColor),
+		}):Play()
+	end
 
 	local lines = {}
 	for i, rarity in ipairs(GameConfig.Rarities) do
@@ -4783,6 +4866,14 @@ local function trySpawnBoat()
 		return
 	end
 	lastBoatSpawnAt = now
+	-- harborheist-03mo: boat already out (the state dot says so) — treat the
+	-- tap as a query, not a command: friendly info toast, zero server calls.
+	-- A stale snapshot self-corrects on the next 1Hz push; a stale-false
+	-- read just falls through to the server's own already_has_boat rejection.
+	if state and state.hasBoat then
+		showNotification("Your boat is out — find it at your dock!", UI.boat)
+		return
+	end
 	local result = Remotes.SpawnBoat:InvokeServer()
 	if not result then
 		return
