@@ -59,7 +59,7 @@ local UI = {
 	purple = Color3.fromRGB(167, 139, 250),
 	text = Color3.fromRGB(238, 243, 250),
 	textDim = Color3.fromRGB(148, 163, 184),
-	textFaint = Color3.fromRGB(130, 146, 169),
+	textFaint = Color3.fromRGB(138, 154, 177),
 	ink = Color3.fromRGB(10, 16, 26),
 }
 
@@ -117,7 +117,7 @@ local Theme = {
 		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
 		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7 },
 		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
-		danger = { bg = UI.bad, text = UI.stroke, strokeColor = nil, strokeTransparency = 1 },
+		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
 	},
 }
 -- Link button-variant radii to the single corner token (corners.md == 12),
@@ -1045,7 +1045,10 @@ onboardingAccentBar.Parent = onboardingPrompt
 corner(onboardingAccentBar, 2)
 
 local onboardingLabel = makeLabel(onboardingPrompt, {
-	Size = UDim2.new(1, -52, 1, 0),
+	-- harborheist-bpem.1: widened right padding (-52 -> -60) to match the
+	-- enlarged 44px close button, preserving the original 10px text/button
+	-- overlap relationship (button bg covers the empty right label margin).
+	Size = UDim2.new(1, -60, 1, 0),
 	Position = UDim2.new(0, 20, 0, 0),
 	Text = "",
 	Font = FONT_MED,
@@ -2932,8 +2935,13 @@ raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
 	-- harborheist-bpem.1: 36px was below the 44pt mobile touch-target
-	-- minimum. Grown upward (Y 104->96) so the bottom edge stays at 140
-	-- and no new overlap with the target list (top 144) is introduced.
+	-- minimum. Grown upward (Y 104->96) so the bottom edge stays at 140,
+	-- preserving the 4px gap to the target list (top 144). Trade-off: the
+	-- Y-overlap with the full-width raidOptInPanelButton (bottom edge 114)
+	-- increases from 10px to 18px; the optIn button text is vertically
+	-- centered (Y~92), above the overlap region (Y>=96), so no text is
+	-- hidden — the refresh button's opaque bg just covers more of the
+	-- optIn button's empty bottom-right corner.
 	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 44 or 28),
 	Position = UDim2.new(1, IS_MOBILE and -104 or -94, 0, IS_MOBILE and 96 or 112),
 	Text = "REFRESH",

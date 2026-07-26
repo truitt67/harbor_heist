@@ -37,7 +37,7 @@ return function(describe, it, expect)
 	local surfaceHi = { 30, 43, 63 }
 	local text = { 238, 243, 250 }
 	local textDim = { 148, 163, 184 }
-	local textFaint = { 130, 146, 169 }
+	local textFaint = { 138, 154, 177 }
 
 	describe("WCAG AA text contrast (harborheist-bpem.3)", function()
 		it("primary text meets AA-normal (4.5:1) on every dark surface", function()
