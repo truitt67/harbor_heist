@@ -637,6 +637,107 @@ end
 -- Theme.applyElevation(element, "low")).
 Theme.applyElevation = applyElevation
 
+-- ============================================================
+-- harborheist-2wuo.4: Reusable transition library.
+-- Named TweenInfo presets + helper functions for common animations.
+-- Existing EASE_* constants remain in use (this is additive, not a
+-- replacement); new code can use Transitions for semantic clarity.
+--
+-- Usage:
+--   Transitions.tween(panel, { BackgroundTransparency = 0.1 }, "normal", "out")
+--   Transitions.fadeIn(label, 0.2)   -- tweens BackgroundTransparency + TextTransparency
+--   Transitions.fadeOut(label, 0.2)  -- tweens to transparent
+--   Transitions.scale(card, 0.94, 1, "spring")
+--   Transitions.slide(panel, fromPos, toPos, "normal", "out")
+--
+-- The helpers return the running TweenService tween object so callers
+-- can :Wait() for completion or :Cancel() if superseded.
+-- ============================================================
+local Transitions = {}
+
+-- Duration presets (seconds). Match the existing EASE_* values so the
+-- library is consistent with the hand-tuned timings already in the file.
+Transitions.durations = {
+	fast = 0.12, -- matches EASE_FAST
+	normal = 0.22, -- matches EASE_OUT
+	slow = 0.5,
+}
+
+-- Easing presets: pre-built TweenInfo objects keyed by semantic name.
+-- Callers pass the NAME (string), not the TweenInfo, to helpers — the
+-- library resolves it. This avoids importing TweenInfo at every call site.
+Transitions._easings = {
+	out = EASE_OUT,
+	["in"] = EASE_IN,
+	spring = EASE_POP,
+	fast = EASE_FAST,
+	inOut = TweenInfo.new(Transitions.durations.normal, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+	sine = TweenInfo.new(Transitions.durations.slow, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
+}
+
+-- Resolve a duration name or raw number, plus an easing name or TweenInfo.
+local function resolveTweenInfo(duration, easing)
+	local dur = type(duration) == "number" and duration
+		or Transitions.durations[duration] or Transitions.durations.normal
+	local ti = type(easing) == "table" and easing
+		or Transitions._easings[easing] or Transitions._easings.out
+	-- Override the resolved TweenInfo's duration with the requested value
+	-- (easing presets carry a default duration; an explicit duration wins).
+	if ti.Time ~= dur then
+		ti = TweenInfo.new(dur, ti.EasingStyle, ti.EasingDirection)
+	end
+	return ti
+end
+
+-- Generic: tween any set of properties on an element. Returns the tween.
+function Transitions.tween(element, props, duration, easing)
+	local ti = resolveTweenInfo(duration, easing)
+	local t = TweenService:Create(element, ti, props)
+	t:Play()
+	return t
+end
+
+-- Fade in: tween BackgroundTransparency (and TextTransparency for text
+-- elements) to 0 / a caller-specified target. Returns the tween.
+function Transitions.fadeIn(element, duration, targetTransparency)
+	local props = { BackgroundTransparency = targetTransparency or 0 }
+	if element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox") then
+		props.TextTransparency = targetTransparency or 0
+	end
+	return Transitions.tween(element, props, duration, "out")
+end
+
+-- Fade out: tween transparencies to 1 (fully invisible). Returns the tween.
+function Transitions.fadeOut(element, duration)
+	local props = { BackgroundTransparency = 1 }
+	if element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox") then
+		props.TextTransparency = 1
+	end
+	return Transitions.tween(element, props, duration, "in")
+end
+
+-- Scale: tween a UIScale's Scale property. Auto-creates a UIScale if the
+-- element doesn't have one (common pattern in this file). Returns the tween.
+function Transitions.scale(element, fromScale, toScale, duration, easing)
+	local scale = element:FindFirstChildOfClass("UIScale")
+	if not scale then
+		scale = Instance.new("UIScale")
+		scale.Parent = element
+	end
+	scale.Scale = fromScale
+	return Transitions.tween(scale, { Scale = toScale }, duration, easing or "spring")
+end
+
+-- Slide: tween Position from one UDim2 to another. Returns the tween.
+function Transitions.slide(element, fromPos, toPos, duration, easing)
+	element.Position = fromPos
+	return Transitions.tween(element, { Position = toPos }, duration, easing or "out")
+end
+
+-- Register on Theme (silences unused; downstream code calls
+-- Theme.Transitions.fadeIn(...) etc.).
+Theme.Transitions = Transitions
+
 -- R4 polish: staggered list entrance. Rows in a rebuilt list fade + settle
 -- in with a per-index delay (35ms, capped at 8) — the Stripe/Linear list
 -- feel. Walks descendants, captures their CURRENT transparencies, zeroes
