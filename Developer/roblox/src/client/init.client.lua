@@ -272,23 +272,23 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	frame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
 	-- Unified position: center-stage at 0.42 mobile / 0.58 desktop
 	frame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
-	frame.BackgroundColor3 = UI.bg
+	frame.BackgroundColor3 = Theme.color.surface.primary
 	frame.BackgroundTransparency = 0.08
 	frame.Visible = false
 	frame.ZIndex = OVERLAY_Z_BASE
 	frame.Parent = screenGui
-	corner(frame, 16)
+	corner(frame, Theme.corners.lg)
 	stroke(frame, 0.8)
-	vGradient(frame, Color3.fromRGB(26, 38, 57), UI.bg)
+	vGradient(frame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
 
 	-- Title (unified style)
 	local title = makeLabel(frame, {
 		Size = UDim2.new(1, -20, 0, 24),
 		Position = UDim2.new(0, 10, 0, 10),
 		Text = titleText,
-		Font = FONT_HEAD,
-		TextSize = IS_MOBILE and 15 or 16,
-		TextColor3 = UI.warn,
+		Font = Theme.type.fonts.head,
+		TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+		TextColor3 = Theme.color.status.warn,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
 
@@ -296,7 +296,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	local barTrack = Instance.new("Frame")
 	barTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
 	barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
-	barTrack.BackgroundColor3 = UI.surface
+	barTrack.BackgroundColor3 = Theme.color.surface.secondary
 	barTrack.ZIndex = OVERLAY_Z_CONTENT
 	barTrack.Parent = frame
 	corner(barTrack, 10)
@@ -307,12 +307,12 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	goodZone.Name = "GoodZone"
 	goodZone.Size = UDim2.new(0.3, 0, 1, 0)
 	goodZone.Position = UDim2.new(0.35, 0, 0, 0)
-	goodZone.BackgroundColor3 = UI.good
+	goodZone.BackgroundColor3 = Theme.color.status.good
 	goodZone.BackgroundTransparency = 0.45
 	goodZone.ZIndex = OVERLAY_Z_ZONE
 	goodZone.Parent = barTrack
-	corner(goodZone, 8)
-	stroke(goodZone, 0.5, UI.good, 1.5)
+	corner(goodZone, Theme.corners.sm)
+	stroke(goodZone, 0.5, Theme.color.status.good, 1.5)
 
 	-- Perfect zone (unified)
 	local perfectZone = Instance.new("Frame")
@@ -331,9 +331,9 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 		Size = UDim2.new(1, -24, 0, 16),
 		Position = UDim2.new(0, 12, 1, -20),
 		Text = subtitleText,
-		Font = FONT_BOLD,
-		TextSize = IS_MOBILE and 13 or 12,
-		TextColor3 = UI.textFaint,
+		Font = Theme.type.fonts.bold,
+		TextSize = IS_MOBILE and 13 or Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
 
@@ -350,11 +350,11 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	markerGlow.Size = UDim2.new(0, 15, 1, 10)
 	markerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
 	markerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
-	markerGlow.BackgroundColor3 = UI.accentSoft
+	markerGlow.BackgroundColor3 = Theme.color.accent.soft
 	markerGlow.BackgroundTransparency = 0.75
 	markerGlow.ZIndex = OVERLAY_Z_ZONE
 	markerGlow.Parent = marker
-	corner(markerGlow, 8)
+	corner(markerGlow, Theme.corners.sm)
 
 	return frame, title, barTrack, goodZone, perfectZone, subtitle, marker, markerGlow
 end
@@ -4234,20 +4234,20 @@ local function renderFishButton()
 	local labelText, labelColor, strokeColor, baseTrans, pulseMode
 	if fishState == "bite-ready" then
 		labelText = IS_MOBILE and "FISH!" or "FISH ON!"
-		labelColor = UI.warn
-		strokeColor = UI.warn
+		labelColor = Theme.color.status.warn
+		strokeColor = Theme.color.status.warn
 		baseTrans = fishStrokeDefaultTrans or 0.5
 		pulseMode = "fast"
 	elseif fishState == "waiting" then
 		labelText = IS_MOBILE and "..." or "WAITING"
-		labelColor = UI.textFaint
-		strokeColor = UI.textFaint
+		labelColor = Theme.color.text.tertiary
+		strokeColor = Theme.color.text.tertiary
 		baseTrans = fishStrokeDefaultTrans or 0.6
 		pulseMode = "slow"
 	else
 		labelText = "FISH"
-		labelColor = UI.good
-		strokeColor = fishStrokeDefaultColor or UI.good
+		labelColor = Theme.color.status.good
+		strokeColor = fishStrokeDefaultColor or Theme.color.status.good
 		baseTrans = fishStrokeDefaultTrans or 0.6
 		pulseMode = "none"
 	end
@@ -4331,7 +4331,7 @@ local function updateZoneCue(dockIndex, hasCaught)
 	arrow.AnchorPoint = Vector2.new(0.5, 0.5)
 	arrow.Size = UDim2.new(0, 20, 0, 20)
 	arrow.Position = UDim2.new(0.5, 0, 0.35, 0)
-	arrow.BackgroundColor3 = UI.good
+	arrow.BackgroundColor3 = Theme.color.status.good
 	arrow.BackgroundTransparency = 0.2
 	arrow.Rotation = 45 -- diamond; the bottom half reads as a down-arrow tip
 	local arrowCorner = Instance.new("UICorner")
@@ -4344,13 +4344,13 @@ local function updateZoneCue(dockIndex, hasCaught)
 	ring.AnchorPoint = Vector2.new(0.5, 0.5)
 	ring.Size = UDim2.new(0, 40, 0, 40)
 	ring.Position = UDim2.new(0.5, 0, 0.7, 0)
-	ring.BackgroundColor3 = UI.good
+	ring.BackgroundColor3 = Theme.color.status.good
 	ring.BackgroundTransparency = 0.7
 	local ringCorner = Instance.new("UICorner")
 	ringCorner.CornerRadius = UDim.new(1, 0) -- circle
 	ringCorner.Parent = ring
 	local ringStroke = Instance.new("UIStroke")
-	ringStroke.Color = UI.good
+	ringStroke.Color = Theme.color.status.good
 	ringStroke.Thickness = 2
 	ringStroke.Transparency = 0.3
 	ringStroke.Parent = ring
@@ -4395,10 +4395,10 @@ local function render()
 	-- (R4 polish #12: token colors — raw literals were off-palette)
 	if state.dataStoreHealthy == false and not dataStoreWarningShown then
 		dataStoreWarningShown = true
-		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", UI.bad)
+		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", Theme.color.status.bad)
 	elseif state.dataStoreHealthy ~= false and dataStoreWarningShown then
 		dataStoreWarningShown = false
-		showNotification("Saving restored!", UI.good)
+		showNotification("Saving restored!", Theme.color.status.good)
 	end
 	animateCashTo(state.cash)
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
@@ -4416,24 +4416,24 @@ local function render()
 		bagBadge.AnchorPoint = Vector2.new(1, 0)
 		bagBadge.Size = UDim2.new(0, 26, 0, 12)
 		bagBadge.Position = UDim2.new(1, -4, 0, -4)
-		bagBadge.BackgroundColor3 = UI.surfaceHi
+		bagBadge.BackgroundColor3 = Theme.color.surface.elevated
 		bagBadge.BorderSizePixel = 0
 		bagBadge.ZIndex = 10
 		bagBadge.Parent = actionButtons.store
-		corner(bagBadge, 999)
+		corner(bagBadge, Theme.corners.pill)
 		bagBadgeLabel = makeLabel(bagBadge, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = "",
-			Font = FONT_BOLD,
+			Font = Theme.type.fonts.bold,
 			TextSize = 9,
-			TextColor3 = UI.textDim,
+			TextColor3 = Theme.color.text.secondary,
 		})
 	end
 	local maxCarry = state.maxCarried or 0
 	local bagFull = maxCarry > 0 and (state.carried or 0) >= maxCarry
 	bagBadgeLabel.Text = string.format("%d/%d", state.carried or 0, maxCarry)
-	bagBadge.BackgroundColor3 = bagFull and UI.bad or UI.surfaceHi
-	bagBadgeLabel.TextColor3 = bagFull and UI.ink or UI.textDim
+	bagBadge.BackgroundColor3 = bagFull and Theme.color.status.bad or Theme.color.surface.elevated
+	bagBadgeLabel.TextColor3 = bagFull and Theme.color.text.ink or Theme.color.text.secondary
 	-- TASK 4.4 (0cw.4 / wqw.18): live-update the inventory panel on every
 	-- state push (catch, per-fish sell/store, bulk actions) while it is open.
 	if activePanel == inventoryPanel then
@@ -4460,7 +4460,7 @@ local function render()
 		boatStateDot.AnchorPoint = Vector2.new(1, 0)
 		boatStateDot.Size = UDim2.new(0, 8, 0, 8)
 		boatStateDot.Position = UDim2.new(1, -5, 0, 5)
-		boatStateDot.BackgroundColor3 = UI.boat
+		boatStateDot.BackgroundColor3 = Theme.color.brand.boat
 		boatStateDot.BorderSizePixel = 0
 		boatStateDot.ZIndex = 10
 		boatStateDot.Parent = actionButtons.boat
@@ -4498,7 +4498,7 @@ local function render()
 	elseif capacityRatio >= 0.6 then
 		capacityClass = "mid"
 	end
-	local capacityColor = capacityClass == "high" and UI.bad or capacityClass == "mid" and UI.warn or UI.purple
+	local capacityColor = capacityClass == "high" and Theme.color.status.bad or capacityClass == "mid" and Theme.color.status.warn or Theme.color.brand.purple
 	-- harborheist-rxz0: tween only on CHANGE — every 1Hz push was spawning
 	-- a fresh tween pair on the same properties, orphaning the previous
 	-- ones and restarting the easing so the bar never settled (same
@@ -4538,10 +4538,10 @@ local function render()
 	local lockClass, lockBg, lockFg
 	if (state.lockedUntil or 0) > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
-		lockClass, lockBg, lockFg = "locked", UI.bad, UI.ink
+		lockClass, lockBg, lockFg = "locked", Theme.color.status.bad, Theme.color.text.ink
 	elseif (state.lockCooldownUntil or 0) > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
-		lockClass, lockBg, lockFg = "recharge", UI.surfaceHi, UI.textDim
+		lockClass, lockBg, lockFg = "recharge", Theme.color.surface.elevated, Theme.color.text.secondary
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
 		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
@@ -4553,7 +4553,7 @@ local function render()
 		else
 			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
 		end
-		lockClass, lockBg, lockFg = "ready", UI.warn, UI.ink
+		lockClass, lockBg, lockFg = "ready", Theme.color.status.warn, Theme.color.text.ink
 	end
 	if lockClass ~= lastLockClass then
 		lastLockClass = lockClass
@@ -4614,7 +4614,7 @@ local function render()
 		else
 			showOnboardingPrompt("firstCast",
 				IS_MOBILE and "Tap FISH while standing in the glowing zone!" or "Press F to cast into the glowing zone at your dock!",
-				UI.good)
+				Theme.color.status.good)
 		end
 	elseif not ob.HasStoredFirstFish then
 		-- Stage 2: caught a fish but hasn't stored it yet.
@@ -4623,7 +4623,7 @@ local function render()
 			-- per-fish bag panel, where STORE / STORE ALL live.
 			showOnboardingPrompt("firstStore",
 				IS_MOBILE and "Tap BAG to store your fish for passive income!" or "Press G to open your bag and store your fish — they'll earn cash over time!",
-				UI.accent)
+				Theme.color.accent.base)
 		else
 			-- Player has 0 carried (sold the fish instead of storing it).
 			-- Temporarily hide the prompt — DON'T permanently dismiss it,
@@ -4693,22 +4693,22 @@ minigameFrame.Name = "BiteMinigame"
 minigameFrame.AnchorPoint = Vector2.new(0.5, 0.5)
 minigameFrame.Size = IS_MOBILE and UDim2.new(1, -24, 0, 132) or UDim2.new(0, 400, 0, 112)
 minigameFrame.Position = UDim2.new(0.5, 0, IS_MOBILE and 0.42 or 0.58, 0)
-minigameFrame.BackgroundColor3 = UI.bg
+minigameFrame.BackgroundColor3 = Theme.color.surface.primary
 minigameFrame.BackgroundTransparency = 0.08
 minigameFrame.Visible = false
 minigameFrame.ZIndex = OVERLAY_Z_BASE
 minigameFrame.Parent = screenGui
-corner(minigameFrame, 16)
+corner(minigameFrame, Theme.corners.lg)
 stroke(minigameFrame, 0.8)
-vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), UI.bg)
+vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
 
 local minigameTitle = makeLabel(minigameFrame, {
 	Size = UDim2.new(1, -20, 0, 24),
 	Position = UDim2.new(0, 10, 0, 10),
 	Text = IS_MOBILE and "FISH ON! Tap when the marker is in the zone!" or "FISH ON! Click when the marker is in the zone!",
-	Font = FONT_HEAD,
-	TextSize = IS_MOBILE and 15 or 16,
-	TextColor3 = UI.warn,
+	Font = Theme.type.fonts.head,
+	TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+	TextColor3 = Theme.color.status.warn,
 	ZIndex = OVERLAY_Z_CONTENT,
 })
 
@@ -4716,7 +4716,7 @@ local minigameTitle = makeLabel(minigameFrame, {
 local barTrack = Instance.new("Frame")
 barTrack.Size = UDim2.new(1, -24, 0, IS_MOBILE and 52 or 40)
 barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
-barTrack.BackgroundColor3 = UI.surface
+barTrack.BackgroundColor3 = Theme.color.surface.secondary
 barTrack.ZIndex = OVERLAY_Z_CONTENT
 barTrack.Parent = minigameFrame
 corner(barTrack, 10)
@@ -4727,12 +4727,12 @@ stroke(barTrack, 0.85)
 local targetZone = Instance.new("Frame")
 targetZone.Size = UDim2.new(0.3, 0, 1, 0)
 targetZone.Position = UDim2.new(0.35, 0, 0, 0)
-targetZone.BackgroundColor3 = UI.good
+targetZone.BackgroundColor3 = Theme.color.status.good
 targetZone.BackgroundTransparency = 0.45
 targetZone.ZIndex = OVERLAY_Z_ZONE
 targetZone.Parent = barTrack
-corner(targetZone, 8)
-stroke(targetZone, 0.5, UI.good, 1.5)
+corner(targetZone, Theme.corners.sm)
+stroke(targetZone, 0.5, Theme.color.status.good, 1.5)
 
 -- The moving marker (bite minigame)
 -- Renamed from 'marker' to 'biteMarker' to avoid shadowing the cast overlay marker.
@@ -4748,11 +4748,11 @@ local biteMarkerGlow = Instance.new("Frame")
 biteMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
 biteMarkerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
 biteMarkerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
-biteMarkerGlow.BackgroundColor3 = UI.accentSoft
+biteMarkerGlow.BackgroundColor3 = Theme.color.accent.soft
 biteMarkerGlow.BackgroundTransparency = 0.75
 biteMarkerGlow.ZIndex = OVERLAY_Z_ZONE
 biteMarkerGlow.Parent = biteMarker
-corner(biteMarkerGlow, 8)
+corner(biteMarkerGlow, Theme.corners.sm)
 
 local minigameActive = false
 local minigameStartTime = 0
@@ -4767,7 +4767,7 @@ local minigameZoneHalfWidth = 0.15
 local function runMinigame(windowSeconds)
 	if minigameActive then return end
 	if type(windowSeconds) ~= "number" or windowSeconds <= 0 then
-		showNotification("Fishing sync hiccup — try casting again.", UI.warn)
+		showNotification("Fishing sync hiccup — try casting again.", Theme.color.status.warn)
 		return
 	end
 	-- TASK 23.1 (hvfh.3.1): take the overlay slot. The BiteEvent handler
@@ -4857,7 +4857,7 @@ local function showRevealCard(speciesId, rarity, value)
 	local token = revealDismissToken + 1
 	revealDismissToken = token
 
-	local rarityColor = RARITY_COLORS[rarity] or UI.textDim
+	local rarityColor = RARITY_COLORS[rarity] or Theme.color.text.secondary
 
 	-- Look up display name + income from FishDefinitions (structured data,
 	-- not string parsing per the bead spec)
@@ -4882,7 +4882,7 @@ local function showRevealCard(speciesId, rarity, value)
 		card.Size = UDim2.new(0, 280, 0, 160)
 		card.Position = UDim2.new(0.5, -140, yScale, -80)
 	end
-	card.BackgroundColor3 = UI.bg
+	card.BackgroundColor3 = Theme.color.surface.primary
 	card.ZIndex = 50
 	card.Active = true
 	card.Parent = screenGui
@@ -4891,7 +4891,7 @@ local function showRevealCard(speciesId, rarity, value)
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
 	-- moment was the one flat card in the game.
-	vGradient(card, Color3.fromRGB(26, 38, 57), UI.bg)
+	vGradient(card, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
 
 	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
 	-- should feel different per tier. Rare: the standard pop. Epic: adds a
