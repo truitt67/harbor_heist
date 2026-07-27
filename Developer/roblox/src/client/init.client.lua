@@ -216,7 +216,7 @@ end
 
 local function stroke(parent, transparency, color, thickness)
 	local s = Instance.new("UIStroke")
-	s.Color = color or UI.stroke
+	s.Color = color or Theme.color.stroke
 	s.Transparency = transparency or 0.88
 	s.Thickness = thickness or 1
 	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
@@ -245,8 +245,8 @@ end
 local function makeLabel(parent, props)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
-	label.TextColor3 = UI.text
-	label.Font = FONT_BODY
+	label.TextColor3 = Theme.color.text.primary
+	label.Font = Theme.type.fonts.body
 	label.TextScaled = false
 	label.TextSize = 15
 	for key, value in pairs(props) do
@@ -479,9 +479,9 @@ local function makeButton(parent, props)
 	local variantName = props.Variant
 	props.Variant = nil
 	local variant = variantName and Theme.buttonVariants[variantName]
-	button.BackgroundColor3 = (variant and variant.bg) or UI.accent
-	button.TextColor3 = (variant and variant.text) or UI.ink
-	button.Font = FONT_BOLD
+	button.BackgroundColor3 = (variant and variant.bg) or Theme.color.accent.base
+	button.TextColor3 = (variant and variant.text) or Theme.color.text.ink
+	button.Font = Theme.type.fonts.bold
 	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
 	button.AutoButtonColor = false
 	for key, value in pairs(props) do
@@ -1051,11 +1051,11 @@ local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
 -- category alone (works for both showNotification and drainToastQueue).
 -- Caller-passed colors take precedence (variant.color is a default).
 local TOAST_VARIANTS = {
-	info = { color = UI.accentSoft, duration = 3.6, persistent = false },
-	success = { color = UI.good, duration = 3.6, persistent = false },
-	warning = { color = UI.warn, duration = 4.5, persistent = false },
-	error = { color = UI.bad, duration = 6, persistent = false },
-	critical = { color = UI.bad, duration = 0, persistent = true },
+	info = { color = Theme.color.accent.soft, duration = 3.6, persistent = false },
+	success = { color = Theme.color.status.good, duration = 3.6, persistent = false },
+	warning = { color = Theme.color.status.warn, duration = 4.5, persistent = false },
+	error = { color = Theme.color.status.bad, duration = 6, persistent = false },
+	critical = { color = Theme.color.status.bad, duration = 0, persistent = true },
 }
 
 local CATEGORY_TO_VARIANT = {
@@ -1099,12 +1099,12 @@ local function showToastDirect(message, color, category)
 	local toast = Instance.new("Frame")
 	toast.Size = UDim2.new(1, 0, 0, MIN_TOAST_H)
 	toast.AutomaticSize = Enum.AutomaticSize.Y
-	toast.BackgroundColor3 = UI.bg
+	toast.BackgroundColor3 = Theme.color.surface.primary
 	toast.BackgroundTransparency = 1
 	toast.LayoutOrder = toastOrder
 	toast.ZIndex = 56
 	toast.Parent = toastHost
-	corner(toast, 12)
+	corner(toast, Theme.corners.md)
 	local tStroke = stroke(toast, 1)
 	-- hvfh.4.3 review fixup: enforce the bead's min height — AutomaticSize
 	-- alone would shrink a degenerate (empty/short) toast below 40/42px.
@@ -1130,7 +1130,7 @@ local function showToastDirect(message, color, category)
 		Size = UDim2.new(0, 80, 0, 16),
 		Position = UDim2.new(0, 18, 0, 4),
 		Text = TOAST_CATEGORIES[category] or "INFO",
-		Font = FONT_BOLD,
+		Font = Theme.type.fonts.bold,
 		TextSize = 10,
 		TextColor3 = color,
 		TextTransparency = 1,
@@ -1141,7 +1141,7 @@ local function showToastDirect(message, color, category)
 		Size = UDim2.new(1, -32, 0, 0),
 		Position = UDim2.new(0, 22, 0, 20),
 		Text = message,
-		Font = FONT_MED,
+		Font = Theme.type.fonts.med,
 		TextSize = IS_MOBILE and 13 or 14,
 		TextTransparency = 1,
 		TextWrapped = true,
@@ -1201,10 +1201,10 @@ local function showToastDirect(message, color, category)
 			Size = UDim2.new(0, 20, 0, 20),
 			Position = UDim2.new(1, -24, 0, 4),
 			Text = "✕",
-			TextSize = 12,
-			BackgroundColor3 = UI.surfaceHi,
-			TextColor3 = UI.textDim,
-			CornerRadius = 999,
+			TextSize = Theme.type.sizes.xs,
+			BackgroundColor3 = Theme.color.surface.elevated,
+			TextColor3 = Theme.color.text.secondary,
+			CornerRadius = Theme.corners.pill,
 			ZIndex = 59,
 		})
 		closeBtn.Activated:Connect(dismissToast)
@@ -1225,7 +1225,7 @@ local function showNotification(message, color, category)
 	-- color default (caller-passed color still takes precedence).
 	local variantName = CATEGORY_TO_VARIANT[category]
 	local variant = variantName and TOAST_VARIANTS[variantName]
-	color = color or (variant and variant.color) or UI.accentSoft
+	color = color or (variant and variant.color) or Theme.color.accent.soft
 	-- harborheist-6qyq: server-toast categories with a stinger attached.
 	-- showNotification is the single funnel for every server toast, so
 	-- category sounds live here (raid-victim: ALARM / robbed / defended).
@@ -1267,7 +1267,7 @@ end
 -- guarantees a lost fish. Placed after showNotification (lexical scope).
 local function overlayBlocksPanels()
 	if activeOverlay then
-		showNotification("One moment — finish the minigame first!", UI.warn)
+		showNotification("One moment — finish the minigame first!", Theme.color.status.warn)
 		return true
 	end
 	return false
@@ -1309,18 +1309,18 @@ onboardingPrompt.AnchorPoint = Vector2.new(0.5, 1)
 -- (defined where ACTIONS is declared) and re-applied on viewport resize.
 onboardingPrompt.Position = UDim2.new(0.5, 0, 1, -(DESKTOP_BAR_BOTTOM + DESKTOP_BAR_H + PROMPT_BAR_GAP))
 onboardingPrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 48 or 40)
-onboardingPrompt.BackgroundColor3 = UI.surface
+onboardingPrompt.BackgroundColor3 = Theme.color.surface.secondary
 onboardingPrompt.BackgroundTransparency = 0.1
 onboardingPrompt.Visible = false
 onboardingPrompt.ZIndex = 15
 onboardingPrompt.Parent = screenGui
-corner(onboardingPrompt, 12)
-stroke(onboardingPrompt, 0.7, UI.accent, 1.5)
+corner(onboardingPrompt, Theme.corners.md)
+stroke(onboardingPrompt, 0.7, Theme.color.accent.base, 1.5)
 
 local onboardingAccentBar = Instance.new("Frame")
 onboardingAccentBar.Size = UDim2.new(0, 4, 1, -14)
 onboardingAccentBar.Position = UDim2.new(0, 8, 0, 7)
-onboardingAccentBar.BackgroundColor3 = UI.accent
+onboardingAccentBar.BackgroundColor3 = Theme.color.accent.base
 onboardingAccentBar.ZIndex = 16
 onboardingAccentBar.Parent = onboardingPrompt
 corner(onboardingAccentBar, 2)
@@ -1332,9 +1332,9 @@ local onboardingLabel = makeLabel(onboardingPrompt, {
 	Size = UDim2.new(1, -60, 1, 0),
 	Position = UDim2.new(0, 20, 0, 0),
 	Text = "",
-	Font = FONT_MED,
+	Font = Theme.type.fonts.med,
 	TextSize = IS_MOBILE and 14 or 13,
-	TextColor3 = UI.text,
+	TextColor3 = Theme.color.text.primary,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 16,
@@ -1345,10 +1345,10 @@ local onboardingDismiss = makeButton(onboardingPrompt, {
 	Size = UDim2.new(0, IS_MOBILE and 44 or 24, 0, IS_MOBILE and 44 or 24),
 	Position = UDim2.new(1, IS_MOBILE and -50 or -30, 0.5, IS_MOBILE and -22 or -12),
 	Text = "✕",
-	TextSize = IS_MOBILE and 14 or 12,
-	BackgroundColor3 = UI.surfaceHi,
-	TextColor3 = UI.textDim,
-	CornerRadius = 999,
+	TextSize = IS_MOBILE and 14 or Theme.type.sizes.xs,
+	BackgroundColor3 = Theme.color.surface.elevated,
+	TextColor3 = Theme.color.text.secondary,
+	CornerRadius = Theme.corners.pill,
 	ZIndex = 16,
 })
 
@@ -1379,7 +1379,7 @@ local function showOnboardingPrompt(stage, text, color)
 	end
 	currentPromptStage = stage
 	onboardingLabel.Text = text
-	onboardingAccentBar.BackgroundColor3 = color or UI.accent
+	onboardingAccentBar.BackgroundColor3 = color or Theme.color.accent.base
 	if not onboardingPrompt.Visible then
 		onboardingPrompt.Visible = true
 		local scale = onboardingPrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
@@ -1410,7 +1410,7 @@ sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
 -- longer render on top of this prompt (toast ZIndex 51 > 16).
 sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
-sellStorePrompt.BackgroundColor3 = UI.surface
+sellStorePrompt.BackgroundColor3 = Theme.color.surface.secondary
 sellStorePrompt.BackgroundTransparency = 0.08
 sellStorePrompt.Visible = false
 -- R3 audit #22: above panels (25-27) — a first catch arriving while a panel
@@ -1418,15 +1418,15 @@ sellStorePrompt.Visible = false
 sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
 corner(sellStorePrompt, 14)
-stroke(sellStorePrompt, 0.7, UI.accent, 1.5)
+stroke(sellStorePrompt, 0.7, Theme.color.accent.base, 1.5)
 
 makeLabel(sellStorePrompt, {
 	Size = UDim2.new(1, -20, 0, 24),
 	Position = UDim2.new(0, 10, 0, 10),
 	Text = "You caught a fish!",
-	Font = FONT_BOLD,
-	TextSize = IS_MOBILE and 16 or 15,
-	TextColor3 = UI.text,
+	Font = Theme.type.fonts.bold,
+	TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm,
+	TextColor3 = Theme.color.text.primary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 31,
 })
@@ -1435,9 +1435,9 @@ makeLabel(sellStorePrompt, {
 	Size = UDim2.new(1, -20, 0, 36),
 	Position = UDim2.new(0, 10, 0, 34),
 	Text = "Sell now for instant cash, or store it to earn income over time.",
-	Font = FONT_BODY,
-	TextSize = IS_MOBILE and 13 or 12,
-	TextColor3 = UI.textDim,
+	Font = Theme.type.fonts.body,
+	TextSize = IS_MOBILE and 13 or Theme.type.sizes.xs,
+	TextColor3 = Theme.color.text.secondary,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 31,
@@ -1449,9 +1449,9 @@ local sellStoreClose = makeButton(sellStorePrompt, {
 	Position = UDim2.new(1, IS_MOBILE and -49 or -31, 0, IS_MOBILE and 4 or 8),
 	Text = "✕",
 	TextSize = 13,
-	BackgroundColor3 = UI.surfaceHi,
-	TextColor3 = UI.textDim,
-	CornerRadius = 999,
+	BackgroundColor3 = Theme.color.surface.elevated,
+	TextColor3 = Theme.color.text.secondary,
+	CornerRadius = Theme.corners.pill,
 	ZIndex = 31,
 })
 
@@ -1459,8 +1459,8 @@ local sellStoreSellBtn = makeButton(sellStorePrompt, {
 	Size = UDim2.new(0.48, -6, 0, IS_MOBILE and 44 or 36),
 	Position = UDim2.new(0, 10, 1, IS_MOBILE and -56 or -48),
 	Text = "SELL $0",
-	BackgroundColor3 = UI.good,
-	TextColor3 = UI.ink,
+	BackgroundColor3 = Theme.color.status.good,
+	TextColor3 = Theme.color.text.ink,
 	CornerRadius = 10,
 	ZIndex = 31,
 })
@@ -1469,8 +1469,8 @@ local sellStoreStoreBtn = makeButton(sellStorePrompt, {
 	Size = UDim2.new(0.48, -6, 0, IS_MOBILE and 44 or 36),
 	Position = UDim2.new(0.52, 4, 1, IS_MOBILE and -56 or -48),
 	Text = "STORE $0/min",
-	BackgroundColor3 = UI.accent,
-	TextColor3 = UI.ink,
+	BackgroundColor3 = Theme.color.accent.base,
+	TextColor3 = Theme.color.text.ink,
 	CornerRadius = 10,
 	ZIndex = 31,
 })
@@ -1562,9 +1562,9 @@ sellStoreSellBtn.Activated:Connect(function()
 			return Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
-			showNotification("Couldn't sell that fish — try again.", UI.bad)
+			showNotification("Couldn't sell that fish — try again.", Theme.color.status.bad)
 		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("sell", result.reason), UI.bad)
+			showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
 		end
 	end
 	hideSellStorePrompt()
@@ -1577,9 +1577,9 @@ sellStoreStoreBtn.Activated:Connect(function()
 			return Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
-			showNotification("Couldn't store that fish — try again.", UI.bad)
+			showNotification("Couldn't store that fish — try again.", Theme.color.status.bad)
 		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("store", result.reason), UI.bad)
+			showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
 		end
 	end
 	hideSellStorePrompt()
@@ -4965,7 +4965,7 @@ local function showRevealCard(speciesId, rarity, value)
 	makeLabel(tag, {
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = string.upper(rarity or "?"),
-		Font = FONT_BOLD,
+		Font = Theme.type.fonts.bold,
 		TextSize = 11,
 		TextColor3 = rarityColor,
 		ZIndex = 52,
@@ -4976,10 +4976,10 @@ local function showRevealCard(speciesId, rarity, value)
 	local icon = Instance.new("Frame")
 	icon.Size = UDim2.new(0, 48, 0, 48)
 	icon.Position = UDim2.new(0, 18, 0, 52)
-	icon.BackgroundColor3 = UI.surfaceHi
+	icon.BackgroundColor3 = Theme.color.surface.elevated
 	icon.ZIndex = 51
 	icon.Parent = card
-	corner(icon, 999)
+	corner(icon, Theme.corners.pill)
 	buildFishSilhouette(icon, rarityColor)
 
 	-- Species display name (big, right of the icon)
@@ -4987,9 +4987,9 @@ local function showRevealCard(speciesId, rarity, value)
 		Size = UDim2.new(1, -92, 0, 30),
 		Position = UDim2.new(0, 76, 0, 54),
 		Text = displayName,
-		Font = FONT_HEAD,
+		Font = Theme.type.fonts.head,
 		TextSize = 22,
-		TextColor3 = UI.text,
+		TextColor3 = Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 51,
@@ -5000,9 +5000,9 @@ local function showRevealCard(speciesId, rarity, value)
 		Size = UDim2.new(1, -92, 0, 20),
 		Position = UDim2.new(0, 76, 0, 92),
 		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
-		Font = FONT_BODY,
+		Font = Theme.type.fonts.body,
 		TextSize = 14,
-		TextColor3 = UI.textDim,
+		TextColor3 = Theme.color.text.secondary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 51,
 	})
@@ -5012,9 +5012,9 @@ local function showRevealCard(speciesId, rarity, value)
 		Size = UDim2.new(1, 0, 0, 16),
 		Position = UDim2.new(0, 0, 0, 130),
 		Text = IS_MOBILE and "tap to dismiss" or "click to dismiss",
-		Font = FONT_BODY,
+		Font = Theme.type.fonts.body,
 		TextSize = 11,
-		TextColor3 = UI.textFaint,
+		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = 51,
 	})
 
@@ -5092,7 +5092,7 @@ local function onMinigameTap()
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
 	-- so an on-zone tap can still be rejected — surface that honestly.
 	if hit and result and result.ok == false and result.reason == "missed" then
-		showNotification("So close! The fish shook off the hook...", UI.warn)
+		showNotification("So close! The fish shook off the hook...", Theme.color.status.warn)
 	end
 	-- TASK 22.4 (hvfh.2.4): reveal card on catch success for Rare+ and
 	-- first-session catches. Built from the structured invoke result, not
@@ -5173,7 +5173,7 @@ local function doFish()
 	-- minigame holds the overlay slot. Refused BEFORE RequestCast fires —
 	-- nothing is committed server-side, zero server calls.
 	if isOverlayActive("raid") then
-		showNotification("Finish the raid first!", UI.warn)
+		showNotification("Finish the raid first!", Theme.color.status.warn)
 		return
 	end
 	-- harborheist-egvu: mid-bite F-presses must not fire a second RequestCast
@@ -5266,8 +5266,8 @@ disarmSellButton = function()
 		pcall(task.cancel, t)
 	end
 	sellButton.Text = "SELL ALL"
-	sellButton.BackgroundColor3 = UI.good
-	sellButton.TextColor3 = UI.ink
+	sellButton.BackgroundColor3 = Theme.color.status.good
+	sellButton.TextColor3 = Theme.color.text.ink
 end
 
 sellButton.Activated:Connect(function()
@@ -5296,8 +5296,8 @@ sellButton.Activated:Connect(function()
 		else
 			sellButton.Text = string.format("SELL ALL $%s? TAP", formatCash(payout))
 		end
-		sellButton.BackgroundColor3 = UI.bad
-		sellButton.TextColor3 = UI.ink
+		sellButton.BackgroundColor3 = Theme.color.status.bad
+		sellButton.TextColor3 = Theme.color.text.ink
 		sellArmTask = task.delay(3, function()
 			disarmSellButton()
 		end)
@@ -5307,7 +5307,7 @@ local lockHintShown = false
 lockButton.Activated:Connect(function()
 	if not lockHintShown then
 		lockHintShown = true
-		showNotification("Locks always work; your first 3 each session recharge faster.", UI.accentSoft, "lock")
+		showNotification("Locks always work; your first 3 each session recharge faster.", Theme.color.accent.soft, "lock")
 	end
 	Remotes.RequestActivateLock:InvokeServer()
 end)
@@ -5392,7 +5392,7 @@ local function trySpawnBoat()
 	-- A stale snapshot self-corrects on the next 1Hz push; a stale-false
 	-- read just falls through to the server's own already_has_boat rejection.
 	if state and state.hasBoat then
-		showNotification("Your boat is out — find it at your dock!", UI.boat)
+		showNotification("Your boat is out — find it at your dock!", Theme.color.brand.boat)
 		return
 	end
 	local result = Remotes.SpawnBoat:InvokeServer()
@@ -5411,7 +5411,7 @@ local function trySpawnBoat()
 			no_spawn_point = "Boat spawn point unavailable.",
 			no_character = "Spawn your character first.",
 		}
-		showNotification(reasons[result.reason] or "Could not spawn boat.", UI.bad)
+		showNotification(reasons[result.reason] or "Could not spawn boat.", Theme.color.status.bad)
 	end
 end
 
@@ -5513,7 +5513,7 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		)
 	elseif not raidWindow.open and wasOpen then
 		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
-		showNotification("Raid waters closed. The harbor is safe... for now.", UI.accentSoft)
+		showNotification("Raid waters closed. The harbor is safe... for now.", Theme.color.accent.soft)
 	end
 end)
 
@@ -5627,7 +5627,7 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			castAwaitingInput = false
 			if not coachShownIdleCast then
 				coachShownIdleCast = true
-				showNotification("No timing bonus — tap the bar next cast!", UI.warn)
+				showNotification("No timing bonus — tap the bar next cast!", Theme.color.status.warn)
 			end
 		end
 		-- CastState(false) with no bite: the cast resolved/cancelled. Only
@@ -5710,7 +5710,7 @@ end)
 -- TASK 9.2 (0jc.2): the old hardcoded onboarding toasts (task.delay(4/9))
 task.delay(5, function()
 	if not state or not (state.onboarding or {}).HasCaughtFirstFish then
-		showNotification(IS_MOBILE and "Welcome! Tap FISH in the glowing zone to catch your first fish." or "Welcome! Press F in the glowing zone to catch your first fish.", UI.good)
+		showNotification(IS_MOBILE and "Welcome! Tap FISH in the glowing zone to catch your first fish." or "Welcome! Press F in the glowing zone to catch your first fish.", Theme.color.status.good)
 	end
 end)
 
