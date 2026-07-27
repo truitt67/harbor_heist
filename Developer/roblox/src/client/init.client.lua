@@ -811,20 +811,20 @@ local hud = Instance.new("Frame")
 hud.Name = "HUD"
 hud.Size = IS_MOBILE and UDim2.new(0, 178, 0, 64) or UDim2.new(0, 224, 0, 78)
 hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
-hud.BackgroundColor3 = UI.bg
+hud.BackgroundColor3 = Theme.color.surface.primary
 hud.BackgroundTransparency = 0.18
 hud.Parent = screenGui
-corner(hud, 16)
+corner(hud, Theme.corners.lg)
 stroke(hud, 0.85)
-vGradient(hud, Color3.fromRGB(24, 36, 54), UI.bg)
+vGradient(hud, Color3.fromRGB(24, 36, 54), Theme.color.surface.primary)
 
 makeLabel(hud, {
 	Size = UDim2.new(0, 76, 0, 12),
 	Position = UDim2.new(0, 14, 0, IS_MOBILE and 6 or 8),
 	Text = "BALANCE",
-	Font = FONT_BOLD,
+	Font = Theme.type.fonts.bold,
 	TextSize = 9,
-	TextColor3 = UI.textDim,
+	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
@@ -832,8 +832,8 @@ local cashLabel = makeLabel(hud, {
 	Size = UDim2.new(1, -24, 0, IS_MOBILE and 28 or 34),
 	Position = UDim2.new(0, 14, 0, IS_MOBILE and 14 or 17),
 	Text = "$0",
-	Font = FONT_HEAD,
-	TextSize = IS_MOBILE and 24 or 30,
+	Font = Theme.type.fonts.head,
+	TextSize = IS_MOBILE and Theme.type.sizes.lg or Theme.type.sizes.xl,
 	TextColor3 = Color3.fromRGB(134, 239, 172),
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
@@ -842,9 +842,9 @@ local incomeLabel = makeLabel(hud, {
 	Size = UDim2.new(1, -24, 0, 16),
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
 	Text = "+$0.0/min",
-	Font = FONT_MED,
-	TextSize = IS_MOBILE and 12 or 13,
-	TextColor3 = UI.textDim,
+	Font = Theme.type.fonts.med,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	-- TASK 24.1 (hvfh.4.1): RichText so the claimable "ready" segment can be
 	-- tinted claim-green (and pulsed) without a second label or layout change.
@@ -922,7 +922,7 @@ local function updateIncomeLine(readyTransparency)
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
-		incomeLabel.TextSize = IS_MOBILE and 12 or 13
+		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or 13
 		incomeLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	end
 end
@@ -962,9 +962,9 @@ local function animateCashTo(target)
 			Size = UDim2.new(0, 100, 0, 20),
 			Position = UDim2.new(1, -110, 0, 8),
 			Text = "+$" .. formatCash(target - lastCash),
-			Font = FONT_BOLD,
-			TextSize = 12,
-			TextColor3 = UI.good,
+			Font = Theme.type.fonts.bold,
+			TextSize = Theme.type.sizes.xs,
+			TextColor3 = Theme.color.status.good,
 			TextXAlignment = Enum.TextXAlignment.Right,
 			ZIndex = 5,
 		})
@@ -1008,19 +1008,19 @@ end
 local carryPill = Instance.new("Frame")
 carryPill.Size = IS_MOBILE and UDim2.new(0, 178, 0, 30) or UDim2.new(0, 224, 0, 34)
 carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
-carryPill.BackgroundColor3 = UI.bg
+carryPill.BackgroundColor3 = Theme.color.surface.primary
 carryPill.BackgroundTransparency = 0.25
 carryPill.Parent = screenGui
-corner(carryPill, 999)
+corner(carryPill, Theme.corners.pill)
 stroke(carryPill, 0.88)
 
 local carryLabel = makeLabel(carryPill, {
 	Size = UDim2.new(1, -20, 1, 0),
-	Position = UDim2.new(0, 12, 0, 0),
+	Position = UDim2.new(0, Theme.spacing.md, 0, 0),
 	Text = "On line: 0 / 3 fish",
-	Font = FONT_MED,
-	TextSize = IS_MOBILE and 12 or 13,
-	TextColor3 = UI.accentSoft,
+	Font = Theme.type.fonts.med,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextColor3 = Theme.color.accent.soft,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
