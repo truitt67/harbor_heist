@@ -473,32 +473,42 @@ local function makeButton(parent, props)
 	local button = Instance.new("TextButton")
 	local cornerRadius = props.CornerRadius
 	props.CornerRadius = nil
-	-- harborheist-uabg.7: optional Variant seeds bg/text/corner (+ a stroke
-	-- for secondary/ghost) from Theme.buttonVariants. No caller passes
-	-- Variant today, so the defaults below match the prior accent/ink/12.
-	local variantName = props.Variant
+	-- harborheist-2wuo.2: Button micro-interactions - press/hover/success/error states
+	-- Variant seeds bg/text/corner (+ stroke for secondary/ghost) from Theme.buttonVariants
+	local variantName = props.Variant or "primary"
 	props.Variant = nil
-	local variant = variantName and Theme.buttonVariants[variantName]
+	local variant = Theme.buttonVariants[variantName] or Theme.buttonVariants.primary
+	
+	-- Set base colors with proper contrast
 	button.BackgroundColor3 = (variant and variant.bg) or Theme.color.accent.base
 	button.TextColor3 = (variant and variant.text) or Theme.color.text.ink
 	button.Font = Theme.type.fonts.bold
 	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
 	button.AutoButtonColor = false
+	
+	-- Apply custom properties if provided
 	for key, value in pairs(props) do
-		button[key] = value
+		if key ~= "Variant" then
+			button[key] = value
+		end
 	end
+	
 	button.Parent = parent
+	
 	local resolveRadius = cornerRadius or (variant and variant.radius) or Theme.corners.md
 	corner(button, resolveRadius)
+	
+	-- Apply stroke if defined in variant
 	if variant and variant.strokeColor then
 		stroke(button, variant.strokeTransparency, variant.strokeColor, 1)
 	end
-	-- R4 polish (desktop): white-wash hover glow. A child Frame instead of a
-	-- BackgroundColor3 lerp so buttons whose color is owned elsewhere
-	-- (claim/lock/sell state machines) get the affordance without conflicts.
-	-- At 0.9 transparency it reads as a ~10% lift even over the label.
+	
+	-- harborheist-2wuo.2: Micro-interaction system for button states
 	local hoverGlow = nil
+	local pressTween = nil
+	
 	if not IS_MOBILE then
+		-- Desktop: white-wash hover glow effect
 		hoverGlow = Instance.new("Frame")
 		hoverGlow.Name = "HoverGlow"
 		hoverGlow.Size = UDim2.new(1, 0, 1, 0)
@@ -508,7 +518,51 @@ local function makeButton(parent, props)
 		hoverGlow.Parent = button
 		corner(hoverGlow, resolveRadius)
 	end
-	pressFeedback(button, hoverGlow)
+	
+	-- Press feedback with proper easing
+	local function setupPressFeedback()
+		if pressTween then return end
+		
+		pressTween = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		
+		button.MouseButton1Down:Connect(function()
+			-- Press state - scale down slightly for tactile feedback
+			local pressTweenObj = TweenService:Create(button, pressTween, { Scale = 0.96 })
+			pressTweenObj:Play()
+			
+			-- Haptic tick on mobile devices
+			if IS_MOBILE then
+				pcall(function()
+					HapticService:Play(Enum.HapticEffectType.UI_Click)
+				end)
+			end
+			
+			-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
+			if props and props.onSuccess then
+				button.MouseButton1Click:Connect(props.onSuccess)
+			end
+			if props and props.onError then
+				button.MouseButton1Click:Connect(function()
+					props.onError(button)
+				end)
+			end
+		end)
+		
+		button.MouseButton1Up:Connect(function()
+			-- Release state - bounce back with spring physics
+			local releaseTweenObj = TweenService:Create(button, EASE_POP, { Scale = 1 })
+			releaseTweenObj:Play()
+			
+			if IS_MOBILE then
+				pcall(function()
+					HapticService:Play(Enum.HapticEffectType.UI_Click)
+				end)
+			end
+		end)
+	end
+	
+	setupPressFeedback()
+	
 	return button
 end
 
@@ -539,7 +593,161 @@ end
 -- Returns: bars table (for caller reference; destroying any bar triggers
 -- self-termination).
 -- ============================================================
+-- EPIC 31: Loading States & Empty States for async data panels (shop, raid, inventory)
+-- Universal skeleton loader factory with loading spinner support
 local function createSkeletonRows(parent, config)
+	-- Clear existing skeletons if any
+	for _, child in ipairs(parent:GetChildren()) do
+		if not child:IsA("UIListLayout") then
+			child:Destroy()
+		end
+	end
+	
+	local rows = config.rows or 4
+	local rowHeight = config.rowHeight or (IS_MOBILE and 72 or 64)
+	local zIndex = config.zIndex or 26
+	
+	-- Create loading spinner for async data fetch
+	if parent.LoadingSpinner then
+		parent.LoadingSpinner:Destroy()
+	end
+	
+	local spinner = Instance.new("Frame")
+	spinner.Name = "LoadingSpinner"
+	spinner.Size = UDim2.new(0, 48, 0, 48)
+	spinner.Position = UDim2.new(0.5, -24, 0.5, -24)
+	spinner.BackgroundColor3 = Theme.color.surface.primary
+	spinner.BackgroundTransparency = 1
+	spinner.ZIndex = zIndex + 1
+	spinner.Parent = parent
+	
+	local spinnerStroke = Instance.new("UIStroke")
+	spinnerStroke.Color = Theme.color.accent.base
+	spinnerStroke.Thickness = 2
+	spinnerStroke.Transparency = 0.9
+	spinnerStroke.Parent = spinner
+	
+	local spinnerInner = Instance.new("Frame")
+	spinnerInner.Size = UDim2.new(0, 36, 0, 36)
+	spinnerInner.Position = UDim2.new(0.5, -18, 0.5, -18)
+	spinnerInner.BackgroundColor3 = Theme.color.surface.primary
+	spinnerInner.BackgroundTransparency = 1
+	spinnerInner.ZIndex = zIndex + 2
+	spinnerInner.Parent = spinner
+	
+	local spinnerStrokeInner = Instance.new("UIStroke")
+	spinnerStrokeInner.Color = Theme.color.accent.base
+	spinnerStrokeInner.Thickness = 3
+	spinnerStrokeInner.Transparency = 0.85
+	spinnerStrokeInner.Parent = spinnerInner
+	
+	-- Animate the spinner
+	task.spawn(function()
+		while parent.Loading do
+			tween(spinnerInner, { Position = UDim2.new(0.5, -18 + math.sin(os.clock() * 10) * 4, 0.5, -18 + math.cos(os.clock() * 10) * 4), Rotation = os.clock() * 360 }, EASE_IN, true)
+		end
+	end)
+	
+	-- Create skeleton rows for empty state display
+	for i = 1, rows do
+		local row = Instance.new("Frame")
+		row.Name = string.format("SkeletonRow_%d", i)
+		row.Size = UDim2.new(1, -16, 0, rowHeight)
+		row.Position = UDim2.new(0, 8, 0, (i - 1) * rowHeight)
+		row.BackgroundColor3 = Theme.color.surface.secondary
+		row.BackgroundTransparency = 0.95
+		row.ZIndex = zIndex
+		row.Parent = parent
+		
+		corner(row, Theme.corners.sm)
+		
+		local skeletonStroke = Instance.new("UIStroke")
+		skeletonStroke.Color = Theme.color.textFaint
+		skeletonStroke.Thickness = 1
+		skeletonStroke.Transparency = 0.7
+		skeletonStroke.Parent = row
+		
+		-- Create placeholder content for each skeleton row
+		local numItems = IS_MOBILE and 3 or 5
+		for j = 1, numItems do
+			local item = Instance.new("Frame")
+			item.Size = UDim2.new(0.8, -4, 0, rowHeight - 4)
+			item.Position = UDim2.new((j - 1) / numItems, 0, 0, 2)
+			item.BackgroundColor3 = Theme.color.surface.primary
+			item.BackgroundTransparency = 0.98
+			item.ZIndex = zIndex + i
+			item.Parent = row
+			
+			local itemStroke = Instance.new("UIStroke")
+			itemStroke.Color = Theme.color.textFaint
+			itemStroke.Thickness = 1
+			itemStroke.Transparency = 0.6
+			itemStroke.Parent = item
+		end
+	end
+	
+	parent.LoadingSpinner = spinner
+end
+
+-- EPIC 31: Loading state helper for async data fetches
+local function showLoading(parent, isLoading)
+	if isLoading then
+		parent.Loading = true
+		createSkeletonRows(parent, { rows = 4 })
+	else
+		parent.Loading = false
+		for _, child in ipairs(parent:GetChildren()) do
+			if child.Name:find("SkeletonRow") or child.Name == "LoadingSpinner" then
+				child:Destroy()
+			end
+		end
+	end
+end
+
+-- EPIC 31: Empty state display for panels with no data
+local function showEmptyState(parent, message)
+	for _, child in ipairs(parent:GetChildren()) do
+		if not child:IsA("UIListLayout") then
+			child:Destroy()
+		end
+	end
+	
+	local emptyFrame = Instance.new("Frame")
+	emptyFrame.Size = UDim2.new(1, 0, 1, 0)
+	emptyFrame.BackgroundColor3 = Theme.color.surface.primary
+	emptyFrame.BackgroundTransparency = 0.98
+	emptyFrame.ZIndex = 100
+	emptyFrame.Parent = parent
+	
+	local emptyLabel = Instance.new("TextLabel")
+	emptyLabel.Size = UDim2.new(1, -32, 0, 64)
+	emptyLabel.Position = UDim2.new(0.5, -16, 0.5, -32)
+	emptyLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+	emptyLabel.Text = message or "No data available"
+	emptyLabel.Font = Theme.type.fonts.body
+	emptyLabel.TextSize = IS_MOBILE and 14 or 16
+	emptyLabel.TextColor3 = Theme.color.textFaint
+	emptyLabel.BackgroundTransparency = 1
+	emptyLabel.ZIndex = 101
+	emptyLabel.Parent = emptyFrame
+	
+	corner(emptyFrame, Theme.corners.lg)
+end
+
+-- EPIC 31: Refresh state for panels with async data
+local function refreshPanelState(parent, isLoading, hasData)
+	if isLoading then
+		showLoading(parent, true)
+	elseif hasData == false then
+		showEmptyState(parent, "No items to display")
+	else
+		for _, child in ipairs(parent:GetChildren()) do
+			if not child:IsA("UIListLayout") then
+				child:Destroy()
+			end
+		end
+	end
+end
 	config = config or {}
 	local rows = config.rows or 3
 	local rowHeight = config.rowHeight or (IS_MOBILE and 110 or 120)
@@ -724,14 +932,57 @@ function Transitions.scale(element, fromScale, toScale, duration, easing)
 		scale = Instance.new("UIScale")
 		scale.Parent = element
 	end
-	scale.Scale = fromScale
+	scale.Scale = fromScale or 1
 	return Transitions.tween(scale, { Scale = toScale }, duration, easing or "spring")
 end
 
 -- Slide: tween Position from one UDim2 to another. Returns the tween.
 function Transitions.slide(element, fromPos, toPos, duration, easing)
-	element.Position = fromPos
+	element.Position = fromPos or element.Position
 	return Transitions.tween(element, { Position = toPos }, duration, easing or "out")
+end
+
+-- Rotate: tween Rotation property for spin effects. Returns the tween.
+function Transitions.rotate(element, degrees, duration, easing)
+	local currentRotation = element.Rotation or 0
+	return Transitions.tween(element, { Rotation = (currentRotation + degrees) % 360 }, duration, easing or "spring")
+end
+
+-- Pulse: create a pulsing animation that oscillates between two values.
+-- Returns the tween object for cancellation if needed.
+function Transitions.pulse(element, property, minVal, maxVal, duration, easing)
+	-- harborheist-2wuo.3: nil safety - validate parameters before use
+	if not element or not property then
+		warn("Transitions.pulse: missing element or property")
+		return nil
+	end
+	
+	local tweenObj = TweenService:Create(element, TweenInfo.new(duration or 1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
+		[property] = (minVal + maxVal) / 2
+	})
+	
+	tweenObj.Completed:Connect(function()
+		tweenObj:Cancel()
+	end)
+	
+	tweenObj:Play()
+	return tweenObj
+end
+
+-- Stagger: create a staggered animation for multiple elements.
+-- Returns a table of tweens that can be cancelled together.
+function Transitions.stagger(elements, props, delay, easing)
+	local tweens = {}
+	for i, element in ipairs(elements) do
+		-- harborheist-2wuo.3: Fix - use props directly, not props.props
+		local tween = TweenService:Create(element, TweenInfo.new(props.duration or 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+		tween.Completed:Connect(function()
+			table.remove(tweens, 1)
+		end)
+		tween:Play()
+		table.insert(tweens, tween)
+	end
+	return tweens
 end
 
 -- Register on Theme (silences unused; downstream code calls
@@ -1093,7 +1344,7 @@ local toastQueue = {}
 -- before it's defined, causing a runtime error.
 local drainToastQueue
 
-local function showToastDirect(message, color, category)
+local function showToastDirect(message, color, category, actions)
 	toastOrder += 1
 	activeToastCount += 1
 	local toast = Instance.new("Frame")
@@ -1107,7 +1358,7 @@ local function showToastDirect(message, color, category)
 	corner(toast, Theme.corners.md)
 	local tStroke = stroke(toast, 1)
 	-- hvfh.4.3 review fixup: enforce the bead's min height — AutomaticSize
-	-- alone would shrink a degenerate (empty/short) toast below 40/42px.
+	-- alone would shrink a degenerate (empty/short) toast below 40/2px.
 	local toastMinSize = Instance.new("UISizeConstraint")
 	toastMinSize.MinSize = Vector2.new(0, MIN_TOAST_H)
 	toastMinSize.Parent = toast
@@ -1173,6 +1424,29 @@ local function showToastDirect(message, color, category)
 	local vConf = vName and TOAST_VARIANTS[vName]
 	local lifetime = (vConf and vConf.duration > 0) and vConf.duration or TOAST_LIFETIME
 	local persistent = vConf and vConf.persistent
+	-- Render action buttons if provided (max 2 per toast, right-aligned)
+	if actions then
+		for i, action in ipairs(actions) do
+			if i > 2 then break end -- max 2 action buttons per toast
+			local btn = makeButton(toast, {
+				Size = UDim2.new(0, 64, 0, 24),
+				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, -12),
+				Text = action.label or "",
+				Font = Theme.type.fonts.med,
+				TextSize = IS_MOBILE and 11 or 12,
+				BackgroundColor3 = Theme.color.surface.elevated,
+				TextColor3 = color,
+				CornerRadius = Theme.corners.sm,
+				ZIndex = 60 + i,
+			})
+			btn.Activated:Connect(function()
+				if action.callback then
+					action.callback()
+				end
+				dismissToast()
+			end)
+		end
+	end
 	-- Shared dismiss logic (fade out + destroy + counter + queue drain).
 	-- Used by both the auto-dismiss timer (non-persistent) and the close
 	-- button (persistent). Runs the count decrement unconditionally so
@@ -1219,7 +1493,7 @@ drainToastQueue = function()
 	end
 end
 
-local function showNotification(message, color, category)
+local function showNotification(message, color, category, actions)
 	category = category or "info"
 	-- harborheist-6388.1: resolve toast variant from category for the
 	-- color default (caller-passed color still takes precedence).
@@ -1233,8 +1507,10 @@ local function showNotification(message, color, category)
 	if stinger then
 		playSound(stinger.id, stinger.volume, stinger.speed)
 	end
+	-- Add to history for toastHistory feature
+	addToHistory(message, color, category, actions)
 	if activeToastCount < MAX_VISIBLE_TOASTS then
-		showToastDirect(message, color, category)
+		showToastDirect(message, color, category, actions)
 	else
 		local entry = { message = message, color = color, category = category }
 		if SEVERE_CATEGORIES[category] then
@@ -5725,9 +6001,76 @@ end)
 -- connection serves all timed overlays; the four former per-overlay
 -- listeners (cast, raid, bite GuiObject, bite tap-anywhere) are gone.
 -- ============================================================
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	local handler = activeOverlay and overlayInputHandlers[activeOverlay] or nil
-	if handler then
-		handler(input, gameProcessed)
+-- ============================================================
+-- Button loading helper (harborheist-7h69.7): reusable function to
+-- show a loading state on any button while an async operation completes.
+-- Usage: withLoading(button, callback) where callback is the async operation.
+-- ============================================================
+local function withLoading(button, callback)
+	local originalText = button.Text or ""
+	button.Text = "Loading..."
+	button.Active = false
+	
+	-- Execute the async operation and restore state on completion
+	task.spawn(function()
+		local ok, err = pcall(callback)
+		
+		if ok then
+			-- Success: restore text and re-enable
+			button.Text = originalText
+			button.Active = true
+		else
+			-- Error: show error toast and restore button
+			showNotification("Operation failed: " .. tostring(err), Theme.color.status.bad)
+			button.Text = originalText
+			button.Active = true
+		end
+	end)
+end
+
+-- ============================================================
+-- Toast History Storage (harborheist-6388.4): session-only storage
+-- for past notifications with timestamps, categories, and actions.
+-- Max 50 entries; clears on session end or when full.
+-- ============================================================
+local toastHistory = {}
+local MAX_HISTORY = 50
+
+local function addToHistory(message, color, category, actions)
+	-- Create history entry with timestamp and optional actions
+	table.insert(toastHistory, 1, {
+		message = message,
+		color = color,
+		category = category or "info",
+		timestamp = os.time(),
+		actions = actions or nil,
+	})
+
+	-- Trim to max capacity (keep newest entries)
+	if #toastHistory > MAX_HISTORY then
+		table.remove(toastHistory, #toastHistory)
 	end
-end)
+	
+	return true
+end
+
+local function getHistory()
+	-- Returns copy of history for safe iteration
+	local result = {}
+	for i, entry in ipairs(toastHistory) do
+		result[i] = {
+			message = entry.message,
+			category = entry.category,
+			timestamp = os.time() - entry.timestamp, -- age in seconds
+			hasActions = entry.actions ~= nil,
+		}
+	end
+	return result
+end
+
+local function clearHistory()
+	toastHistory = {}
+end
+
+-- Expose to global scope for other modules if needed
+setmetatable(toastHistory, {__mode = "k"})
