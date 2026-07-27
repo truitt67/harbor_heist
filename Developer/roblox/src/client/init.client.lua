@@ -3802,13 +3802,13 @@ local raidBannerLabel = makeLabel(raidBanner, {
 --   Mobile: right-edge thumb-zone stack of large round buttons.
 -- ============================================================
 local ACTIONS = {
-	{ id = "fish", label = "FISH", short = "FISH", key = "F", color = UI.good },
-	{ id = "store", label = "BAG", short = "BAG", key = "G", color = UI.accent },
-	{ id = "collection", label = "BOOK", short = "BOOK", key = "C", color = UI.warn },
-	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = UI.purple },
-	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = UI.quest },
-	{ id = "raid", label = "RAID", short = "RAID", key = "R", color = UI.bad },
-	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = UI.boat },
+	{ id = "fish", label = "FISH", short = "FISH", key = "F", color = Theme.color.status.good },
+	{ id = "store", label = "BAG", short = "BAG", key = "G", color = Theme.color.accent.base },
+	{ id = "collection", label = "BOOK", short = "BOOK", key = "C", color = Theme.color.status.warn },
+	{ id = "aquarium", label = "TANK", short = "TANK", key = "T", color = Theme.color.brand.purple },
+	{ id = "quests", label = "QUESTS", short = "QUEST", key = "Q", color = Theme.color.brand.quest },
+	{ id = "raid", label = "RAID", short = "RAID", key = "R", color = Theme.color.status.bad },
+	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = Theme.color.brand.boat },
 }
 
 -- TASK 28.2 (hvfh.8.2): the prompt offset is DERIVED from the same
@@ -3889,7 +3889,7 @@ if IS_MOBILE then
 		local btn = makeButton(holder, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = "",
-			BackgroundColor3 = UI.bg,
+			BackgroundColor3 = Theme.color.surface.primary,
 			TextColor3 = action.color,
 			CornerRadius = 18,
 		})
@@ -3903,7 +3903,7 @@ if IS_MOBILE then
 			Size = UDim2.new(1, 0, 0, 26),
 			Position = UDim2.new(0, 0, 0, 9),
 			Text = action.short,
-			Font = FONT_HEAD,
+			Font = Theme.type.fonts.head,
 			TextSize = 18,
 			TextColor3 = action.color,
 		})
@@ -3911,9 +3911,9 @@ if IS_MOBILE then
 			Size = UDim2.new(1, 0, 0, 16),
 			Position = UDim2.new(0, 0, 1, -20),
 			Text = action.key,
-			Font = FONT_BOLD,
+			Font = Theme.type.fonts.bold,
 			TextSize = 9,
-			TextColor3 = UI.textFaint,
+			TextColor3 = Theme.color.text.tertiary,
 		})
 		actionButtons[action.id] = btn
 		actionButtons[action.id .. "_label"] = heroLabel
@@ -3981,10 +3981,10 @@ else
 	bar.AnchorPoint = Vector2.new(0.5, 1)
 	bar.Position = UDim2.new(0.5, 0, 1, -DESKTOP_BAR_BOTTOM)
 	bar.Size = UDim2.new(0, barWidthFor(BAR_BTN_W), 0, DESKTOP_BAR_H)
-	bar.BackgroundColor3 = UI.bg
+	bar.BackgroundColor3 = Theme.color.surface.primary
 	bar.BackgroundTransparency = 0.2
 	bar.Parent = screenGui
-	corner(bar, 16)
+	corner(bar, Theme.corners.lg)
 	stroke(bar, 0.85)
 
 	local barLayout = Instance.new("UIListLayout")
@@ -4000,7 +4000,7 @@ else
 		local btn = makeButton(bar, {
 			Size = UDim2.new(0, BAR_BTN_W, 0, BAR_BTN_H),
 			Text = "",
-			BackgroundColor3 = UI.surface,
+			BackgroundColor3 = Theme.color.surface.secondary,
 			LayoutOrder = i,
 		})
 		btn.BackgroundTransparency = 0.25
@@ -4010,7 +4010,7 @@ else
 			Size = UDim2.new(1, -34, 1, 0),
 			Position = UDim2.new(0, 10, 0, 0),
 			Text = action.label,
-			Font = FONT_BOLD,
+			Font = Theme.type.fonts.bold,
 			TextSize = 14,
 			TextColor3 = action.color,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -4020,15 +4020,15 @@ else
 		keyChip.Size = UDim2.new(0, 20, 0, 20)
 		keyChip.AnchorPoint = Vector2.new(1, 0.5)
 		keyChip.Position = UDim2.new(1, -8, 0.5, 0)
-		keyChip.BackgroundColor3 = UI.surfaceHi
+		keyChip.BackgroundColor3 = Theme.color.surface.elevated
 		keyChip.Parent = btn
 		corner(keyChip, 5)
 		makeLabel(keyChip, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = action.key,
-			Font = FONT_BOLD,
+			Font = Theme.type.fonts.bold,
 			TextSize = 11,
-			TextColor3 = UI.textDim,
+			TextColor3 = Theme.color.text.secondary,
 		})
 
 		actionButtons[action.id] = btn
@@ -4101,7 +4101,7 @@ updateActionBarIndicator = function()
 				s.Thickness = selected and 2.5 or 1.5
 			else
 				s.Transparency = selected and 0.3 or 0.88
-				s.Color = selected and action.color or UI.stroke
+				s.Color = selected and action.color or Theme.color.stroke
 				s.Thickness = selected and 2 or 1
 			end
 		end
