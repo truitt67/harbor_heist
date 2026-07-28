@@ -190,12 +190,54 @@ local function isOverlayActive(kind)
 end
 
 -- ============================================================
--- TASK 23.2 (hvfh.3.2): Unified overlay visual language
--- All three minigame overlays (cast, bite, raid) share the same
--- frame treatment: corner radius, stroke, gradient, title style.
--- ZIndex ladder: backdrop(20) < panels(25-29) < overlays(40-49)
--- < reveal card(50-54) < toasts(55-59). Toasts always win — they
--- carry server truth like raid-victim notifications.
+-- ============================================================
+-- harborheist-i39g.4: Z-Index Ladder (canonical reference)
+--
+-- Roblox renders siblings by ZIndex (higher = on top) when the
+-- ScreenGui uses ZIndexBehavior.Sibling (set below). This ladder
+-- is the single source of truth for layering — new UI must slot
+-- into an existing band or extend it, never invent a new value
+-- in the middle of a band.
+--
+--   0-9    HUD elements (cash card, carry pill, HUD buttons)
+--          4 = hudClick, 5 = income line / action bar
+--
+--   10-19  Onboarding / coach marks
+--          15 = onboardingPrompt, 16 = accent bar / labels
+--
+--   20-24  Panel backdrops (dimmed screen behind a modal panel)
+--          20 = backdrop
+--
+--   25-29  Panel content (the modal itself + its children)
+--          25 = panel frame, 26 = grabber / drag surface / content,
+--          27 = inner controls (capacity bar, claim button)
+--
+--   30-39  Prompts (sell/store confirmations)
+--          30 = sellStorePrompt, 31 = prompt children
+--
+--   40-49  Minigame overlays (cast, bite, raid)
+--          40 = OVERLAY_Z_BASE (frame), 41 = OVERLAY_Z_CONTENT,
+--          42 = OVERLAY_Z_ZONE (good zone), 43 = OVERLAY_Z_MARKER
+--
+--   50-54  Reveal card (first-catch / epic-catch celebration)
+--          50 = card, 51 = topBar / tag / icon, 52 = rarity stroke
+--
+--   55-59  Toasts (ALWAYS WIN — carry server truth like raid-victim)
+--          55 = toastHost, 56 = toast, 57 = accentBar / action buttons,
+--          58 = toast title, 59 = dismiss button, 60+i = stacked toasts
+--
+--   100    Empty-state overlays (panel-local, not a global layer)
+--          Used by showCollectionSkeleton / empty-frame factories
+--
+-- RULES:
+-- 1. Toasts (55-59) always render above everything — they carry
+--    server-authoritative notifications (raid-victim, datastore errors).
+-- 2. Minigame overlays (40-49) must be above panels (25-29) so the
+--    timing bar is visible when a panel is open behind it.
+-- 3. Never assign ZIndex between bands (e.g., 35) — that creates
+--    ambiguous layering. Use the band assigned to your UI category.
+-- 4. If you need a new band, extend the nearest one (e.g., 60-69 for
+--    a new overlay type) and update this comment.
 -- ============================================================
 local OVERLAY_Z_BASE = 40
 local OVERLAY_Z_CONTENT = 41
