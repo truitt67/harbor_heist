@@ -709,6 +709,48 @@ function Transition:rotate(element, degrees, duration)
   return true
 end
 
+-- Combined preset: fade + slide for panel transitions
+function Transition:fadeSlide(element, visible, direction, duration)
+  if not element then
+    return false
+  end
+  
+  local offset
+  if direction == "left" then
+    offset = UDim2.new(-1, 0, 0, 0)
+  elseif direction == "right" then
+    offset = UDim2.new(1, 0, 0, 0)
+  elseif direction == "up" then
+    offset = UDim2.new(0, 0, -1, 0)
+  elseif direction == "down" then
+    offset = UDim2.new(0, 0, 1, 0)
+  else
+    offset = UDim2.new(0, 0, 1, 0)  -- default: slide down
+  end
+  
+  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
+                                  Enum.EasingStyle.Back, 
+                                  Enum.EasingDirection.Out)
+  
+  if visible then
+    -- Fade in + slide in
+    TweenService:Create(element, tweenInfo, { 
+      BackgroundTransparency = 0,
+      TextTransparency = 0,
+      Position = UDim2.new(0.5, 0, 0.5, 0)  -- center position
+    }):Play()
+    return true
+  else
+    -- Fade out + slide out
+    TweenService:Create(element, tweenInfo, { 
+      BackgroundTransparency = 1,
+      TextTransparency = 1,
+      Position = offset
+    }):Play()
+    return false
+  end
+end
+
 --[[
 =============================================================================
 Animation System Factory
@@ -766,6 +808,10 @@ end
 
 function AnimationSystem:rotate(element, degrees, duration)
   return Transition:rotate(element, degrees, duration)
+end
+
+function AnimationSystem:fadeSlide(element, visible, direction, duration)
+  return Transition:fadeSlide(element, visible, direction, duration)
 end
 
 return AnimationSystem
