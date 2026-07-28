@@ -7,6 +7,11 @@ local HapticService = game:GetService("HapticService")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 
+-- harborheist-pytn.1: Animation system integration
+-- Provides spring physics, transitions, gestures, and micro-interactions
+local AnimationSystem = require(script:WaitForChild("AnimationSystem"))
+local Anim = AnimationSystem  -- shorthand for use in UI code
+
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))

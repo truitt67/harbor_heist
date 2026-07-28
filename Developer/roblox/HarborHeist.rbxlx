@@ -8986,6 +8986,11 @@ local HapticService = game:GetService("HapticService")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 
+-- harborheist-pytn.1: Animation system integration
+-- Provides spring physics, transitions, gestures, and micro-interactions
+local AnimationSystem = require(script:WaitForChild("AnimationSystem"))
+local Anim = AnimationSystem  -- shorthand for use in UI code
+
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
@@ -15099,6 +15104,10 @@ SUCCESS CRITERIA:
 - All transitions use consistent timing/easing
 --]]
 
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+
 local AnimationSystem = {}
 AnimationSystem.__index = AnimationSystem
 
@@ -15167,7 +15176,7 @@ function Spring:apply(value, instant)
     self.velocity = 0
     
     -- Apply immediately if parent exists
-    if self.parent and self.propertyName then
+    if self.parent and self.property then
       self.parent[self.property] = value
     end
     
@@ -15179,7 +15188,7 @@ function Spring:apply(value, instant)
   self.isAnimating = true
   
   -- If we have a parent, apply current value
-  if self.parent and self.propertyName then
+  if self.parent and self.property then
     self.parent[self.property] = self.currentValue or value
   end
   
@@ -15204,7 +15213,7 @@ function Spring:update(dt)
     self.isAnimating = false
     
     -- Apply final value
-    if self.parent and self.propertyName then
+    if self.parent and self.property then
       self.parent[self.property] = self.targetValue
     end
     
@@ -15212,7 +15221,7 @@ function Spring:update(dt)
   end
   
   -- Apply current value to parent
-  if self.parent and self.propertyName then
+  if self.parent and self.property then
     self.parent[self.property] = self.currentValue
   end
   
@@ -15383,30 +15392,17 @@ function MicroInteraction:addSuccess(parent, message, duration)
   corner.CornerRadius = UDim.new(0, 8)
   corner.Parent = checkmark
   
-  -- Create success text with fallback label creation if makeLabel is not available
-  local successText
-  if type(makeLabel) == "function" then
-    successText = makeLabel(checkmark, {
-      Size = UDim2.new(1, -16, 1, -16),
-      Position = UDim2.new(0, 8, 0, 8),
-      Text = message or "Success!",
-      Font = Theme and Theme.type.fonts.bold or Enum.Font.SourceSansBold,
-      TextSize = IS_MOBILE and 14 or 15,
-      TextColor3 = UI.ink or Color3.fromRGB(255, 255, 255),
-      ZIndex = 900 + 2
-    })
-  else
-    -- Fallback: create a simple text label manually
-    successText = Instance.new("TextLabel")
-    successText.Size = UDim2.new(1, -16, 1, -16)
-    successText.Position = UDim2.new(0, 8, 0, 8)
-    successText.Text = message or "Success!"
-    successText.Font = Enum.Font.SourceSansBold
-    successText.TextSize = IS_MOBILE and 14 or 15
-    successText.TextColor3 = Color3.fromRGB(255, 255, 255)
-    successText.ZIndex = 900 + 2
-    successText.Parent = checkmark
-  end
+  -- Create success text label
+  local successText = Instance.new("TextLabel")
+  successText.Size = UDim2.new(1, -16, 1, -16)
+  successText.Position = UDim2.new(0, 8, 0, 8)
+  successText.Text = message or "Success!"
+  successText.Font = Enum.Font.SourceSansBold
+  successText.TextSize = 14
+  successText.TextColor3 = Color3.fromRGB(255, 255, 255)
+  successText.BackgroundTransparency = 1
+  successText.ZIndex = 900 + 2
+  successText.Parent = checkmark
   
   interaction.checkmark = checkmark
   interaction.successText = successText
@@ -15474,30 +15470,17 @@ function MicroInteraction:addError(parent, message, duration)
   corner.CornerRadius = UDim.new(0, 8)
   corner.Parent = errorFrame
   
-  -- Create error text with fallback label creation if makeLabel is not available
-  local errorText
-  if type(makeLabel) == "function" then
-    errorText = makeLabel(errorFrame, {
-      Size = UDim2.new(1, -16, 1, -16),
-      Position = UDim2.new(0, 8, 0, 8),
-      Text = message or "Error!",
-      Font = Theme and Theme.type.fonts.bold or Enum.Font.SourceSansBold,
-      TextSize = IS_MOBILE and 14 or 15,
-      TextColor3 = UI.ink or Color3.fromRGB(255, 255, 255),
-      ZIndex = 900 + 2
-    })
-  else
-    -- Fallback: create a simple text label manually
-    errorText = Instance.new("TextLabel")
-    errorText.Size = UDim2.new(1, -16, 1, -16)
-    errorText.Position = UDim2.new(0, 8, 0, 8)
-    errorText.Text = message or "Error!"
-    errorText.Font = Enum.Font.SourceSansBold
-    errorText.TextSize = IS_MOBILE and 14 or 15
-    errorText.TextColor3 = Color3.fromRGB(255, 255, 255)
-    errorText.ZIndex = 900 + 2
-    errorText.Parent = errorFrame
-  end
+  -- Create error text label
+  local errorText = Instance.new("TextLabel")
+  errorText.Size = UDim2.new(1, -16, 1, -16)
+  errorText.Position = UDim2.new(0, 8, 0, 8)
+  errorText.Text = message or "Error!"
+  errorText.Font = Enum.Font.SourceSansBold
+  errorText.TextSize = 14
+  errorText.TextColor3 = Color3.fromRGB(255, 255, 255)
+  errorText.BackgroundTransparency = 1
+  errorText.ZIndex = 900 + 2
+  errorText.Parent = errorFrame
   
   interaction.errorFrame = errorFrame
   interaction.errorText = errorText
@@ -15573,6 +15556,8 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
     if input.UserInputType == Enum.UserInputType.Touch then
       -- Get initial touch position
       local startPos = input.Position
+      lastX = startPos.X
+      lastY = startPos.Y
       
       -- Track movement events to detect swipe direction
       input.Changed:Connect(function(change)
@@ -15580,8 +15565,8 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
           local currentPos = input.Position
           
           -- Calculate delta movement
-          local deltaX = currentPos.X - lastX or currentPos.X
-          local deltaY = lastY - currentPos.Y  -- inverted for Y axis (up is negative)
+          local deltaX = currentPos.X - (lastX or currentPos.X)
+          local deltaY = (lastY or currentPos.Y) - currentPos.Y  -- inverted for Y axis (up is negative)
           
           if math.abs(deltaX) > minSwipeDistance then
             -- Horizontal swipe detected
@@ -15746,12 +15731,16 @@ function Transition:slide(element, direction, duration)
   end
   
   local offset
-  if direction == "left" or direction == "right" then
-    offset = UDim2.new(direction == "left", -1, 0, 0) 
-          :new(direction == "right", 1, 0, 0)
+  if direction == "left" then
+    offset = UDim2.new(-1, 0, 0, 0)
+  elseif direction == "right" then
+    offset = UDim2.new(1, 0, 0, 0)
+  elseif direction == "up" then
+    offset = UDim2.new(0, 0, -1, 0)
+  elseif direction == "down" then
+    offset = UDim2.new(0, 0, 1, 0)
   else
-    offset = UDim2.new(0, 0, direction == "up", -1, 0) 
-          :new(direction == "down", 1, 0, 0)
+    return false
   end
   
   local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
@@ -15811,7 +15800,7 @@ function AnimationSystem:spring(parent, config)
   
   -- Auto-apply to parent if provided
   if parent then
-    spring:setProperty(tostring(parent.Size))
+    spring:setProperty("Size")
   end
   
   return spring
