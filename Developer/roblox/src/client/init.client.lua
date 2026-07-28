@@ -12,6 +12,10 @@ local Debris = game:GetService("Debris")
 local AnimationSystem = require(script:WaitForChild("AnimationSystem"))
 local Anim = AnimationSystem  -- shorthand for use in UI code
 
+-- harborheist-ncxu: Keyboard navigation system (EPIC 32: Accessibility)
+-- Provides Tab/Shift+Tab navigation, Enter/Space activation, focus indicators
+local KeyboardNav = require(script:WaitForChild("KeyboardNav"))
+
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
@@ -4378,6 +4382,94 @@ else
 		bindViewport(workspace.CurrentCamera)
 		layoutDesktopBar()
 	end)
+end
+
+-- harborheist-ncxu: Register action buttons with keyboard navigation
+-- Tab order: action buttons first (fish, store, collection, quests, raid, boat)
+if not IS_MOBILE then
+	local tabOrder = 1
+	for _, action in ipairs(ACTIONS) do
+		local btn = actionButtons[action.id]
+		if btn then
+			KeyboardNav:Register(btn, tabOrder)
+			tabOrder = tabOrder + 1
+		end
+	end
+	
+	-- Register panel close buttons (continue tab order)
+	if aquariumClose then
+		KeyboardNav:Register(aquariumClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if inventoryClose then
+		KeyboardNav:Register(inventoryClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if collectionClose then
+		KeyboardNav:Register(collectionClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if shopClose then
+		KeyboardNav:Register(shopClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if questClose then
+		KeyboardNav:Register(questClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if raidClose then
+		KeyboardNav:Register(raidClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	
+	-- Register onboarding and sell/store prompt buttons
+	if onboardingDismiss then
+		KeyboardNav:Register(onboardingDismiss, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if sellStoreClose then
+		KeyboardNav:Register(sellStoreClose, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if sellStoreSellBtn then
+		KeyboardNav:Register(sellStoreSellBtn, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if sellStoreStoreBtn then
+		KeyboardNav:Register(sellStoreStoreBtn, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	
+	-- Register HUD click button
+	if hudClick then
+		KeyboardNav:Register(hudClick, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	
+	-- Register aquarium panel buttons
+	if claimButton then
+		KeyboardNav:Register(claimButton, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if sellButton then
+		KeyboardNav:Register(sellButton, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if lockButton then
+		KeyboardNav:Register(lockButton, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if raidOptInButton then
+		KeyboardNav:Register(raidOptInButton, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	if invStoreAllBtn then
+		KeyboardNav:Register(invStoreAllBtn, tabOrder)
+		tabOrder = tabOrder + 1
+	end
+	
+	-- Enable keyboard navigation
+	KeyboardNav:Enable()
 end
 
 -- TASK 24.4 (hvfh.4.4): action-bar active-panel indicator. showPanel and
