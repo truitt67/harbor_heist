@@ -1243,7 +1243,7 @@ local function updateIncomeLine(readyTransparency)
 		-- One notch smaller on the 178px mobile card so rate + ready fit on
 		-- one line (the no-layout-shift path; 6+ digit ready values may still
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
-		incomeLabel.TextSize = IS_MOBILE and 11 or 13
+		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = string.format(
 			'%s  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
