@@ -5502,6 +5502,42 @@ shopClose.Activated:Connect(hidePanels)
 questClose.Activated:Connect(hidePanels)
 raidClose.Activated:Connect(hidePanels)
 collectionClose.Activated:Connect(hidePanels)
+
+-- harborheist-2wuo.3: Wire gesture animations to panels and lists
+-- Swipe-to-dismiss on all panels (horizontal swipe to close)
+if Anim and type(Anim.swipeDismiss) == "function" then
+	pcall(function()
+		Anim:swipeDismiss(aquariumPanel, hidePanels)
+		Anim:swipeDismiss(inventoryPanel, hidePanels)
+		Anim:swipeDismiss(shopPanel, hidePanels)
+		Anim:swipeDismiss(questPanel, hidePanels)
+		Anim:swipeDismiss(raidPanel, hidePanels)
+		Anim:swipeDismiss(collectionPanel, hidePanels)
+	end)
+end
+
+-- Pull-to-refresh on scrollable lists
+if Anim and type(Anim.pullToRefresh) == "function" then
+	pcall(function()
+		-- Inventory list: refresh by re-rendering
+		Anim:pullToRefresh(inventoryList, function()
+			renderInventory()
+		end)
+		
+		-- Collection list: refresh by re-fetching data
+		Anim:pullToRefresh(collectionList, function()
+			renderCollection()
+		end)
+		
+		-- Quest list: re-render with cached data; server pushes updates via QuestProgressChanged
+		Anim:pullToRefresh(questList, function()
+			if questData then
+				renderQuestPanel(questData)
+			end
+		end)
+	end)
+end
+
 -- TASK 4.4 (0cw.4 / wqw.18): BAG button opens the per-fish inventory panel
 -- (bulk store-all remains available via the panel's STORE ALL button).
 actionButtons.store.Activated:Connect(toggleInventoryPanel)

@@ -27,6 +27,7 @@ SUCCESS CRITERIA:
 --]]
 
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
 
@@ -50,109 +51,162 @@ Usage:
   local spring = AnimationSystem:spring(parent, {
     stiffness = 0.8,
     damping = 0.6,
-    velocityScale = 1.0
   })
-  
-  -- Apply to property
-  spring:setProperty("Position", targetValue)
-  spring:update()
+  spring:setProperty("Rotation", 45)  -- animate Rotation to 45
+
+NOTE: Spring only animates NUMERIC properties (Rotation, Transparency, etc).
+It cannot animate UDim2/Vector2/Color3 — use TweenService for those.
 
 --]]
 
 local Spring = {}
 Spring.__index = Spring
 
+-- Registry of all active springs, ticked by Heartbeat
+local activeSprings = {}
+local heartbeatConnected = false
+
+local function ensureHeartbeat()
+  if heartbeatConnected then return end
+  heartbeatConnected = true
+  local lastTime = os.clock()
+  RunService.Heartbeat:Connect(function()
+    local now = os.clock()
+    local dt = math.min(now - lastTime, 0.1)  -- cap dt to avoid spiral of death
+    lastTime = now
+    -- Iterate backwards so removals during iteration are safe
+    for i = #activeSprings, 1, -1 do
+      local spring = activeSprings[i]
+      if spring:update(dt) then
+        -- Spring settled, remove from active list
+        table.remove(activeSprings, i)
+      end
+    end
+  end)
+end
+
 function Spring.new(parent, config)
   local self = setmetatable({}, Spring)
-  
+
   self.parent = parent or nil
-  self.property = "Size" -- default property
-  
+  self.property = nil  -- must be set via setProperty
+
   -- Default spring parameters (tuned for UI elements)
   self.stiffness = config and config.stiffness or 0.85
   self.damping = config and config.damping or 0.65
-  self.velocityScale = config and config.velocityScale or 1.0
-  
+
   -- Current state
   self.currentValue = nil
   self.targetValue = nil
   self.velocity = 0
   self.isAnimating = false
-  
+
   return self
 end
 
 function Spring:setProperty(property)
   self.property = property
   -- Store the current value of this property on the parent (if it exists)
-  if self.parent and type(self.parent[property]) == "number" then
-    self.currentValue = self.parent[property]
+  -- Only works for numeric properties
+  if self.parent then
+    local ok, val = pcall(function() return self.parent[property] end)
+    if ok and type(val) == "number" then
+      self.currentValue = val
+    end
   end
 end
 
 function Spring:apply(value, instant)
-  -- Instant set (no animation)
-  if instant or not self.isAnimating then
+  if instant then
+    -- Instant set (no animation)
     self.currentValue = value
     self.targetValue = value
     self.velocity = 0
-    
-    -- Apply immediately if parent exists
+    self.isAnimating = false
+
     if self.parent and self.property then
-      self.parent[self.property] = value
+      pcall(function() self.parent[self.property] = value end)
     end
-    
     return true
   end
-  
-  -- Start spring animation
+
+  -- Start or redirect spring animation
+  if self.currentValue == nil then
+    -- Initialize from parent if we haven't yet
+    if self.parent and self.property then
+      local ok, val = pcall(function() return self.parent[self.property] end)
+      if ok and type(val) == "number" then
+        self.currentValue = val
+      else
+        self.currentValue = value  -- can't read, just snap
+      end
+    else
+      self.currentValue = value
+    end
+  end
+
   self.targetValue = value
   self.isAnimating = true
-  
-  -- If we have a parent, apply current value
-  if self.parent and self.property then
-    self.parent[self.property] = self.currentValue or value
+
+  -- Register for heartbeat ticks if not already active
+  local alreadyRegistered = false
+  for _, s in ipairs(activeSprings) do
+    if s == self then alreadyRegistered = true; break end
   end
-  
+  if not alreadyRegistered then
+    table.insert(activeSprings, self)
+    ensureHeartbeat()
+  end
+
   return false
 end
 
 function Spring:update(dt)
   if not self.isAnimating then
-    return false
+    return true  -- settled (or never started)
   end
-  
+
+  if self.currentValue == nil or self.targetValue == nil then
+    return true
+  end
+
   -- Spring physics: F = -kx - cv (Hooke's law + damping)
   local displacement = self.targetValue - self.currentValue
   local force = -(self.stiffness * displacement) - (self.damping * self.velocity)
-  
+
   self.velocity = self.velocity + (force * dt)
   self.currentValue = self.currentValue + (self.velocity * dt)
-  
+
   -- Check if settled
-  if math.abs(displacement) < 0.01 then
+  if math.abs(displacement) < 0.01 and math.abs(self.velocity) < 0.01 then
     self.currentValue = self.targetValue
     self.isAnimating = false
-    
-    -- Apply final value
+
     if self.parent and self.property then
-      self.parent[self.property] = self.targetValue
+      pcall(function() self.parent[self.property] = self.targetValue end)
     end
-    
-    return true
+
+    return true  -- settled
   end
-  
+
   -- Apply current value to parent
   if self.parent and self.property then
-    self.parent[self.property] = self.currentValue
+    pcall(function() self.parent[self.property] = self.currentValue end)
   end
-  
-  return false
+
+  return false  -- still animating
 end
 
 function Spring:reset()
   self.velocity = 0
   self.isAnimating = false
+  -- Remove from active list
+  for i = #activeSprings, 1, -1 do
+    if activeSprings[i] == self then
+      table.remove(activeSprings, i)
+      break
+    end
+  end
 end
 
 --[[
@@ -168,7 +222,6 @@ Types:
 - toggle: Switch/checkbox state change
 - success: Positive action confirmation
 - error: Negative action feedback
-- loading: Progress indicator
 --]]
 
 local MicroInteraction = {}
@@ -176,10 +229,10 @@ MicroInteraction.__index = MicroInteraction
 
 function MicroInteraction.new(config)
   local self = setmetatable({}, MicroInteraction)
-  
+
   self.config = config or {}
   self.interactions = {}
-  
+
   return self
 end
 
@@ -188,7 +241,7 @@ function MicroInteraction:addPress(button, soundId, volume)
   if not button then
     return false
   end
-  
+
   local interaction = {
     type = "press",
     button = button,
@@ -196,53 +249,63 @@ function MicroInteraction:addPress(button, soundId, volume)
     volume = volume or 0.3,
     scaleDown = 0.96,
     scaleUp = 1.0,
-    tweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    tweenInfo = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+    scaleInstance = nil,
   }
-  
+
   self.interactions[button] = interaction
-  
+
+  -- Reuse existing UIScale if present, otherwise create one
+  local function getOrCreateScale()
+    local existing = button:FindFirstChildOfClass("UIScale")
+    if existing then return existing end
+    local s = Instance.new("UIScale")
+    s.Parent = button
+    return s
+  end
+
   -- Connect events
   button.MouseButton1Down:Connect(function()
     if not button.Active then return end
-    
+
     -- Play sound
     if interaction.soundId then
-      local s = Instance.new("Sound")
-      s.SoundId = interaction.soundId
-      s.Volume = interaction.volume
-      s.Parent = game:GetService("SoundService")
-      SoundService:PlayLocalSound(s)
-      Debris:AddItem(s, 2)
+      pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = interaction.soundId
+        s.Volume = interaction.volume
+        s.Parent = SoundService
+        SoundService:PlayLocalSound(s)
+        Debris:AddItem(s, 2)
+      end)
     end
-    
-    -- Squash animation
-    local scale = Instance.new("UIScale")
-    scale.Parent = button
+
+    -- Squash animation — reuse existing UIScale to avoid stacking
+    local scale = getOrCreateScale()
+    interaction.scaleInstance = scale
     TweenService:Create(scale, interaction.tweenInfo, { Scale = interaction.scaleDown }):Play()
-    
-    self.interactions[button].scaleInstance = scale
   end)
-  
+
   button.MouseButton1Up:Connect(function()
-    local scale = self.interactions[button] and self.interactions[button].scaleInstance
-    if scale then
-      TweenService:Create(scale, TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out), 
+    local scale = interaction.scaleInstance
+    if scale and scale.Parent then
+      TweenService:Create(scale, TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out),
                          { Scale = interaction.scaleUp }):Play()
-      self.interactions[button].scaleInstance = nil
     end
+    interaction.scaleInstance = nil
   end)
-  
+
   button.InputEnded:Connect(function(inputObject)
-    if inputObject.UserInputType == Enum.UserInputType.Touch or 
+    if inputObject.UserInputType == Enum.UserInputType.Touch or
        inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-      local scale = self.interactions[button] and self.interactions[button].scaleInstance
-      if scale then
+      local scale = interaction.scaleInstance
+      if scale and scale.Parent then
         TweenService:Create(scale, interaction.tweenInfo, { Scale = interaction.scaleUp }):Play()
-        self.interactions[button].scaleInstance = nil
       end
+      interaction.scaleInstance = nil
     end
   end)
-  
+
   return true
 end
 
@@ -251,35 +314,35 @@ function MicroInteraction:addToggle(switchFrame, label)
   if not switchFrame then
     return false
   end
-  
+
   local interaction = {
     type = "toggle",
     switchFrame = switchFrame,
     label = label or nil,
-    offset = UDim2.new(0, -15, 0, 0),
+    isOn = false,
     tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
   }
-  
+
   self.interactions[switchFrame] = interaction
-  
+
   -- Toggle state change animation
   switchFrame.Activated:Connect(function()
-    local offset = interaction.offset
-    
-    -- Animate the toggle
-    TweenService:Create(switchFrame, interaction.tweenInfo, { 
-      Position = UDim2.new(0, 15, 0, 0) 
+    interaction.isOn = not interaction.isOn
+    local targetX = interaction.isOn and 15 or -15
+
+    -- Animate the toggle knob
+    TweenService:Create(switchFrame, interaction.tweenInfo, {
+      Position = UDim2.new(0, targetX, 0, 0)
     }):Play()
-    
+
     -- Optional label animation
     if interaction.label then
-      local labelTween = TweenService:Create(interaction.label, 
-                                             TweenInfo.new(0.2, Enum.EasingStyle.Quad),
-                                             { TextTransparency = 0 })
-      labelTween:Play()
+      TweenService:Create(interaction.label,
+                         TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+                         { TextTransparency = 0 }):Play()
     end
   end)
-  
+
   return true
 end
 
@@ -288,33 +351,19 @@ function MicroInteraction:addSuccess(parent, message, duration)
   if not parent then
     return false
   end
-  
-  local interaction = {
-    type = "success",
-    parent = parent,
-    message = message or "",
-    duration = duration or 2.0,
-    checkmark = nil
-  }
-  
-  -- Create success indicator with fallback colors if Theme is not available
+
   local checkmark = Instance.new("Frame")
   checkmark.Size = UDim2.new(0, 48, 0, 48)
   checkmark.Position = UDim2.new(0.5, -24, 0.5, -24)
-  
-  -- Use fallback colors if Theme is not loaded yet
-  local bgColor = parent.BackgroundColor3 or Color3.fromRGB(66, 153, 225) -- default blue
-  checkmark.BackgroundColor3 = bgColor
+  checkmark.BackgroundColor3 = Color3.fromRGB(52, 199, 123)  -- green
   checkmark.BackgroundTransparency = 1 -- fade in
-  checkmark.ZIndex = 900 + 1  -- fallback Z index
-  
+  checkmark.ZIndex = 900 + 1
   checkmark.Parent = parent
-  
+
   local corner = Instance.new("UICorner")
   corner.CornerRadius = UDim.new(0, 8)
   corner.Parent = checkmark
-  
-  -- Create success text label
+
   local successText = Instance.new("TextLabel")
   successText.Size = UDim2.new(1, -16, 1, -16)
   successText.Position = UDim2.new(0, 8, 0, 8)
@@ -325,39 +374,29 @@ function MicroInteraction:addSuccess(parent, message, duration)
   successText.BackgroundTransparency = 1
   successText.ZIndex = 900 + 2
   successText.Parent = checkmark
-  
-  interaction.checkmark = checkmark
-  interaction.successText = successText
-  
+
   -- Fade in animation
-  TweenService:Create(checkmark, TweenInfo.new(0.25, Enum.EasingStyle.Quad), 
+  TweenService:Create(checkmark, TweenInfo.new(0.25, Enum.EasingStyle.Quad),
                      { BackgroundTransparency = 0 }):Play()
-  
+
   -- Schedule fade out
-  task.delay(duration, function()
-    if interaction.checkmark and interaction.checkmark.Parent then
-      TweenService:Create(interaction.checkmark, 
+  task.delay(duration or 2.0, function()
+    if checkmark.Parent then
+      TweenService:Create(checkmark,
                           TweenInfo.new(0.25, Enum.EasingStyle.Quad),
                           { BackgroundTransparency = 1 }):Play()
-      
-      -- Hide text as well
-      if interaction.successText then
-        TweenService:Create(interaction.successText,
-                           TweenInfo.new(0.2, Enum.EasingStyle.Quad),
-                           { TextTransparency = 1 }):Play()
-      end
-      
-      task.delay(0.25, function()
-        if interaction.checkmark and interaction.checkmark.Parent then
-          interaction.checkmark:Destroy()
-          if interaction.successText and interaction.successText.Parent then
-            interaction.successText:Destroy()
-          end
+      TweenService:Create(successText,
+                         TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+                         { TextTransparency = 1 }):Play()
+
+      task.delay(0.3, function()
+        if checkmark.Parent then
+          checkmark:Destroy()
         end
       end)
     end
   end)
-  
+
   return true
 end
 
@@ -366,33 +405,19 @@ function MicroInteraction:addError(parent, message, duration)
   if not parent then
     return false
   end
-  
-  local interaction = {
-    type = "error",
-    parent = parent,
-    message = message or "",
-    duration = duration or 2.0,
-    errorFrame = nil
-  }
-  
-  -- Create error indicator with fallback colors if Theme is not available
+
   local errorFrame = Instance.new("Frame")
   errorFrame.Size = UDim2.new(0, 48, 0, 48)
   errorFrame.Position = UDim2.new(0.5, -24, 0.5, -24)
-  
-  -- Use fallback colors if Theme is not loaded yet
-  local bgColor = parent.BackgroundColor3 or Color3.fromRGB(231, 76, 60) -- default red
-  errorFrame.BackgroundColor3 = bgColor
+  errorFrame.BackgroundColor3 = Color3.fromRGB(255, 92, 92)  -- red
   errorFrame.BackgroundTransparency = 1 -- fade in
-  errorFrame.ZIndex = 900 + 1  -- fallback Z index
-  
+  errorFrame.ZIndex = 900 + 1
   errorFrame.Parent = parent
-  
+
   local corner = Instance.new("UICorner")
   corner.CornerRadius = UDim.new(0, 8)
   corner.Parent = errorFrame
-  
-  -- Create error text label
+
   local errorText = Instance.new("TextLabel")
   errorText.Size = UDim2.new(1, -16, 1, -16)
   errorText.Position = UDim2.new(0, 8, 0, 8)
@@ -403,39 +428,29 @@ function MicroInteraction:addError(parent, message, duration)
   errorText.BackgroundTransparency = 1
   errorText.ZIndex = 900 + 2
   errorText.Parent = errorFrame
-  
-  interaction.errorFrame = errorFrame
-  interaction.errorText = errorText
-  
+
   -- Fade in animation
-  TweenService:Create(errorFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad), 
+  TweenService:Create(errorFrame, TweenInfo.new(0.25, Enum.EasingStyle.Quad),
                      { BackgroundTransparency = 0 }):Play()
-  
+
   -- Schedule fade out
-  task.delay(duration, function()
-    if interaction.errorFrame and interaction.errorFrame.Parent then
-      TweenService:Create(interaction.errorFrame, 
+  task.delay(duration or 2.0, function()
+    if errorFrame.Parent then
+      TweenService:Create(errorFrame,
                           TweenInfo.new(0.25, Enum.EasingStyle.Quad),
                           { BackgroundTransparency = 1 }):Play()
-      
-      -- Hide text as well
-      if interaction.errorText then
-        TweenService:Create(interaction.errorText,
-                           TweenInfo.new(0.2, Enum.EasingStyle.Quad),
-                           { TextTransparency = 1 }):Play()
-      end
-      
-      task.delay(0.25, function()
-        if interaction.errorFrame and interaction.errorFrame.Parent then
-          interaction.errorFrame:Destroy()
-          if interaction.errorText and interaction.errorText.Parent then
-            interaction.errorText:Destroy()
-          end
+      TweenService:Create(errorText,
+                         TweenInfo.new(0.2, Enum.EasingStyle.Quad),
+                         { TextTransparency = 1 }):Play()
+
+      task.delay(0.3, function()
+        if errorFrame.Parent then
+          errorFrame:Destroy()
         end
       end)
     end
   end)
-  
+
   return true
 end
 
@@ -449,7 +464,6 @@ Provides touch-based animations for mobile devices.
 Types:
 - swipeDismiss: Swipe to dismiss panels/toasts
 - pullToRefresh: Pull down to refresh content
-- dragMove: Drag and drop with smooth following
 --]]
 
 local GestureAnimation = {}
@@ -457,11 +471,11 @@ GestureAnimation.__index = GestureAnimation
 
 function GestureAnimation.new(config)
   local self = setmetatable({}, GestureAnimation)
-  
+
   self.config = config or {}
-  self.swipeThreshold = config and config.swipeThreshold or 100 -- pixels to trigger dismiss
-  self.pullDistance = config and config.pullDistance or 50 -- pixels for refresh
-  
+  self.swipeThreshold = config and config.swipeThreshold or 100
+  self.pullDistance = config and config.pullDistance or 50
+
   return self
 end
 
@@ -469,73 +483,70 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
   if not panel then
     return false
   end
-  
-  local lastX, lastY = nil, nil
-  local isDragging = false
+
   local minSwipeDistance = self.swipeThreshold or 100
-  
+  local tracking = false
+  local startX, startY = 0, 0
+  local startedInScrollable = false
+
+  -- Helper: check if a point is inside a ScrollingFrame
+  local function isPointInScrollingFrame(x, y)
+    for _, child in ipairs(panel:GetDescendants()) do
+      if child:IsA("ScrollingFrame") and child.Visible then
+        local absPos = child.AbsolutePosition
+        local absSize = child.AbsoluteSize
+        if x >= absPos.X and x <= absPos.X + absSize.X and
+           y >= absPos.Y and y <= absPos.Y + absSize.Y then
+          return true
+        end
+      end
+    end
+    return false
+  end
+
   panel.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
-      -- Get initial touch position
-      local startPos = input.Position
-      lastX = startPos.X
-      lastY = startPos.Y
-      
-      -- Track movement events to detect swipe direction
-      input.Changed:Connect(function(change)
-        if change == "Position" and not isDragging then
-          local currentPos = input.Position
-          
-          -- Calculate delta movement
-          local deltaX = currentPos.X - (lastX or currentPos.X)
-          local deltaY = (lastY or currentPos.Y) - currentPos.Y  -- inverted for Y axis (up is negative)
-          
-          if math.abs(deltaX) > minSwipeDistance then
-            -- Horizontal swipe detected
-            if deltaX > 0 then
-              -- Swipe right
-              if onDismiss then
-                onDismiss()
-              else
-                local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-                TweenService:Create(panel, tweenInfo, { 
-                  Position = UDim2.new(-1, -panel.Size.X.Offset, 0, 0),
-                  Visible = false 
-                }):Play()
-              end
-            elseif deltaX < 0 then
-              -- Swipe left
-              if onDismiss then
-                onDismiss()
-              else
-                local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-                TweenService:Create(panel, tweenInfo, { 
-                  Position = UDim2.new(1, panel.Size.X.Offset, 0, 0),
-                  Visible = false 
-                }):Play()
-              end
-            end
-          elseif deltaY > minSwipeDistance then
-            -- Swipe up detected (dismiss)
-            if onDismiss then
-              onDismiss()
-            else
-              local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-              TweenService:Create(panel, tweenInfo, { 
-                Position = UDim2.new(0, 0, 0, -panel.Size.Y.Offset),
-                Visible = false 
-              }):Play()
-            end
-          elseif deltaY < -minSwipeDistance then
-            -- Swipe down (do nothing by default)
-          end
-          
-          lastX, lastY = currentPos.X, currentPos.Y
-        end
-      end)
+      tracking = true
+      startX = input.Position.X
+      startY = input.Position.Y
+      -- Check if touch started inside a scrollable area
+      startedInScrollable = isPointInScrollingFrame(startX, startY)
     end
   end)
-  
+
+  panel.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch and tracking then
+      tracking = false
+      local endX = input.Position.X
+      local endY = input.Position.Y
+      local deltaX = endX - startX
+      local deltaY = endY - startY
+
+      if startedInScrollable then
+        -- Inside scrollable: only allow horizontal swipes to dismiss
+        -- Vertical swipes are reserved for scrolling/pull-to-refresh
+        if math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY) then
+          if onDismiss then
+            onDismiss()
+          end
+        end
+      else
+        -- Outside scrollable: allow both horizontal and vertical swipes
+        if math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY) then
+          -- Horizontal swipe
+          if onDismiss then
+            onDismiss()
+          end
+        elseif deltaY > minSwipeDistance then
+          -- Swipe down (natural dismiss for bottom sheets)
+          if onDismiss then
+            onDismiss()
+          end
+        end
+      end
+    end
+  end)
+
   return true
 end
 
@@ -543,52 +554,49 @@ function GestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
   if not refreshContainer then
     return false
   end
-  
-  local startY = nil
-  local isDragging = false
-  local lastY = nil
+
   local minPullDistance = self.pullDistance or 50
-  
-  -- Track the container's position for visual feedback
-  local pullOffset = 0
-  
+  local tracking = false
+  local startY = 0
+  local refreshing = false
+
   refreshContainer.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
-      -- Start tracking vertical drag
-      startY = input.Position.Y
+      -- Only track if scrolled to top (standard pull-to-refresh UX)
+      -- Use epsilon for floating point comparison
+      local isScrollingFrame = refreshContainer:IsA("ScrollingFrame")
+      local atTop = not isScrollingFrame or refreshContainer.CanvasPosition.Y < 1
       
-      input.Changed:Connect(function(change)
-        if change == "Position" and not isDragging then
-          local newPos = input.Position.Y
-          
-          -- Calculate pull distance (negative means pulled up)
-          local deltaY = lastY - newPos
-          pullOffset = math.max(0, deltaY)  -- only track upward pulls
-          
-          -- Apply visual feedback for pulling
-          if pullOffset > minPullDistance then
-            -- Pull far enough, trigger refresh
-            if onRefresh then
-              onRefresh()
-            else
-              -- Default: reload content - implement your refresh logic here
-            end
-            
-            -- Reset after a short delay to allow multiple pulls
-            task.delay(0.5, function()
-              pullOffset = 0
-            end)
-          end
-        elseif change == "Ancestry" then
-          -- Container was destroyed, clean up
-          isDragging = false
-          startY = nil
-          lastY = nil
-        end
-      end)
+      if atTop then
+        tracking = true
+        startY = input.Position.Y
+      end
     end
   end)
-  
+
+  refreshContainer.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.Touch and tracking then
+      tracking = false
+      local endY = input.Position.Y
+      local deltaY = endY - startY  -- positive = pulled DOWN
+
+      -- Pull DOWN to refresh (natural gesture)
+      if deltaY > minPullDistance and not refreshing then
+        refreshing = true
+        if onRefresh then
+          local ok, err = pcall(onRefresh)
+          if not ok then
+            warn("[AnimationSystem] pullToRefresh callback error: " .. tostring(err))
+          end
+        end
+        -- Debounce: prevent re-trigger for 1 second
+        task.delay(1.0, function()
+          refreshing = false
+        end)
+      end
+    end
+  end)
+
   return true
 end
 
@@ -604,6 +612,7 @@ Transitions:
 - slide: Slide from edges (enter/exit)
 - scale: Scale up/down for emphasis
 - rotate: Rotate for attention-grabbing effects
+- fadeSlide: Combined fade + slide for panel transitions
 --]]
 
 local Transition = {}
@@ -611,11 +620,11 @@ Transition.__index = Transition
 
 function Transition.new(config)
   local self = setmetatable({}, Transition)
-  
+
   self.config = config or {}
   self.defaultDuration = config and config.duration or 0.3
   self.defaultEasing = config and config.easing or Enum.EasingStyle.Quad
-  
+
   return self
 end
 
@@ -623,26 +632,22 @@ function Transition:fade(element, visible, duration)
   if not element then
     return false
   end
-  
-  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
-                                  self.defaultEasing, 
-                                  Enum.EasingDirection.Out)
-  
+
+  local dur = duration or self.defaultDuration or 0.3
+  local easing = self.defaultEasing or Enum.EasingStyle.Quad
+  local tweenInfo = TweenInfo.new(dur, easing, Enum.EasingDirection.Out)
+
   if visible then
-    -- Fade in
-    TweenService:Create(element, tweenInfo, { 
+    TweenService:Create(element, tweenInfo, {
       BackgroundTransparency = 0,
-      TextTransparency = 0 
+      TextTransparency = 0
     }):Play()
-    
     return true
   else
-    -- Fade out
-    TweenService:Create(element, tweenInfo, { 
+    TweenService:Create(element, tweenInfo, {
       BackgroundTransparency = 1,
-      TextTransparency = 1 
+      TextTransparency = 1
     }):Play()
-    
     return false
   end
 end
@@ -651,7 +656,7 @@ function Transition:slide(element, direction, duration)
   if not element then
     return false
   end
-  
+
   local offset
   if direction == "left" then
     offset = UDim2.new(-1, 0, 0, 0)
@@ -664,13 +669,12 @@ function Transition:slide(element, direction, duration)
   else
     return false
   end
-  
-  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
-                                  Enum.EasingStyle.Back, 
-                                  Enum.EasingDirection.Out)
-  
+
+  local dur = duration or self.defaultDuration or 0.3
+  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
   TweenService:Create(element, tweenInfo, { Position = offset }):Play()
-  
+
   return true
 end
 
@@ -678,16 +682,19 @@ function Transition:scale(element, scaleValue, duration)
   if not element then
     return false
   end
-  
-  local corner = Instance.new("UIScale")
-  corner.Parent = element
-  
-  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
-                                  Enum.EasingStyle.Back, 
-                                  Enum.EasingDirection.Out)
-  
-  TweenService:Create(corner, tweenInfo, { Scale = scaleValue }):Play()
-  
+
+  -- Reuse existing UIScale if present
+  local uiScale = element:FindFirstChildOfClass("UIScale")
+  if not uiScale then
+    uiScale = Instance.new("UIScale")
+    uiScale.Parent = element
+  end
+
+  local dur = duration or self.defaultDuration or 0.3
+  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+  TweenService:Create(uiScale, tweenInfo, { Scale = scaleValue }):Play()
+
   return true
 end
 
@@ -695,17 +702,13 @@ function Transition:rotate(element, degrees, duration)
   if not element then
     return false
   end
-  
-  local rotation = Instance.new("UIRotation")
-  rotation.Rotation = degrees
-  rotation.Parent = element
-  
-  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
-                                  Enum.EasingStyle.Quad, 
-                                  Enum.EasingDirection.Out)
-  
-  TweenService:Create(rotation, tweenInfo, { Rotation = degrees }):Play()
-  
+
+  -- Roblox GuiObjects have a Rotation property directly (no UIRotation class)
+  local dur = duration or self.defaultDuration or 0.3
+  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+  TweenService:Create(element, tweenInfo, { Rotation = degrees }):Play()
+
   return true
 end
 
@@ -714,7 +717,7 @@ function Transition:fadeSlide(element, visible, direction, duration)
   if not element then
     return false
   end
-  
+
   local offset
   if direction == "left" then
     offset = UDim2.new(-1, 0, 0, 0)
@@ -727,22 +730,19 @@ function Transition:fadeSlide(element, visible, direction, duration)
   else
     offset = UDim2.new(0, 0, 1, 0)  -- default: slide down
   end
-  
-  local tweenInfo = TweenInfo.new(duration or self.defaultDuration, 
-                                  Enum.EasingStyle.Back, 
-                                  Enum.EasingDirection.Out)
-  
+
+  local dur = duration or self.defaultDuration or 0.3
+  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
   if visible then
-    -- Fade in + slide in
-    TweenService:Create(element, tweenInfo, { 
+    TweenService:Create(element, tweenInfo, {
       BackgroundTransparency = 0,
       TextTransparency = 0,
       Position = UDim2.new(0.5, 0, 0.5, 0)  -- center position
     }):Play()
     return true
   else
-    -- Fade out + slide out
-    TweenService:Create(element, tweenInfo, { 
+    TweenService:Create(element, tweenInfo, {
       BackgroundTransparency = 1,
       TextTransparency = 1,
       Position = offset
@@ -756,62 +756,68 @@ end
 Animation System Factory
 =============================================================================
 
-Creates and manages animation instances.
+Creates singleton instances of each subsystem and exposes them through
+a single interface. All methods are safe to call — they pcall internally
+where needed.
+
 --]]
+
+-- Create singleton instances (fixes the "methods called on class table" bug)
+local microInteraction = MicroInteraction.new()
+local gestureAnimation = GestureAnimation.new()
+local transition = Transition.new()
 
 function AnimationSystem:spring(parent, config)
   local spring = Spring.new(parent, config)
-  
-  -- Auto-apply to parent if provided
   if parent then
-    spring:setProperty("Size")
+    -- Default to Rotation (a numeric property) — Size is UDim2 and won't work
+    spring:setProperty("Rotation")
   end
-  
   return spring
 end
 
 function AnimationSystem:press(button, soundId, volume)
-  return MicroInteraction:addPress(button, soundId, volume)
+  return microInteraction:addPress(button, soundId, volume)
 end
 
 function AnimationSystem:toggle(switchFrame, label)
-  return MicroInteraction:addToggle(switchFrame, label)
+  return microInteraction:addToggle(switchFrame, label)
 end
 
 function AnimationSystem:success(parent, message, duration)
-  return MicroInteraction:addSuccess(parent, message, duration)
+  return microInteraction:addSuccess(parent, message, duration)
 end
 
 function AnimationSystem:error(parent, message, duration)
-  return MicroInteraction:addError(parent, message, duration)
+  return microInteraction:addError(parent, message, duration)
 end
 
 function AnimationSystem:swipeDismiss(panel, onDismiss)
-  return GestureAnimation:enableSwipeDismiss(panel, onDismiss)
+  return gestureAnimation:enableSwipeDismiss(panel, onDismiss)
 end
 
 function AnimationSystem:pullToRefresh(refreshContainer, onRefresh)
-  return GestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
+  return gestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
 end
 
 function AnimationSystem:fade(element, visible, duration)
-  return Transition:fade(element, visible, duration)
+  return transition:fade(element, visible, duration)
 end
 
 function AnimationSystem:slide(element, direction, duration)
-  return Transition:slide(element, direction, duration)
+  return transition:slide(element, direction, duration)
 end
 
 function AnimationSystem:scale(element, scaleValue, duration)
-  return Transition:scale(element, scaleValue, duration)
+  return transition:scale(element, scaleValue, duration)
 end
 
 function AnimationSystem:rotate(element, degrees, duration)
-  return Transition:rotate(element, degrees, duration)
+  return transition:rotate(element, degrees, duration)
 end
 
 function AnimationSystem:fadeSlide(element, visible, direction, duration)
-  return Transition:fadeSlide(element, visible, direction, duration)
+  return transition:fadeSlide(element, visible, direction, duration)
 end
 
 return AnimationSystem
