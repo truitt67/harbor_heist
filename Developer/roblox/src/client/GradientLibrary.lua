@@ -1,6 +1,6 @@
 -- harborheist-i39g.3: Gradient library for EPIC 35 (Visual Polish)
 -- Provides reusable UIGradient presets for surfaces, accents, status, and rarity.
--- All colors derive from the UI palette in init.client.lua — no hardcoded values.
+-- Base colors reference the UI palette; some presets use tuned variants.
 --
 -- USAGE:
 --   local Gradients = require(script.Parent:WaitForChild("GradientLibrary"))
@@ -10,13 +10,18 @@
 --   Gradients.apply(rarityLabel, "rarity.Legendary")
 --
 -- DESIGN:
---   Each preset is a {from, to} Color3 pair. applyGradient() creates a UIGradient
+--   Each preset is a {from, to} Color3 pair. apply() creates a UIGradient
 --   with Rotation=90 (vertical) and attaches it to the target. Returns the gradient
 --   instance so callers can adjust Rotation/Transparency if needed.
 --
 -- PERFORMANCE:
 --   UIGradient is cheap (GPU-side), but avoid stacking 10+ on a single frame.
 --   The presets are static tables — no per-frame allocation.
+--
+-- MAINTENANCE:
+--   The UI table (lines 28-43) mirrors init.client.lua's palette. If that palette
+--   changes, update both files. Presets use tuned RGB variants for visual polish;
+--   these aren't in the base UI table but are documented in the preset comments.
 
 local Gradients = {}
 
@@ -45,16 +50,16 @@ local UI = {
 -- ============================================================================
 -- Gradient presets
 -- ============================================================================
--- Colors match the actual usage patterns in init.client.lua (not the UI table).
--- The existing code uses (26, 38, 57) as a "surface highlight" starting point,
--- which is between UI.surface and UI.surfaceHi. These presets encode that reality.
+-- Presets reference the UI table for base colors, with some tuned variants
+-- for visual polish (e.g., 26,38,57 is a surface highlight between UI.surface
+-- and UI.surfaceHi). These tuned values are documented inline.
 local PRESETS = {
 	-- Surface gradients: subtle background variations for panels/containers
 	-- "default" is the workhorse — used by overlays, panels, HUD, reveal cards
 	surface = {
-		default = { from = Color3.fromRGB(26, 38, 57), to = UI.surface },
+		default = { from = Color3.fromRGB(26, 38, 57), to = UI.bg },
 		elevated = { from = UI.surface, to = UI.surfaceHi },
-		hud = { from = Color3.fromRGB(24, 36, 54), to = UI.surface },
+		hud = { from = Color3.fromRGB(24, 36, 54), to = UI.bg },
 	},
 
 	-- Accent gradients: buttons, highlights, interactive elements
@@ -68,7 +73,7 @@ local PRESETS = {
 	-- Status gradients: progress bars, health indicators, feedback
 	status = {
 		success = { from = UI.good, to = Color3.fromRGB(100, 220, 160) },
-		warning = { from = UI.warn, to = Color3.fromRGB(255, 210, 100) },
+		warning = { from = Color3.fromRGB(255, 205, 92), to = UI.warn },
 		collection = { from = UI.quest, to = UI.warn },
 		error = { from = UI.bad, to = Color3.fromRGB(255, 140, 140) },
 		info = { from = UI.accentSoft, to = UI.boat },
@@ -135,6 +140,9 @@ end
 -- @param presetPath string - Dot-separated path: "category.name"
 -- @return Color3, Color3 - The from and to colors, or nil if not found
 function Gradients.getColors(presetPath)
+	if not presetPath then
+		return nil
+	end
 	local category, name = presetPath:match("^([^.]+)%.(.+)$")
 	if not category then
 		return nil

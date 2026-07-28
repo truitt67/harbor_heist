@@ -190,7 +190,6 @@ local function isOverlayActive(kind)
 end
 
 -- ============================================================
--- ============================================================
 -- harborheist-i39g.4: Z-Index Ladder (canonical reference)
 --
 -- Roblox renders siblings by ZIndex (higher = on top) when the
@@ -202,22 +201,28 @@ end
 --   0-9    HUD elements (cash card, carry pill, HUD buttons)
 --          4 = hudClick, 5 = income line / action bar
 --
---   10-19  Onboarding / coach marks
---          15 = onboardingPrompt, 16 = accent bar / labels
+--   10     Action button badges (bag badge, boat state dot)
+--          These are children of action buttons, layered above the button
+--
+--   15-19  Onboarding / coach marks / raid banner
+--          15 = onboardingPrompt, 16 = accent bar / labels,
+--          18 = raid banner background, 19 = raid banner icon / text
 --
 --   20-24  Panel backdrops (dimmed screen behind a modal panel)
 --          20 = backdrop
 --
 --   25-29  Panel content (the modal itself + its children)
 --          25 = panel frame, 26 = grabber / drag surface / content,
---          27 = inner controls (capacity bar, claim button)
+--          27 = inner controls (capacity bar, claim button),
+--          28 = shop/quest panel fills
 --
 --   30-39  Prompts (sell/store confirmations)
 --          30 = sellStorePrompt, 31 = prompt children
 --
 --   40-49  Minigame overlays (cast, bite, raid)
 --          40 = OVERLAY_Z_BASE (frame), 41 = OVERLAY_Z_CONTENT,
---          42 = OVERLAY_Z_ZONE (good zone), 43 = OVERLAY_Z_MARKER
+--          42 = OVERLAY_Z_ZONE (good zone), 43 = OVERLAY_Z_MARKER,
+--          49 = rarity flash (legendary catch celebration)
 --
 --   50-54  Reveal card (first-catch / epic-catch celebration)
 --          50 = card, 51 = topBar / tag / icon, 52 = rarity stroke
