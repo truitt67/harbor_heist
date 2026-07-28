@@ -478,76 +478,23 @@ local function makeButton(parent, props)
 	local variantName = props.Variant or "primary"
 	props.Variant = nil
 	local variant = Theme.buttonVariants[variantName] or Theme.buttonVariants.primary
-
+	
 	-- Set base colors with proper contrast
 	button.BackgroundColor3 = (variant and variant.bg) or Theme.color.accent.base
 	button.TextColor3 = (variant and variant.text) or Theme.color.text.ink
 	button.Font = Theme.type.fonts.bold
 	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
 	button.AutoButtonColor = false
-
-	-- EPIC 32: Accessibility - minimum touch target size per WCAG guidelines
-	-- TouchIconSize must be set BEFORE Parent assignment for proper rendering
-	if IS_MOBILE then
-		-- Minimum 44px touch target (WCAG 2.1 Level AA requirement)
-		button.TouchIconSize = UDim2.new(0, 44, 0, 44)
-	else
-		-- Desktop: ensure minimum clickable area for accessibility
-		button.Size = UDim2.new(0, 88, 0, 44) -- Minimum 88x44px desktop button
-	end
-
-	-- EPIC 32: Accessibility - focus handling for keyboard navigation
-	local function setupFocusHandling()
-		if IS_MOBILE then
-			-- Mobile: no native :focus pseudo-class in Roblox
-			-- Use visual feedback on press instead (already handled by pressTween)
-			return
-		end
-
-		-- Desktop: add visible focus indicator when Tab navigates to button
-		local resolveRadius = cornerRadius or (variant and variant.radius) or Theme.corners.md
-		local focusGlow = Instance.new("Frame")
-		focusGlow.Name = "FocusGlow"
-		focusGlow.Size = UDim2.new(1, 0, 1, 0)
-		focusGlow.BackgroundColor3 = Theme.color.accent.base
-		focusGlow.BackgroundTransparency = 1
-		focusGlow.ZIndex = button.ZIndex + 1
-		focusGlow.Parent = button
-		corner(focusGlow, resolveRadius)
-
-		button.Focused:Connect(function()
-			-- Fade in focus glow for keyboard navigation visibility
-			TweenService:Create(focusGlow, EASE_IN, { BackgroundTransparency = 0.15 }):Play()
-			playerMouse.Icon = "rbxasset://SystemCursors/PointingHand"
-		end)
-
-		button.FocusLost:Connect(function(entered)
-			if not entered then
-				-- Focus moved away (Tab or Shift+Tab)
-				TweenService:Create(focusGlow, EASE_OUT, { BackgroundTransparency = 1 }):Play()
-				playerMouse.Icon = ""
-			end
-		end)
-
-		button.MouseLeave:Connect(function()
-			-- Remove focus glow on mouse hover (visual preference)
-			if button.Focused then
-				TweenService:Create(focusGlow, EASE_FAST, { BackgroundTransparency = 1 }):Play()
-			end
-		end)
-	end
-
-	setupFocusHandling()
-
+	
 	-- Apply custom properties if provided
 	for key, value in pairs(props) do
 		if key ~= "Variant" then
 			button[key] = value
 		end
 	end
-
+	
 	button.Parent = parent
-
+	
 	local resolveRadius = cornerRadius or (variant and variant.radius) or Theme.corners.md
 	corner(button, resolveRadius)
 	
@@ -649,15 +596,9 @@ end
 -- EPIC 31: Loading States & Empty States for async data panels (shop, raid, inventory)
 -- Universal skeleton loader factory with loading spinner support
 local function createSkeletonRows(parent, config)
-	-- harborheist-7h69.5: guard against nil/invalid parent — prevents crashes on malformed UI
-	if not parent or not parent:IsA("GuiObject") then
-		warn("[createSkeletonRows] Invalid parent:", tostring(parent))
-		return
-	end
-	
-	-- Clear existing skeletons if any (but preserve the layout)
+	-- Clear existing skeletons if any
 	for _, child in ipairs(parent:GetChildren()) do
-		if child.Name:find("^SkeletonRow_") or child.Name == "LoadingSpinner" then
+		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end
@@ -666,34 +607,49 @@ local function createSkeletonRows(parent, config)
 	local rowHeight = config.rowHeight or (IS_MOBILE and 72 or 64)
 	local zIndex = config.zIndex or 26
 	
-	-- Create loading spinner for async data fetch — use standard Roblox LoadingSpinner
-		-- First, clean up any existing spinner from previous calls (defensive programming)
-		local existingSpinner = parent:FindFirstChild("LoadingSpinner")
-		if existingSpinner then
-			existingSpinner:Destroy()
+	-- Create loading spinner for async data fetch
+	if parent.LoadingSpinner then
+		parent.LoadingSpinner:Destroy()
+	end
+	
+	local spinner = Instance.new("Frame")
+	spinner.Name = "LoadingSpinner"
+	spinner.Size = UDim2.new(0, 48, 0, 48)
+	spinner.Position = UDim2.new(0.5, -24, 0.5, -24)
+	spinner.BackgroundColor3 = Theme.color.surface.primary
+	spinner.BackgroundTransparency = 1
+	spinner.ZIndex = zIndex + 1
+	spinner.Parent = parent
+	
+	local spinnerStroke = Instance.new("UIStroke")
+	spinnerStroke.Color = Theme.color.accent.base
+	spinnerStroke.Thickness = 2
+	spinnerStroke.Transparency = 0.9
+	spinnerStroke.Parent = spinner
+	
+	local spinnerInner = Instance.new("Frame")
+	spinnerInner.Size = UDim2.new(0, 36, 0, 36)
+	spinnerInner.Position = UDim2.new(0.5, -18, 0.5, -18)
+	spinnerInner.BackgroundColor3 = Theme.color.surface.primary
+	spinnerInner.BackgroundTransparency = 1
+	spinnerInner.ZIndex = zIndex + 2
+	spinnerInner.Parent = spinner
+	
+	local spinnerStrokeInner = Instance.new("UIStroke")
+	spinnerStrokeInner.Color = Theme.color.accent.base
+	spinnerStrokeInner.Thickness = 3
+	spinnerStrokeInner.Transparency = 0.85
+	spinnerStrokeInner.Parent = spinnerInner
+	
+	-- Animate the spinner
+	task.spawn(function()
+		while parent.Loading do
+			tween(spinnerInner, { Position = UDim2.new(0.5, -18 + math.sin(os.clock() * 10) * 4, 0.5, -18 + math.cos(os.clock() * 10) * 4), Rotation = os.clock() * 360 }, EASE_IN, true)
 		end
-
-		-- Also check if parent has a Loading property set by external code
-		if parent.LoadingSpinner and type(parent.LoadingSpinner) == "table" then
-			parent.LoadingSpinner:Destroy()
-		end
-
-		local spinner = Instance.new("Loading") -- Use built-in Loading object, not custom Frame
-		spinner.Size = UDim2.new(0, 48, 0, 48)
-		spinner.Position = UDim2.new(0.5, -24, 0.5, -24)
-		spinner.ZIndex = zIndex + 1
-		spinner.Parent = parent
-
-		-- Animate the spinner using built-in properties
-		task.spawn(function()
-			while parent.Loading do
-				-- Use tween to rotate the Loading spinner (it has a Rotation property)
-				tween(spinner, { Position = UDim2.new(0.5, -24, 0.5, -24), Rotation = os.clock() * 360 }, EASE_IN, true)
-			end
-		end)
-
-		-- Store reference for cleanup (not setting parent.LoadingSpinner as it's not a standard property)
-		spinner.Name = "LoadingSpinner"
+	end)
+	
+	-- Create skeleton rows for empty state display
+	for i = 1, rows do
 		local row = Instance.new("Frame")
 		row.Name = string.format("SkeletonRow_%d", i)
 		row.Size = UDim2.new(1, -16, 0, rowHeight)
@@ -730,8 +686,7 @@ local function createSkeletonRows(parent, config)
 		end
 	end
 	
-	-- Store reference for cleanup (not setting parent.LoadingSpinner as it's not a standard property)
-	spinner.Name = "LoadingSpinner"
+	parent.LoadingSpinner = spinner
 end
 
 -- EPIC 31: Loading state helper for async data fetches
@@ -740,14 +695,6 @@ local function showLoading(parent, isLoading)
 		parent.Loading = true
 		createSkeletonRows(parent, { rows = 4 })
 	else
-		parent.Loading = false
-		for _, child in ipairs(parent:GetChildren()) do
-			if child.Name:find("^SkeletonRow_") or child.Name == "LoadingSpinner" then
-				child:Destroy()
-			end
-		end
-	end
-end
 		parent.Loading = false
 		for _, child in ipairs(parent:GetChildren()) do
 			if child.Name:find("SkeletonRow") or child.Name == "LoadingSpinner" then
@@ -1479,11 +1426,17 @@ local function showToastDirect(message, color, category, actions)
 	local persistent = vConf and vConf.persistent
 	-- Render action buttons if provided (max 2 per toast, right-aligned)
 	if actions then
+		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
+		-- mobile touch-target minimum. On mobile they grow to 44px and the
+		-- toast min height rises to 52px so ClipsDescendants can't shave them.
+		if IS_MOBILE then
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+		end
 		for i, action in ipairs(actions) do
 			if i > 2 then break end -- max 2 action buttons per toast
 			local btn = makeButton(toast, {
-				Size = UDim2.new(0, 64, 0, 24),
-				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, -12),
+				Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24),
+				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
 				TextSize = IS_MOBILE and 11 or 12,
@@ -1524,9 +1477,17 @@ local function showToastDirect(message, color, category, actions)
 		task.delay(lifetime, dismissToast)
 	else
 		-- Persistent toasts require manual dismissal via a close button.
+		-- harborheist-rk2h: the ✕ was 20x20 — far below the 44px mobile
+		-- touch-target minimum. On mobile it grows to 44x44, the toast min
+		-- height rises to 52px (no clipping), and the message narrows so
+		-- its first lines don't run underneath the button.
+		if IS_MOBILE then
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			text.Size = UDim2.new(1, -80, 0, 0)
+		end
 		local closeBtn = makeButton(toast, {
-			Size = UDim2.new(0, 20, 0, 20),
-			Position = UDim2.new(1, -24, 0, 4),
+			Size = UDim2.new(0, IS_MOBILE and 44 or 20, 0, IS_MOBILE and 44 or 20),
+			Position = UDim2.new(1, IS_MOBILE and -48 or -24, 0, 4),
 			Text = "✕",
 			TextSize = Theme.type.sizes.xs,
 			BackgroundColor3 = Theme.color.surface.elevated,
@@ -3290,49 +3251,30 @@ local function buildShopRow(entry)
 	shopRows[entry.kind .. entry.level] = { row = row, buyButton = buyButton, level = entry.level, kind = entry.kind, item = entry.item }
 end
 
-local function refreshShop()
+function refreshShop()
 	if not state then
 		return
 	end
-	
-	-- harborheist-7h69.5: skeleton rows on cold open (before first server
-	-- response) so the shop isn't blank during the InvokeServer round-trip.
-	-- Clear existing rows first to avoid stacking duplicate skeletons.
-	for _, child in ipairs(shopList:GetChildren()) do
-		if not child:IsA("UIListLayout") then
-			child:Destroy()
-		end
-	end
-	
-	-- Show skeleton loader while fetching shop data
-	createSkeletonRows(shopList, {
-		rows = 6,
-		rowHeight = IS_MOBILE and 74 or 66,
-		zIndex = 26,
-	})
-	
-	-- Rebuild rows with current state when available
-	for _, entry in ipairs(SHOP_CATALOG) do
-		buildShopRow(entry)
-	end
-	
-	-- Update button states based on player's current level/cash
-	for _, entry in ipairs(shopRows) do
+	for _, entry in pairs(shopRows) do
 		local currentLevel
 		if entry.kind == "rod" then
 			currentLevel = state.rodLevel or 1
 		elseif entry.kind == "bait" then
 			currentLevel = state.baitLevel or 1
 		elseif entry.kind == "aquarium" then
+			-- N9: capacity tier maps to Aquarium.UpgradeLevel. The state field
+			-- is upgradeLevel (1-4). The shop catalog is 1-indexed per tier,
+			-- so level N in the catalog == upgradeLevel N.
 			currentLevel = state.upgradeLevel or 1
 		elseif entry.kind == "lock" then
 			currentLevel = state.lockLevel or 0
 		elseif entry.kind == "alarm" then
 			currentLevel = state.alarmLevel or 0
 		elseif entry.kind == "dock" then
+			-- N17 (TASK 17.4): dock tier maps to Dock.UpgradeLevel via the
+			-- snapshot's dockLevel field (1-4, 1-indexed like the catalog).
 			currentLevel = state.dockLevel or 1
 		end
-		
 		if entry.level <= currentLevel then
 			entry.buyButton.Text = "OWNED"
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.elevated
@@ -3340,8 +3282,13 @@ local function refreshShop()
 			entry.buyButton.Active = false
 		elseif entry.level == currentLevel + 1 then
 			local affordable = state.cash >= (entry.item.cost or 0)
-			entry.affordable = affordable
+			entry.affordable = affordable -- harborheist-cl05: read by the buy handler
 			entry.buyButton.Text = "$" .. formatCash(entry.item.cost)
+			-- harborheist-cl05: unaffordable-but-tappable must not read as
+			-- DISABLED — surfaceHi+textDim was pixel-identical to OWNED, so
+			-- players tapped a 'dead' button and earned a generic error.
+			-- Distinct surface + amber price = 'not yet'; the tap explains
+			-- the shortfall (see buyButton.Activated).
 			entry.buyButton.BackgroundColor3 = affordable and Theme.color.status.good or Theme.color.surface.secondary
 			entry.buyButton.TextColor3 = affordable and Theme.color.text.ink or Theme.color.status.warn
 			entry.buyButton.Active = true
@@ -3440,39 +3387,12 @@ local function makeQuestRow(parent, quest, order)
 end
 
 local function renderQuestPanel(data)
-	-- harborheist-7h69.5: skeleton rows on cold open (questData nil)
-	-- while waiting for the server's QuestProgressChanged push. Self-
-	-- terminates when renderQuestPanel destroys the bars on data arrival.
 	for _, child in ipairs(questList:GetChildren()) do
 		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end
-	
-	-- Show skeleton loader while fetching quest data
-	createSkeletonRows(questList, {
-		rows = 4,
-		rowHeight = IS_MOBILE and 72 or 64,
-		zIndex = 26,
-	})
-	
-	-- Rebuild rows with current quest data when available
-	if data then
-		renderQuestPanel(data)
-	else
-		-- No data yet — keep showing skeleton loader
-	end
-	
-	Remotes.OpenQuests:FireServer()
-end
 
-local function renderQuestPanel(data)
-	for _, child in ipairs(questList:GetChildren()) do
-		if not child:IsA("UIListLayout") then
-			child:Destroy()
-		end
-	end
-	
 	makeLabel(questList, {
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "DAILY",
