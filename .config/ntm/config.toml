@@ -1,0 +1,191 @@
+# NTM Configuration for Abacus CLI
+projects_base = "~/Developer"
+
+[agents]
+# Abacus CLI with specific model selection
+# Using --dangerously-skip-permissions for autonomous operation
+claude = "abacusai --model sonnet --dangerously-skip-permissions"
+codex = "abacusai --model gpt --dangerously-skip-permissions"
+gemini = "abacusai --model gemini --dangerously-skip-permissions"
+
+[tmux]
+default_panes = 10
+palette_key = "F6"
+
+# REMOVED 2026-07-28 (bead ubuntu-ntm-zshrc-overhaul-764.1.1): the [spawn]
+# table (default_stagger/auto_stagger_threshold) is rejected by this ntm
+# build ("unknown field(s): spawn"), which silently discarded the ENTIRE
+# config — including the [agents] table above. Spawn staggering now lives
+# in CLI flags only: --stagger-mode smart|fixed|none and --stagger-delay.
+[context_rotation]
+enabled = true
+warning_threshold = 0.80
+rotate_threshold = 0.95
+try_compact_first = true
+
+[context_rotation.recovery]
+enabled = true
+prompt = "Reread AGENTS.md to refresh context. Use ultrathink mode."
+include_bead_context = true
+
+[notifications]
+enabled = true
+events = ["agent.error", "agent.crashed", "agent.rate_limit"]
+
+[notifications.desktop]
+enabled = true
+
+# Command Palette entries tailored for Abacus CLI
+
+[[palette]]
+key = "analyze_codebase"
+label = "Analyze Codebase"
+category = "Analysis"
+prompt = """
+Perform a comprehensive codebase analysis:
+
+1. **File Structure**: List and categorize all major directories and files
+2. **Architecture**: Identify architectural patterns and key components
+3. **Dependencies**: Map out internal and external dependencies
+4. **Code Quality**: Note areas of technical debt or improvement opportunities
+5. **Entry Points**: Identify main entry points and critical paths
+
+Use your file reading capabilities to explore the codebase thoroughly.
+"""
+
+[[palette]]
+key = "implement_from_spec"
+label = "Implement from Specification"
+category = "Development"
+prompt = """
+Implement the feature based on the specification:
+
+1. Read and understand the specification document
+2. Identify affected files and components
+3. Write clean, well-tested implementation
+4. Add appropriate error handling
+5. Update documentation if needed
+
+Use your file editing capabilities to make precise changes.
+After implementation, verify the changes work as expected.
+"""
+
+[[palette]]
+key = "fix_bug_investigation"
+label = "Investigate and Fix Bug"
+category = "Bugfix"
+prompt = """
+Investigate and fix the reported bug:
+
+1. **Reproduce**: Understand and reproduce the issue
+2. **Root Cause**: Identify the underlying cause using codebase inspection
+3. **Impact Analysis**: Determine what else might be affected
+4. **Fix**: Implement the fix with appropriate tests
+5. **Validate**: Verify the fix resolves the issue without breaking anything
+
+Use your file access to trace through the code systematically.
+"""
+
+[[palette]]
+key = "comprehensive_review"
+label = "Code Review & Testing"
+category = "Quality"
+prompt = """
+Perform a comprehensive code review:
+
+1. **Correctness**: Verify logic and implementation correctness
+2. **Security**: Check for security vulnerabilities
+3. **Performance**: Identify performance bottlenecks
+4. **Tests**: Ensure adequate test coverage, add missing tests
+5. **Documentation**: Verify code is well-documented
+6. **Best Practices**: Check adherence to coding standards
+
+Use your file reading to review all relevant code paths.
+Create test files where coverage is lacking.
+"""
+
+[[palette]]
+key = "refactor_module"
+label = "Refactor Module"
+category = "Refactoring"
+prompt = """
+Refactor the indicated module for improved quality:
+
+1. **Analysis**: Understand current structure and identify issues
+2. **Plan**: Outline refactoring approach
+3. **Extract**: Pull out reusable components/functions
+4. **Simplify**: Reduce complexity and improve readability
+5. **Document**: Add clear documentation
+6. **Test**: Ensure tests still pass, add new ones if needed
+
+Use file editing to make incremental, safe changes.
+Validate after each significant change.
+"""
+
+[[palette]]
+key = "add_comprehensive_tests"
+label = "Add Comprehensive Tests"
+category = "Testing"
+prompt = """
+Add comprehensive test coverage:
+
+1. **Inventory**: Identify what's currently tested
+2. **Gaps**: Find untested code paths and edge cases
+3. **Unit Tests**: Create focused unit tests for individual functions
+4. **Integration Tests**: Test component interactions
+5. **Edge Cases**: Cover boundary conditions and error scenarios
+6. **Documentation**: Document test purposes and scenarios
+
+Create new test files using your file editing capabilities.
+Ensure tests are runnable and comprehensive.
+"""
+
+[[palette]]
+key = "update_docs"
+label = "Update Documentation"
+category = "Documentation"
+prompt = """
+Update project documentation:
+
+1. **Code Comments**: Add/update inline documentation
+2. **README**: Update README with current state
+3. **API Docs**: Document public APIs and interfaces
+4. **Examples**: Add usage examples where helpful
+5. **Architecture**: Update architecture documentation if needed
+
+Use your file editing to update docs in place.
+Ensure documentation is clear and accurate.
+"""
+
+[[palette]]
+key = "check_status"
+label = "Report Status"
+category = "Coordination"
+prompt = """
+Provide a status update on your current work:
+
+1. **Completed**: What you've finished since last update
+2. **In Progress**: What you're currently working on
+3. **Blockers**: Any issues or blockers encountered
+4. **Next Steps**: What you plan to work on next
+5. **Questions**: Any clarifications needed
+
+Be concise but thorough.
+"""
+
+[[palette]]
+key = "prepare_handoff"
+label = "Prepare Context Handoff"
+category = "Coordination"
+prompt = """
+Prepare a handoff document for context transfer:
+
+1. **Current Task**: What you're working on
+2. **Progress**: What's been completed
+3. **Decisions**: Key decisions made and rationale
+4. **Files Modified**: List of changed files
+5. **Next Steps**: Clear next actions for continuation
+6. **Gotchas**: Important context or gotchas to know
+
+This will be used if you need to be rotated due to context limits.
+"""
