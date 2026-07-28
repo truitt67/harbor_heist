@@ -350,7 +350,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 		Position = UDim2.new(0, 10, 0, 10),
 		Text = titleText,
 		Font = Theme.type.fonts.head,
-		TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+		TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md,
 		TextColor3 = Theme.color.status.warn,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
@@ -395,7 +395,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 		Position = UDim2.new(0, 12, 1, -20),
 		Text = subtitleText,
 		Font = Theme.type.fonts.bold,
-		TextSize = IS_MOBILE and 13 or Theme.type.sizes.xs,
+		TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
@@ -546,7 +546,7 @@ local function makeButton(parent, props)
 	button.BackgroundColor3 = (variant and variant.bg) or Theme.color.accent.base
 	button.TextColor3 = (variant and variant.text) or Theme.color.text.ink
 	button.Font = Theme.type.fonts.bold
-	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
+	button.TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.sm
 	button.AutoButtonColor = false
 	
 	-- Apply custom properties if provided
@@ -738,7 +738,7 @@ local function createSkeletonRows(parent, config)
 		corner(row, Theme.corners.sm)
 		
 		local skeletonStroke = Instance.new("UIStroke")
-		skeletonStroke.Color = Theme.color.textFaint
+		skeletonStroke.Color = Theme.color.text.tertiary
 		skeletonStroke.Thickness = 1
 		skeletonStroke.Transparency = 0.7
 		skeletonStroke.Parent = row
@@ -755,7 +755,7 @@ local function createSkeletonRows(parent, config)
 			item.Parent = row
 			
 			local itemStroke = Instance.new("UIStroke")
-			itemStroke.Color = Theme.color.textFaint
+			itemStroke.Color = Theme.color.text.tertiary
 			itemStroke.Thickness = 1
 			itemStroke.Transparency = 0.6
 			itemStroke.Parent = item
@@ -801,8 +801,8 @@ local function showEmptyState(parent, message)
 	emptyLabel.AnchorPoint = Vector2.new(0.5, 0.5)
 	emptyLabel.Text = message or "No data available"
 	emptyLabel.Font = Theme.type.fonts.body
-	emptyLabel.TextSize = IS_MOBILE and 14 or 16
-	emptyLabel.TextColor3 = Theme.color.textFaint
+	emptyLabel.TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md
+	emptyLabel.TextColor3 = Theme.color.text.tertiary
 	emptyLabel.BackgroundTransparency = 1
 	emptyLabel.ZIndex = 101
 	emptyLabel.Parent = emptyFrame
@@ -1170,7 +1170,7 @@ local incomeLabel = makeLabel(hud, {
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
 	Text = "+$0.0/min",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	-- TASK 24.1 (hvfh.4.1): RichText so the claimable "ready" segment can be
@@ -1249,7 +1249,7 @@ local function updateIncomeLine(readyTransparency)
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
-		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or 13
+		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	end
 end
@@ -1346,7 +1346,7 @@ local carryLabel = makeLabel(carryPill, {
 	Position = UDim2.new(0, Theme.spacing.md, 0, 0),
 	Text = "On line: 0 / 3 fish",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
 	TextColor3 = Theme.color.accent.soft,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
@@ -1469,7 +1469,7 @@ local function showToastDirect(message, color, category, actions)
 		Position = UDim2.new(0, 22, 0, 20),
 		Text = message,
 		Font = Theme.type.fonts.med,
-		TextSize = IS_MOBILE and 13 or 14,
+		TextSize = Theme.type.sizes.sm,
 		TextTransparency = 1,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -1700,7 +1700,7 @@ local onboardingLabel = makeLabel(onboardingPrompt, {
 	Position = UDim2.new(0, 20, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.primary,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -2098,7 +2098,7 @@ local function makePanel(title, titleColor, desktopSize)
 		Position = UDim2.new(0, 18, 0, headerY),
 		Text = title,
 		Font = Theme.type.fonts.head,
-		TextSize = IS_MOBILE and 18 or 20,
+		TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.lg,
 		TextColor3 = titleColor,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 26,
@@ -2283,7 +2283,7 @@ local aquariumStats = makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 15 or 14,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
@@ -2368,7 +2368,7 @@ local rarityList = makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 110),
 	Text = "",
 	Font = Theme.type.fonts.body,
-	TextSize = IS_MOBILE and 15 or 14,
+	TextSize = Theme.type.sizes.sm,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
 	RichText = true,
@@ -2449,7 +2449,7 @@ local inventoryStats = makeLabel(inventoryContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -2660,7 +2660,7 @@ local function renderInventory()
 			Size = UDim2.new(0.24, 0, 0, actionH),
 			Position = UDim2.new(0.76, 0, 0.5, -actionH / 2),
 			Text = "STORE",
-			TextSize = IS_MOBILE and 14 or 13,
+			TextSize = Theme.type.sizes.sm,
 			BackgroundColor3 = Theme.color.accent.base,
 			ZIndex = 27,
 		})
@@ -2745,7 +2745,7 @@ local collectionProgress = makeLabel(collectionContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -2898,7 +2898,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "?" text with greyed fish silhouette (no species-identifying info)
 		buildFishSilhouette(icon, Theme.color.text.tertiary)
 
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.md, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
 		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 27 })
 	end
 	return card
@@ -3558,7 +3558,7 @@ local raidStatusLabel = makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "Raid waters are calm",
 	Font = Theme.type.fonts.head,
-	TextSize = IS_MOBILE and 18 or 20,
+	TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.lg,
 	TextColor3 = Theme.color.text.primary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextWrapped = true,
@@ -4295,7 +4295,7 @@ if IS_MOBILE then
 			Position = UDim2.new(0, 0, 0, 9),
 			Text = action.short,
 			Font = Theme.type.fonts.head,
-			TextSize = Theme.type.sizes.lg,
+			TextSize = Theme.type.sizes.md,
 			TextColor3 = action.color,
 		})
 		makeLabel(btn, {
@@ -5225,7 +5225,7 @@ local minigameTitle = makeLabel(minigameFrame, {
 	Position = UDim2.new(0, 10, 0, 10),
 	Text = IS_MOBILE and "FISH ON! Tap when the marker is in the zone!" or "FISH ON! Click when the marker is in the zone!",
 	Font = Theme.type.fonts.head,
-	TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+	TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md,
 	TextColor3 = Theme.color.status.warn,
 	ZIndex = OVERLAY_Z_CONTENT,
 })
