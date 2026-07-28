@@ -127,11 +127,12 @@ local Theme = {
 	},
 	color = {
 		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi, undiscovered = UI.undiscovered },
-		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink, money = UI.money },
+		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink },
 		stroke = UI.stroke,
 		accent = { base = UI.accent, soft = UI.accentSoft },
 		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft, claimReady = UI.claimReady, claimReadyHi = UI.claimReadyHi, disabled = UI.disabled, neutral = UI.neutral, alert = UI.alert, raidAlert = UI.raidAlert },
 		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
+		money = UI.money,
 	},
 	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
 	-- Roblox UI has no native shadow; elevation is faked with layered
@@ -392,7 +393,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	perfectZone.AnchorPoint = Vector2.new(0.5, 0)
 	perfectZone.Size = UDim2.new(0.4, 0, 1, -8)
 	perfectZone.Position = UDim2.new(0.5, 0, 0, 4)
-	perfectZone.BackgroundColor3 = Theme.color.text.money
+	perfectZone.BackgroundColor3 = Theme.color.money
 	perfectZone.BackgroundTransparency = 0.12
 	perfectZone.ZIndex = OVERLAY_Z_MARKER
 	perfectZone.Parent = goodZone
@@ -1170,7 +1171,7 @@ local cashLabel = makeLabel(hud, {
 	Text = "$0",
 	Font = Theme.type.fonts.head,
 	TextSize = IS_MOBILE and Theme.type.sizes.lg or Theme.type.sizes.xl,
-	TextColor3 = Theme.color.text.money,
+	TextColor3 = Theme.color.money,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
