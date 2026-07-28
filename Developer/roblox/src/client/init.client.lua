@@ -524,8 +524,18 @@ local function makeButton(parent, props)
 		corner(hoverGlow, resolveRadius)
 	end
 	
-	-- Press feedback with proper easing
+	-- harborheist-ks2m: Wire AnimationSystem press feedback if available
+	local hasAnimPress = false
+	if Anim and type(Anim.press) == "function" then
+		local ok = pcall(function()
+			Anim:press(button)
+		end)
+		hasAnimPress = ok
+	end
+	
+	-- Press feedback with proper easing (fallback if AnimationSystem unavailable)
 	local function setupPressFeedback()
+		if hasAnimPress then return end  -- AnimationSystem handles this
 		if pressTween then return end
 		
 		pressTween = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
