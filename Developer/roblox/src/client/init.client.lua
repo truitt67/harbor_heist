@@ -16,6 +16,11 @@ local Anim = AnimationSystem  -- shorthand for use in UI code
 -- Provides Tab/Shift+Tab navigation, Enter/Space activation, focus indicators
 local KeyboardNav = require(script:WaitForChild("KeyboardNav"))
 
+-- harborheist-i39g.3: Gradient library (EPIC 35: Visual Polish)
+-- Provides named gradient presets for surfaces, accents, status, and rarity.
+-- Use Gradients.apply(element, "surface.default") instead of vGradient() for new code.
+local Gradients = require(script:WaitForChild("GradientLibrary"))
+
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
@@ -244,6 +249,8 @@ local function padding(parent, all)
 end
 
 local function vGradient(parent, topColor, bottomColor)
+	-- DEPRECATED: Use Gradients.apply() with named presets for new code.
+	-- This function remains for backward compatibility with existing call sites.
 	local g = Instance.new("UIGradient")
 	g.Rotation = 90
 	g.Color = ColorSequence.new(topColor, bottomColor)
@@ -288,7 +295,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	frame.Parent = screenGui
 	corner(frame, Theme.corners.lg)
 	stroke(frame, 0.8)
-	vGradient(frame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(frame, "surface.default")
 
 	-- Title (unified style)
 	local title = makeLabel(frame, {
@@ -1089,7 +1096,7 @@ hud.BackgroundTransparency = 0.18
 hud.Parent = screenGui
 corner(hud, Theme.corners.lg)
 stroke(hud, 0.85)
-vGradient(hud, Color3.fromRGB(24, 36, 54), Theme.color.surface.primary)
+Gradients.apply(hud, "surface.hud")
 
 makeLabel(hud, {
 	Size = UDim2.new(0, 76, 0, 12),
@@ -1978,7 +1985,7 @@ local function makePanel(title, titleColor, desktopSize)
 	panel.Parent = screenGui
 	corner(panel, IS_MOBILE and Theme.corners.xl or Theme.corners.lg)
 	stroke(panel, 0.82)
-	vGradient(panel, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(panel, "surface.default")
 
 	if IS_MOBILE then
 		local grabber = Instance.new("Frame")
@@ -2254,7 +2261,7 @@ corner(capacityFill, 5)
 -- Captured for R4 #10: render() tweens the threshold color through BOTH
 -- the fill and its gradient (a UIGradient multiplies the background — a
 -- red fill under a purple gradient would read muddy).
-local capacityGradient = vGradient(capacityFill, Color3.fromRGB(196, 181, 253), Theme.color.brand.purple)
+local capacityGradient = Gradients.apply(capacityFill, "accent.capacity")
 
 -- TASK 5.1: claim accumulated aquarium income
 local claimButton = makeButton(aquariumPanel, {
@@ -2713,7 +2720,7 @@ collectionProgressFill.BackgroundColor3 = Theme.color.status.warn
 collectionProgressFill.ZIndex = 27
 collectionProgressFill.Parent = collectionProgressBar
 corner(collectionProgressFill, 5)
-vGradient(collectionProgressFill, Color3.fromRGB(255, 205, 92), Theme.color.status.warn)
+Gradients.apply(collectionProgressFill, "status.warning")
 
 local collectionList = Instance.new("ScrollingFrame")
 collectionList.Name = "CollectionList"
@@ -5120,7 +5127,7 @@ minigameFrame.ZIndex = OVERLAY_Z_BASE
 minigameFrame.Parent = screenGui
 corner(minigameFrame, Theme.corners.lg)
 stroke(minigameFrame, 0.8)
-vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+Gradients.apply(minigameFrame, "surface.default")
 
 local minigameTitle = makeLabel(minigameFrame, {
 	Size = UDim2.new(1, -20, 0, 24),
@@ -5311,7 +5318,7 @@ local function showRevealCard(speciesId, rarity, value)
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
 	-- moment was the one flat card in the game.
-	vGradient(card, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(card, "surface.default")
 
 	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
 	-- should feel different per tier. Rare: the standard pop. Epic: adds a
