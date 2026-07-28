@@ -10405,11 +10405,17 @@ local function showToastDirect(message, color, category, actions)
 	local persistent = vConf and vConf.persistent
 	-- Render action buttons if provided (max 2 per toast, right-aligned)
 	if actions then
+		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
+		-- mobile touch-target minimum. On mobile they grow to 44px and the
+		-- toast min height rises to 52px so ClipsDescendants can't shave them.
+		if IS_MOBILE then
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+		end
 		for i, action in ipairs(actions) do
 			if i > 2 then break end -- max 2 action buttons per toast
 			local btn = makeButton(toast, {
-				Size = UDim2.new(0, 64, 0, 24),
-				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, -12),
+				Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24),
+				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
 				TextSize = IS_MOBILE and 11 or 12,
@@ -10450,9 +10456,17 @@ local function showToastDirect(message, color, category, actions)
 		task.delay(lifetime, dismissToast)
 	else
 		-- Persistent toasts require manual dismissal via a close button.
+		-- harborheist-rk2h: the ✕ was 20x20 — far below the 44px mobile
+		-- touch-target minimum. On mobile it grows to 44x44, the toast min
+		-- height rises to 52px (no clipping), and the message narrows so
+		-- its first lines don't run underneath the button.
+		if IS_MOBILE then
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			text.Size = UDim2.new(1, -80, 0, 0)
+		end
 		local closeBtn = makeButton(toast, {
-			Size = UDim2.new(0, 20, 0, 20),
-			Position = UDim2.new(1, -24, 0, 4),
+			Size = UDim2.new(0, IS_MOBILE and 44 or 20, 0, IS_MOBILE and 44 or 20),
+			Position = UDim2.new(1, IS_MOBILE and -48 or -24, 0, 4),
 			Text = "✕",
 			TextSize = Theme.type.sizes.xs,
 			BackgroundColor3 = Theme.color.surface.elevated,
