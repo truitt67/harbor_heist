@@ -117,11 +117,11 @@ local Theme = {
 		fonts = { head = FONT_HEAD, bold = FONT_BOLD, med = FONT_MED, body = FONT_BODY },
 	},
 	color = {
-		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi },
-		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink },
+		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi, undiscovered = Color3.fromRGB(16, 24, 36) },
+		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink, money = Color3.fromRGB(134, 239, 172) },
 		stroke = UI.stroke,
 		accent = { base = UI.accent, soft = UI.accentSoft },
-		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft },
+		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft, claimReady = Color3.fromRGB(50, 160, 80), claimReadyHi = Color3.fromRGB(74, 198, 114), disabled = Color3.fromRGB(100, 60, 60), neutral = Color3.fromRGB(60, 70, 80), alert = Color3.fromRGB(255, 170, 80), raidAlert = Color3.fromRGB(255, 120, 120) },
 		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
 	},
 	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
@@ -311,7 +311,7 @@ local function makeLabel(parent, props)
 	label.TextColor3 = Theme.color.text.primary
 	label.Font = Theme.type.fonts.body
 	label.TextScaled = false
-	label.TextSize = 15
+	label.TextSize = Theme.type.sizes.sm
 	for key, value in pairs(props) do
 		label[key] = value
 	end
@@ -383,7 +383,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	perfectZone.AnchorPoint = Vector2.new(0.5, 0)
 	perfectZone.Size = UDim2.new(0.4, 0, 1, -8)
 	perfectZone.Position = UDim2.new(0.5, 0, 0, 4)
-	perfectZone.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
+	perfectZone.BackgroundColor3 = Theme.color.text.money
 	perfectZone.BackgroundTransparency = 0.12
 	perfectZone.ZIndex = OVERLAY_Z_MARKER
 	perfectZone.Parent = goodZone
@@ -1150,7 +1150,7 @@ makeLabel(hud, {
 	Position = UDim2.new(0, 14, 0, IS_MOBILE and 6 or 8),
 	Text = "BALANCE",
 	Font = Theme.type.fonts.bold,
-	TextSize = 9,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
@@ -1161,7 +1161,7 @@ local cashLabel = makeLabel(hud, {
 	Text = "$0",
 	Font = Theme.type.fonts.head,
 	TextSize = IS_MOBILE and Theme.type.sizes.lg or Theme.type.sizes.xl,
-	TextColor3 = Color3.fromRGB(134, 239, 172),
+	TextColor3 = Theme.color.text.money,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
@@ -1458,7 +1458,7 @@ local function showToastDirect(message, color, category, actions)
 		Position = UDim2.new(0, 18, 0, 4),
 		Text = TOAST_CATEGORIES[category] or "INFO",
 		Font = Theme.type.fonts.bold,
-		TextSize = 10,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = color,
 		TextTransparency = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -1815,7 +1815,7 @@ local sellStoreClose = makeButton(sellStorePrompt, {
 	Size = UDim2.new(0, IS_MOBILE and 44 or 26, 0, IS_MOBILE and 44 or 26),
 	Position = UDim2.new(1, IS_MOBILE and -49 or -31, 0, IS_MOBILE and 4 or 8),
 	Text = "✕",
-	TextSize = 13,
+	TextSize = Theme.type.sizes.sm,
 	BackgroundColor3 = Theme.color.surface.elevated,
 	TextColor3 = Theme.color.text.secondary,
 	CornerRadius = Theme.corners.pill,
@@ -2316,7 +2316,7 @@ local claimButton = makeButton(aquariumPanel, {
 	Size = UDim2.new(1, -16, 0, IS_MOBILE and 44 or 34),
 	Position = UDim2.new(0, 8, 1, -122),
 	Text = "CLAIM $0",
-	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
+	BackgroundColor3 = Theme.color.status.neutral,
 	-- thj.5: claimButton is a sibling of the content frame (ZIndex 26); ensure
 	-- it renders/interacts on top so the larger mobile buttons above it don't
 	-- steal input in the overlapping region.
@@ -2331,8 +2331,8 @@ local claimButton = makeButton(aquariumPanel, {
 -- Defined here — NOT in the income-line loop — because claimButton and
 -- aquariumPanel don't exist at that point in the file (lexical binding).
 task.spawn(function()
-	local GLOW_LO = Color3.fromRGB(50, 160, 80)
-	local GLOW_HI = Color3.fromRGB(74, 198, 114)
+	local GLOW_LO = Theme.color.status.claimReady
+	local GLOW_HI = Theme.color.status.claimReadyHi
 	while true do
 		-- Fresh-eyes fix: the pulse must NOT mask the DataStore-unhealthy
 		-- state — render() paints the button danger-red "SAVING UNAVAILABLE"
@@ -2357,7 +2357,7 @@ makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 88),
 	Text = "LIVE-WELL BREAKDOWN",
 	Font = Theme.type.fonts.bold,
-	TextSize = 10,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.tertiary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -2582,7 +2582,7 @@ local function renderInventory()
 			Size = UDim2.new(1, 0, 0, 44),
 			Text = "No fish on the line — go catch some!",
 			Font = Theme.type.fonts.body,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			LayoutOrder = 1,
 			ZIndex = 26,
@@ -2619,7 +2619,7 @@ local function renderInventory()
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = string.upper(fish.Rarity or "?"),
 			Font = Theme.type.fonts.bold,
-			TextSize = 10,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = rarityColor,
 			ZIndex = 28,
 		})
@@ -2631,7 +2631,7 @@ local function renderInventory()
 			Position = UDim2.new(0, 90, 0, 6),
 			Text = fishDisplayName(fish),
 			Font = Theme.type.fonts.bold,
-			TextSize = 15,
+			TextSize = Theme.type.sizes.sm,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			ZIndex = 27,
@@ -2642,7 +2642,7 @@ local function renderInventory()
 			Position = UDim2.new(0, 10, 0, rowH - 24),
 			Text = string.format("$%s sell  •  $%.1f/min stored", formatCash(fish.BaseSellValue or 0), fish.IncomePerMinute or 0),
 			Font = Theme.type.fonts.body,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			ZIndex = 27,
@@ -2652,7 +2652,7 @@ local function renderInventory()
 			Size = UDim2.new(0.22, -4, 0, actionH),
 			Position = UDim2.new(0.54, 0, 0.5, -actionH / 2),
 			Text = "SELL",
-			TextSize = IS_MOBILE and 14 or 13,
+			TextSize = Theme.type.sizes.sm,
 			BackgroundColor3 = Theme.color.status.good,
 			ZIndex = 27,
 		})
@@ -2847,7 +2847,7 @@ end
 local function makeCollectionCard(parent, order, data, discovered)
 	local card = Instance.new("Frame")
 	card.Size = UDim2.new(0, IS_MOBILE and 138 or 146, 0, IS_MOBILE and 130 or 126)
-	card.BackgroundColor3 = discovered and Theme.color.surface.secondary or Color3.fromRGB(16, 24, 36)
+	card.BackgroundColor3 = discovered and Theme.color.surface.secondary or Theme.color.surface.undiscovered
 	card.BackgroundTransparency = 0.1
 	card.LayoutOrder = order
 	card.ZIndex = 26
@@ -2874,8 +2874,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "F" text with procedural fish silhouette
 		buildFishSilhouette(icon, rarityColor)
 
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = Theme.type.fonts.bold, TextSize = 14, TextColor3 = Theme.color.text.primary, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = Theme.type.fonts.body, TextSize = 11, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.primary, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
 
 		local tag = Instance.new("Frame")
 		tag.Size = UDim2.new(0, 74, 0, 18)
@@ -2885,7 +2885,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		tag.ZIndex = 27
 		tag.Parent = card
 		corner(tag, 5)
-		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = 10, TextColor3 = rarityColor, ZIndex = 28 })
+		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 28 })
 	else
 		local icon = Instance.new("Frame")
 		icon.Size = UDim2.new(0, 48, 0, 48)
@@ -2898,8 +2898,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "?" text with greyed fish silhouette (no species-identifying info)
 		buildFishSilhouette(icon, Theme.color.text.tertiary)
 
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = 16, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = 11, TextColor3 = rarityColor, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.md, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 27 })
 	end
 	return card
 end
@@ -2925,7 +2925,7 @@ local function makeMilestoneRow(parent, order, milestone)
 		Position = UDim2.new(0, 10, 0, 6),
 		Text = milestone.label,
 		Font = Theme.type.fonts.bold,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -2937,7 +2937,7 @@ local function makeMilestoneRow(parent, order, milestone)
 		Position = UDim2.new(0, 10, 0, 26),
 		Text = string.format("%d / %d", milestone.have or 0, milestone.need or 0),
 		Font = Theme.type.fonts.body,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.secondary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 27,
@@ -2949,7 +2949,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, -90, 0.5, -14),
 			Text = "CLAIMED",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.status.good,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			ZIndex = 27,
@@ -2960,7 +2960,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, IS_MOBILE and -106 or -90, 0.5, IS_MOBILE and -22 or -16),
 			Text = "CLAIM",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			BackgroundColor3 = Theme.color.status.warn,
 			ZIndex = 27,
 		})
@@ -2986,7 +2986,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, -90, 0.5, -14),
 			Text = "LOCKED",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.tertiary,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			ZIndex = 27,
@@ -3029,7 +3029,7 @@ renderCollection = function()
 	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
 
 	if not book.ordered or #book.ordered == 0 then
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
 		return
 	end
 
@@ -3042,7 +3042,7 @@ renderCollection = function()
 		if data then
 			if data.rarity ~= currentRarity then
 				currentRarity = data.rarity
-				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = 12, TextColor3 = RARITY_COLORS[currentRarity] or Theme.color.text.secondary, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = RARITY_COLORS[currentRarity] or Theme.color.text.secondary, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 				order += 1
 
 				rarityGrid = Instance.new("Frame")
@@ -3074,7 +3074,7 @@ renderCollection = function()
 
 	-- Milestones section
 	order += 1
-	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = Theme.type.fonts.bold, TextSize = 12, TextColor3 = Theme.color.status.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.status.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 	order += 1
 
 	if book.milestones and #book.milestones > 0 then
@@ -3083,7 +3083,7 @@ renderCollection = function()
 			order += 1
 		end
 	else
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = order, ZIndex = 26 })
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = order, ZIndex = 26 })
 	end
 end
 
@@ -3134,7 +3134,7 @@ local function toggleCollectionPanel()
 			showNotification("Couldn't refresh the collection — showing saved data.", Theme.color.status.bad)
 		else
 			clearCollectionList()
-			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.status.bad, LayoutOrder = 1, ZIndex = 26 })
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.status.bad, LayoutOrder = 1, ZIndex = 26 })
 		end
 		return
 	end
@@ -3148,7 +3148,7 @@ local function toggleCollectionPanel()
 			showNotification("Collection book loading too fast — try again.", Theme.color.status.warn)
 		else
 			clearCollectionList()
-			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
 			showNotification("Collection book loading too fast — try again.", Theme.color.status.warn)
 		end
 	else
@@ -3270,7 +3270,7 @@ local function buildShopRow(entry)
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = meta.tag,
 		Font = Theme.type.fonts.bold,
-		TextSize = 10,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = meta.color,
 		ZIndex = 28,
 	})
@@ -3280,7 +3280,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 62, 0, 7),
 		Text = itemDisplayName(entry),
 		Font = Theme.type.fonts.bold,
-		TextSize = 15,
+		TextSize = Theme.type.sizes.sm,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 27,
@@ -3291,7 +3291,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 10, 0, 30),
 		Text = itemSubText(entry),
 		Font = Theme.type.fonts.body,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.secondary,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -3439,7 +3439,7 @@ local function makeQuestRow(parent, quest, order)
 		Position = UDim2.new(0, 12, 0, 8),
 		Text = quest.desc or "Quest",
 		Font = Theme.type.fonts.bold,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = quest.claimed and Theme.color.status.good or Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -3477,7 +3477,7 @@ local function makeQuestRow(parent, quest, order)
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = quest.claimed and "CLAIMED" or string.format("%d/%d • $%s", progressVal, target, formatCash(quest.reward or 0)),
 		Font = Theme.type.fonts.bold,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = quest.claimed and Theme.color.status.good or Theme.color.accent.soft,
 		ZIndex = 28,
 	})
@@ -3494,7 +3494,7 @@ local function renderQuestPanel(data)
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "DAILY",
 		Font = Theme.type.fonts.bold,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.status.warn,
 		LayoutOrder = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -3509,7 +3509,7 @@ local function renderQuestPanel(data)
 			Size = UDim2.new(1, -12, 0, 40),
 			Text = "No daily quests available right now. New quests refresh daily at midnight!",
 			Font = Theme.type.fonts.body,
-			TextSize = 13,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -3522,7 +3522,7 @@ local function renderQuestPanel(data)
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "WEEKLY",
 		Font = Theme.type.fonts.bold,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.accent.base,
 		LayoutOrder = 100,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -3537,7 +3537,7 @@ local function renderQuestPanel(data)
 			Size = UDim2.new(1, -12, 0, 40),
 			Text = "No weekly quests available. Check back for new challenges!",
 			Font = Theme.type.fonts.body,
-			TextSize = 13,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -3570,7 +3570,7 @@ local raidCountdownLabel = makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 50),
 	Text = "Next window: --",
 	Font = Theme.type.fonts.med,
-	TextSize = 14,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -3590,7 +3590,7 @@ makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 116),
 	Text = "TARGETS",
 	Font = Theme.type.fonts.bold,
-	TextSize = 10,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.tertiary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -3626,7 +3626,7 @@ local raidRefreshButton = makeButton(raidContent, {
 	Text = "REFRESH",
 	BackgroundColor3 = Theme.color.surface.elevated,
 	TextColor3 = Theme.color.text.primary,
-	TextSize = 11,
+	TextSize = Theme.type.sizes.xs,
 	ZIndex = 26,
 })
 
@@ -3651,7 +3651,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = data and data.reason or "Could not load targets.",
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -3675,7 +3675,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = reasonText,
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -3688,7 +3688,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = "No opted-in targets available. Other players must opt in to raids to appear here.",
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -3726,7 +3726,7 @@ local function renderRaidTargets(data)
 			Position = UDim2.new(0, 12, 0, 8),
 			Text = target.displayName or target.name or "Unknown",
 			Font = Theme.type.fonts.bold,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = isAvailable and Theme.color.text.primary or Theme.color.text.tertiary,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -3761,7 +3761,7 @@ local function renderRaidTargets(data)
 					Position = UDim2.new(0, 12, 0, 28),
 					Text = subtitleText,
 					Font = Theme.type.fonts.body,
-					TextSize = 12,
+					TextSize = Theme.type.sizes.xs,
 					TextColor3 = Theme.color.text.tertiary,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
@@ -3780,7 +3780,7 @@ local function renderRaidTargets(data)
 					Position = UDim2.new(0, 12, 0, 28),
 					Text = subtitleText,
 					Font = Theme.type.fonts.body,
-					TextSize = 12,
+					TextSize = Theme.type.sizes.xs,
 					TextColor3 = Theme.color.text.tertiary,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
@@ -3795,7 +3795,7 @@ local function renderRaidTargets(data)
 				Position = UDim2.new(0, 12, 0, 28),
 				Text = subtitleText,
 				Font = Theme.type.fonts.body,
-				TextSize = 12,
+				TextSize = Theme.type.sizes.xs,
 				TextColor3 = isAvailable and Theme.color.text.secondary or Theme.color.text.tertiary,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				ZIndex = 27,
@@ -3808,7 +3808,7 @@ local function renderRaidTargets(data)
 			Text = isAvailable and "RAID" or "UNAVAILABLE",
 			BackgroundColor3 = isAvailable and Theme.color.status.bad or Theme.color.surface.elevated,
 			TextColor3 = isAvailable and Theme.color.text.primary or Theme.color.text.tertiary,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			ZIndex = 27,
 			Active = isAvailable,
 		})
@@ -4178,7 +4178,7 @@ local raidBannerLabel = makeLabel(raidBanner, {
 	Position = UDim2.new(0, 28, 0, 0),
 	Text = IS_MOBILE and "RAID OPEN 0:00" or "RAID WATERS OPEN 0:00",
 	Font = Theme.type.fonts.bold,
-	TextSize = 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.status.bad,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 19,
@@ -4295,7 +4295,7 @@ if IS_MOBILE then
 			Position = UDim2.new(0, 0, 0, 9),
 			Text = action.short,
 			Font = Theme.type.fonts.head,
-			TextSize = 18,
+			TextSize = Theme.type.sizes.lg,
 			TextColor3 = action.color,
 		})
 		makeLabel(btn, {
@@ -4303,7 +4303,7 @@ if IS_MOBILE then
 			Position = UDim2.new(0, 0, 1, -20),
 			Text = action.key,
 			Font = Theme.type.fonts.bold,
-			TextSize = 9,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.tertiary,
 		})
 		actionButtons[action.id] = btn
@@ -4441,7 +4441,7 @@ else
 			Position = UDim2.new(0, 10, 0, 0),
 			Text = action.label,
 			Font = Theme.type.fonts.bold,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = action.color,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		})
@@ -4457,7 +4457,7 @@ else
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = action.key,
 			Font = Theme.type.fonts.bold,
-			TextSize = 11,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 		})
 
@@ -4943,7 +4943,7 @@ local function render()
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = "",
 			Font = Theme.type.fonts.bold,
-			TextSize = 9,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 		})
 	end
@@ -5107,13 +5107,13 @@ local function render()
 	local storeHealthy = state.dataStoreHealthy ~= false
 	if not storeHealthy then
 		claimButton.Text = "SAVING UNAVAILABLE"
-		claimButton.BackgroundColor3 = Color3.fromRGB(100, 60, 60)
+		claimButton.BackgroundColor3 = Theme.color.status.disabled
 	elseif state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
-		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+		claimButton.BackgroundColor3 = Theme.color.status.claimReady
 	else
 		claimButton.Text = "CLAIM $0"
-		claimButton.BackgroundColor3 = Color3.fromRGB(60, 70, 80)
+		claimButton.BackgroundColor3 = Theme.color.status.neutral
 	end
 
 	-- TASK 9.2 (0jc.2): contextual onboarding prompts driven by flags.
@@ -5154,13 +5154,13 @@ local function render()
 		-- Stage 3: has stored fish earning income but hasn't claimed yet.
 		showOnboardingPrompt("firstClaim",
 			IS_MOBILE and "Tap CLAIM to collect your earned income!" or "Open your tank and hit CLAIM to collect your income!",
-			Color3.fromRGB(50, 160, 80))
+			Theme.color.status.claimReady)
 	elseif not ob.HasSeenRaidExplanation and raidWindow.open then
 		-- Stage 4: first raid window appeared and player hasn't seen the
 		-- explanation. Dismissible — the player can ignore it and stay safe.
 		showOnboardingPrompt("raidExplain",
 			"Raids are optional! Open your tank panel to opt in and steal fish from other docks.",
-			Color3.fromRGB(255, 120, 120))
+			Theme.color.status.raidAlert)
 	else
 		-- All onboarding stages complete or dismissed — hide the prompt.
 		currentPromptStage = nil
@@ -5484,7 +5484,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = string.upper(rarity or "?"),
 		Font = Theme.type.fonts.bold,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = rarityColor,
 		ZIndex = 52,
 	})
@@ -5506,7 +5506,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 76, 0, 54),
 		Text = displayName,
 		Font = Theme.type.fonts.head,
-		TextSize = 22,
+		TextSize = Theme.type.sizes.lg,
 		TextColor3 = Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -5519,7 +5519,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 76, 0, 92),
 		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
 		Font = Theme.type.fonts.body,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.text.secondary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 51,
@@ -5531,7 +5531,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 0, 0, 130),
 		Text = IS_MOBILE and "tap to dismiss" or "click to dismiss",
 		Font = Theme.type.fonts.body,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = 51,
 	})
@@ -5836,9 +5836,9 @@ sellButton.Activated:Connect(function()
 		if payout <= 0 then
 			local locked = (state.lockedUntil or 0) > 0
 			if locked and (state.liveWellCount or 0) > 0 then
-				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
-			else
-				showNotification("No fish to sell!", Color3.fromRGB(255, 170, 80))
+				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
+				else
+				showNotification("No fish to sell!", Theme.color.status.alert)
 			end
 			return
 		end
@@ -6063,7 +6063,7 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		-- R3 audit #18: floor() printed '0 minutes' for sub-minute windows.
 		showNotification(
 			string.format("RAID WATERS OPEN for %s! Steal fish from other docks while the window lasts.", formatRaidTime(raidWindow.remainingSeconds)),
-			Color3.fromRGB(255, 120, 120)
+			Theme.color.status.raidAlert
 		)
 	elseif not raidWindow.open and wasOpen then
 		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
