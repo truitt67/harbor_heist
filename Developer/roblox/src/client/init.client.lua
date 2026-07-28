@@ -1654,6 +1654,7 @@ local MOBILE_STACK_PITCH = 70
 -- mutates this on short screens; updateOnboardingPromptOffset reads it so the
 -- prompt tracks the actual (possibly shrunk) stack top, not the design default.
 local mobileStackPitch = MOBILE_STACK_PITCH
+local MOBILE_STACK_PADDING = 10
 local PROMPT_STACK_GAP = 12
 local DESKTOP_BAR_BOTTOM = 18
 local DESKTOP_BAR_H = 58
@@ -4204,10 +4205,11 @@ local ACTIONS = {
 -- compute re-introduced the collision on rotation.
 local function updateOnboardingPromptOffset()
 	if IS_MOBILE then
-		-- Stack top = MOBILE_STACK_BOTTOM + #ACTIONS*mobileStackPitch px
-		-- above the screen bottom; the prompt bottom clears it by the gap.
-		-- (harborheist-hqn1: reads the viewport-fit pitch, not the default.)
-		local offset = MOBILE_STACK_BOTTOM + #ACTIONS * mobileStackPitch + PROMPT_STACK_GAP
+		-- Calculate actual stack content height: buttons + gaps between them
+		-- mobileStackPitch = btnSize + MOBILE_STACK_PADDING, so total = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		local btnSize = mobileStackPitch - MOBILE_STACK_PADDING
+		local stackContentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		local offset = MOBILE_STACK_BOTTOM + stackContentH + PROMPT_STACK_GAP
 		-- Short landscape phones: the derived offset would push the prompt
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
@@ -4249,18 +4251,21 @@ end)
 local actionButtons = {}
 
 if IS_MOBILE then
-	local stack = Instance.new("Frame")
+	local stack = Instance.new("ScrollingFrame")
+	stack.Name = "ActionStack"
 	stack.AnchorPoint = Vector2.new(1, 1)
 	stack.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
 	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * MOBILE_STACK_PITCH)
 	stack.BackgroundTransparency = 1
+	stack.ScrollingEnabled = false
+	stack.ScrollBarThickness = 0
 	stack.Parent = screenGui
 
 	local stackLayout = Instance.new("UIListLayout")
 	stackLayout.FillDirection = Enum.FillDirection.Vertical
 	stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	stackLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-	stackLayout.Padding = UDim.new(0, 10)
+	stackLayout.Padding = UDim.new(0, MOBILE_STACK_PADDING)
 	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	stackLayout.Parent = stack
 
@@ -4306,25 +4311,64 @@ if IS_MOBILE then
 		mobileStackButtons[i] = { holder = holder, hero = heroLabel }
 	end
 
-	-- harborheist-hqn1: fit the stack to the viewport height. The fixed
-	-- 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
+	-- harborheist-hqn1 + harborheist-xrfp: fit the stack to the viewport height.
+	-- The fixed 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
 	-- short landscape phones (~375px) pushed the top buttons (QUEST/RAID/
 	-- BOAT) off-screen and unreachable. Mirrors the desktop bar's
 	-- responsive shrink (TASK 28.1). mobileStackPitch is shared with
 	-- updateOnboardingPromptOffset so the prompt tracks the shrunk stack.
+	--
+	-- harborheist-xrfp fix: enforce 44px minimum touch target (Apple HIG / Material Design).
+	-- If scaling would make buttons smaller than 44px, use a scrollable container instead.
+	local MIN_TOUCH_TARGET = 44
+	local MIN_SCALE = MIN_TOUCH_TARGET / 60  -- 0.733
+	
 	local function layoutMobileStack(viewportH)
 		local cam = workspace.CurrentCamera
 		viewportH = viewportH or (cam and cam.ViewportSize.Y) or 800
-		local fullH = MOBILE_STACK_BOTTOM + #ACTIONS * MOBILE_STACK_PITCH
-		-- Keep the stack top clear of the HUD / raid-banner zone.
-		local availH = viewportH - (SAFE_TOP + 60)
-		local scale = math.clamp(availH / fullH, 0.6, 1)
-		local btnSize = math.floor(60 * scale + 0.5)
-		mobileStackPitch = math.floor(MOBILE_STACK_PITCH * scale + 0.5)
-		stack.Size = UDim2.new(0, btnSize + 4, 0, #ACTIONS * mobileStackPitch)
-		for _, entry in ipairs(mobileStackButtons) do
-			entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
-			entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+		-- Calculate original content height: buttons + gaps between them
+		local fullH = #ACTIONS * 60 + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		-- Available height: viewport minus bottom margin and HUD zone
+		local availH = viewportH - MOBILE_STACK_BOTTOM - (SAFE_TOP + 60)
+		local idealScale = availH / fullH
+		
+		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
+		if idealScale < MIN_SCALE then
+			local btnSize = MIN_TOUCH_TARGET
+			-- Pitch = button size + padding between buttons
+			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
+			-- Calculate actual content height: buttons + gaps between them
+			local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+			-- Clamp stack height to available space, let ScrollingFrame handle overflow
+			stack.Size = UDim2.new(0, btnSize + 4, 0, math.min(contentH, availH))
+			for _, entry in ipairs(mobileStackButtons) do
+				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+				entry.hero.TextSize = math.max(12, math.floor(18 * MIN_SCALE + 0.5))
+			end
+			-- Enable scrolling if stack overflows viewport
+			if stack:IsA("ScrollingFrame") then
+				stack.CanvasSize = UDim2.new(0, 0, 0, contentH)
+				stack.ScrollingEnabled = true
+				stack.ScrollingDirection = Enum.ScrollingDirection.Y
+			end
+		else
+			-- Normal scaling (fits within viewport)
+			local scale = math.clamp(idealScale, MIN_SCALE, 1)
+			local btnSize = math.floor(60 * scale + 0.5)
+			-- Pitch = button size + padding between buttons
+			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
+			-- Calculate actual content height: buttons + gaps between them
+			local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+			stack.Size = UDim2.new(0, btnSize + 4, 0, contentH)
+			for _, entry in ipairs(mobileStackButtons) do
+				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+				entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+			end
+			-- Disable scrolling when it fits
+			if stack:IsA("ScrollingFrame") then
+				stack.CanvasSize = UDim2.new(0, 0, 0, 0)
+				stack.ScrollingEnabled = false
+			end
 		end
 	end
 	layoutMobileStack()
