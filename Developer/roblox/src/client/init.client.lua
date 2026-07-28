@@ -615,9 +615,9 @@ end
 -- EPIC 31: Loading States & Empty States for async data panels (shop, raid, inventory)
 -- Universal skeleton loader factory with loading spinner support
 local function createSkeletonRows(parent, config)
-	-- Clear existing skeletons if any
+	-- Clear existing skeletons if any (only destroy skeletons, not other content)
 	for _, child in ipairs(parent:GetChildren()) do
-		if not child:IsA("UIListLayout") then
+		if child.Name:find("^SkeletonRow_") or child.Name == "LoadingSpinner" then
 			child:Destroy()
 		end
 	end
@@ -627,7 +627,7 @@ local function createSkeletonRows(parent, config)
 	local zIndex = config.zIndex or 26
 	
 	-- Create loading spinner for async data fetch
-	if parent.LoadingSpinner then
+	if parent:FindFirstChild("LoadingSpinner") then
 		parent.LoadingSpinner:Destroy()
 	end
 	
@@ -660,10 +660,13 @@ local function createSkeletonRows(parent, config)
 	spinnerStrokeInner.Transparency = 0.85
 	spinnerStrokeInner.Parent = spinnerInner
 	
-	-- Animate the spinner
+	-- Animate the spinner (self-terminates when spinner is destroyed)
 	task.spawn(function()
-		while parent.Loading do
-			tween(spinnerInner, { Position = UDim2.new(0.5, -18 + math.sin(os.clock() * 10) * 4, 0.5, -18 + math.cos(os.clock() * 10) * 4), Rotation = os.clock() * 360 }, EASE_IN, true)
+		while spinnerInner.Parent and spinnerInner.Parent.Parent do
+			local t = os.clock()
+			spinnerInner.Position = UDim2.new(0.5, -18 + math.sin(t * 10) * 4, 0.5, -18 + math.cos(t * 10) * 4)
+			spinnerInner.Rotation = t * 360
+			task.wait(0.03)
 		end
 	end)
 	
@@ -672,7 +675,7 @@ local function createSkeletonRows(parent, config)
 		local row = Instance.new("Frame")
 		row.Name = string.format("SkeletonRow_%d", i)
 		row.Size = UDim2.new(1, -16, 0, rowHeight)
-		row.Position = UDim2.new(0, 8, 0, (i - 1) * rowHeight)
+		row.LayoutOrder = i  -- UIListLayout respects this for ordering
 		row.BackgroundColor3 = Theme.color.surface.secondary
 		row.BackgroundTransparency = 0.95
 		row.ZIndex = zIndex
@@ -2084,13 +2087,9 @@ hidePanels = function()
 			updateActionBarIndicator()
 		end
 		if IS_MOBILE then
-			-- R4 polish #7: exits accelerate (EASE_IN) and slide FULLY clear —
-			-- the old 1.35 target left ~43% of the sheet on screen when the
-			-- hide snapped (bottom anchor + 0.78 height ⇒ full clear is
-			-- 1 + 0.78 = 1.78). Fling distance matches the fling feel.
-			local slide = TweenService:Create(panel, EASE_IN, { Position = UDim2.new(0.5, 0, 1.78, 0) })
-			slide:Play()
-			slide.Completed:Once(function()
+			-- harborheist-pytn: Use AnimationSystem slide transition for mobile hide
+			Anim:slide(panel, "down", 0.16)
+			task.delay(0.2, function()
 				-- Fresh-eyes: same reopen race as showPanel's switch path —
 				-- a close→reopen inside the slide would hide the live panel.
 				if activePanel ~= panel then
@@ -2098,18 +2097,15 @@ hidePanels = function()
 				end
 			end)
 		else
-			-- R4 polish #8: desktop close mirrors the open pop — accelerate
-			-- down to 0.9x, then hide (was an instant Visible=false that
-			-- felt like a crash next to the springy open).
+			-- harborheist-pytn: Use AnimationSystem scale transition for desktop hide
 			local scale = panel:FindFirstChildOfClass("UIScale")
 			if not scale then
 				scale = Instance.new("UIScale")
 				scale.Parent = panel
 			end
 			local fit = scale.Scale
-			local shrink = TweenService:Create(scale, EASE_IN, { Scale = fit * 0.9 })
-			shrink:Play()
-			shrink.Completed:Once(function()
+			Anim:scale(panel, fit * 0.9, 0.16)
+			task.delay(0.2, function()
 				if activePanel ~= panel then
 					panel.Visible = false
 					scale.Scale = fit -- restore for the next open
@@ -2117,7 +2113,8 @@ hidePanels = function()
 			end)
 		end
 	end
-	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 1 }):Play()
+	-- harborheist-pytn: Use AnimationSystem fade for backdrop
+	Anim:fade(backdrop, false, 0.22)
 	task.delay(0.24, function()
 		if not activePanel then
 			backdrop.Visible = false
@@ -2136,10 +2133,9 @@ local function showPanel(panel)
 		-- that tweens everywhere else. Slide the old one down like hidePanels.
 		local oldPanel = activePanel
 		if IS_MOBILE then
-			-- R4 polish #7: accelerating exit, fully clear (1 + 0.78 height).
-			local slideOut = TweenService:Create(oldPanel, EASE_IN, { Position = UDim2.new(0.5, 0, 1.78, 0) })
-			slideOut:Play()
-			slideOut.Completed:Once(function()
+			-- harborheist-pytn: Use AnimationSystem slide transition for mobile switch
+			Anim:slide(oldPanel, "down", 0.16)
+			task.delay(0.2, function()
 				-- Guard against A→B→A fast switching: if the user reopened
 				-- this panel before the slide-out finished, don't hide it.
 				if activePanel ~= oldPanel then
@@ -2156,9 +2152,9 @@ local function showPanel(panel)
 				scale.Parent = oldPanel
 			end
 			local fit = scale.Scale
-			local shrink = TweenService:Create(scale, EASE_IN, { Scale = fit * 0.9 })
-			shrink:Play()
-			shrink.Completed:Once(function()
+			-- harborheist-pytn: Use AnimationSystem scale transition for desktop switch
+			Anim:scale(oldPanel, fit * 0.9, 0.16)
+			task.delay(0.2, function()
 				if activePanel ~= oldPanel then
 					oldPanel.Visible = false
 					scale.Scale = fit
@@ -2171,12 +2167,15 @@ local function showPanel(panel)
 		updateActionBarIndicator()
 	end
 	backdrop.Visible = true
-	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
+	-- harborheist-pytn: Use AnimationSystem fade for backdrop
+	Anim:fade(backdrop, true, 0.22)
 	panel.Visible = true
 	if IS_MOBILE then
+		-- harborheist-pytn: Use AnimationSystem slide transition for mobile show
 		panel.Position = UDim2.new(0.5, 0, 1.35, 0)
-		TweenService:Create(panel, EASE_POP, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
+		Anim:slide(panel, "up", 0.28)
 	else
+		-- harborheist-pytn: Use AnimationSystem scale and fade transitions for desktop show
 		local scale = panel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 		scale.Parent = panel
 		-- TASK 28.3: clamp oversized panels to the viewport — the pop
@@ -2184,8 +2183,8 @@ local function showPanel(panel)
 		local fit = desktopPanelFitScale(panel)
 		scale.Scale = 0.92 * fit
 		panel.BackgroundTransparency = 0.3
-		TweenService:Create(scale, EASE_POP, { Scale = fit }):Play()
-		TweenService:Create(panel, EASE_OUT, { BackgroundTransparency = 0.04 }):Play()
+		Anim:scale(panel, fit, 0.28)
+		Anim:fade(panel, true, 0.22)
 	end
 end
 
@@ -2485,6 +2484,14 @@ local lastInventorySignature = nil
 
 local function renderInventory()
 	if not state then
+		-- harborheist-9yli: skeleton loader on initial load before state snapshot arrives
+		if not inventoryList:FindFirstChild("SkeletonRow_1") then
+			createSkeletonRows(inventoryList, {
+				rows = 4,
+				rowHeight = IS_MOBILE and 66 or 58,
+				zIndex = 26,
+			})
+		end
 		return
 	end
 	local carried = sortCarriedForDisplay(state.carriedFish or {})
@@ -3272,7 +3279,23 @@ end
 
 function refreshShop()
 	if not state then
+		-- harborheist-9yli: skeleton loader on initial load before state snapshot arrives
+		if not shopList:FindFirstChild("SkeletonRow_1") then
+			createSkeletonRows(shopList, {
+				rows = 4,
+				rowHeight = IS_MOBILE and 74 or 66,
+				zIndex = 26,
+			})
+		end
 		return
+	end
+	-- harborheist-9yli: clear skeletons when state arrives
+	if shopList:FindFirstChild("SkeletonRow_1") then
+		for _, child in ipairs(shopList:GetChildren()) do
+			if child.Name:find("SkeletonRow") or child.Name == "LoadingSpinner" then
+				child:Destroy()
+			end
+		end
 	end
 	for _, entry in pairs(shopRows) do
 		local currentLevel

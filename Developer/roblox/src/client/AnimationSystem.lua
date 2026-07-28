@@ -663,9 +663,11 @@ function Transition:slide(element, direction, duration)
   elseif direction == "right" then
     offset = UDim2.new(1, 0, 0, 0)
   elseif direction == "up" then
-    offset = UDim2.new(0, 0, -1, 0)
+    -- Slide up to center (for mobile panel show)
+    offset = UDim2.new(0.5, 0, 0.5, 0)
   elseif direction == "down" then
-    offset = UDim2.new(0, 0, 1, 0)
+    -- Slide down off screen (for mobile panel hide)
+    offset = UDim2.new(0.5, 0, 1.78, 0)
   else
     return false
   end
