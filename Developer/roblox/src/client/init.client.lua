@@ -75,6 +75,15 @@ local UI = {
 	textDim = Color3.fromRGB(148, 163, 184),
 	textFaint = Color3.fromRGB(138, 154, 177),
 	ink = Color3.fromRGB(10, 16, 26),
+	-- Additional palette colors for semantic tokens
+	money = Color3.fromRGB(134, 239, 172),
+	undiscovered = Color3.fromRGB(16, 24, 36),
+	claimReady = Color3.fromRGB(50, 160, 80),
+	claimReadyHi = Color3.fromRGB(74, 198, 114),
+	disabled = Color3.fromRGB(100, 60, 60),
+	neutral = Color3.fromRGB(60, 70, 80),
+	alert = Color3.fromRGB(255, 170, 80),
+	raidAlert = Color3.fromRGB(255, 120, 120),
 }
 
 local FONT_HEAD = Enum.Font.GothamBlack
@@ -117,11 +126,11 @@ local Theme = {
 		fonts = { head = FONT_HEAD, bold = FONT_BOLD, med = FONT_MED, body = FONT_BODY },
 	},
 	color = {
-		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi, undiscovered = Color3.fromRGB(16, 24, 36) },
-		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink, money = Color3.fromRGB(134, 239, 172) },
+		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi, undiscovered = UI.undiscovered },
+		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink, money = UI.money },
 		stroke = UI.stroke,
 		accent = { base = UI.accent, soft = UI.accentSoft },
-		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft, claimReady = Color3.fromRGB(50, 160, 80), claimReadyHi = Color3.fromRGB(74, 198, 114), disabled = Color3.fromRGB(100, 60, 60), neutral = Color3.fromRGB(60, 70, 80), alert = Color3.fromRGB(255, 170, 80), raidAlert = Color3.fromRGB(255, 120, 120) },
+		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft, claimReady = UI.claimReady, claimReadyHi = UI.claimReadyHi, disabled = UI.disabled, neutral = UI.neutral, alert = UI.alert, raidAlert = UI.raidAlert },
 		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
 	},
 	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
