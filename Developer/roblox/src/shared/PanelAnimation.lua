@@ -29,7 +29,6 @@ CONFIGURATION:
 --]]
 
 local PanelAnimation = {}
-PanelAnimation.__index = PanelAnimation
 
 -- Services
 local TweenService = game:GetService("TweenService")
@@ -47,43 +46,83 @@ local DEFAULT_CONFIG = {
 local activeTweens = {}
 setmetatable(activeTweens, { __mode = "k" })
 
--- Helper to create or reuse UIScale for animation
--- Returns nil if panel already has a UIScale with Scale ~= 1 (user-managed)
+-- Track animation context for proper close animations
+local animationContext = {}
+setmetatable(animationContext, { __mode = "k" })
+
+-- Helper to get or create a UIScale for animation
+-- Returns the UIScale to animate, or nil if the panel has a user-managed UIScale
+-- Uses the PanelAnimationOwned attribute to distinguish our UIScales from user ones
 local function ensureUIScale(guiObject)
-  local uiScale = guiObject:FindFirstChildWhichIsA("UIScale")
-  if uiScale then
-    -- If UIScale exists but isn't at default scale, it's user-managed
-    -- Don't interfere with existing animations
-    if uiScale.Scale ~= 1 then
-      return nil
-    end
-    return uiScale
+  local success, uiScale = pcall(function()
+    return guiObject:FindFirstChildWhichIsA("UIScale")
+  end)
+  
+  if not success then
+    return nil
   end
-  uiScale = Instance.new("UIScale")
-  uiScale.Scale = 1
-  uiScale.Parent = guiObject
-  return uiScale
+  
+  if uiScale then
+    -- If it has our ownership attribute, it's ours — safe to reuse
+    local success, hasAttr = pcall(function()
+      return uiScale:GetAttribute("PanelAnimationOwned")
+    end)
+    if success and hasAttr then
+      return uiScale
+    end
+    -- Otherwise it's user-managed — don't interfere
+    return nil
+  end
+  
+  -- No UIScale exists — create one and mark it as ours
+  local createSuccess, newScale = pcall(function()
+    local scale = Instance.new("UIScale")
+    scale.Scale = 1
+    scale:SetAttribute("PanelAnimationOwned", true)
+    scale.Parent = guiObject
+    return scale
+  end)
+  
+  if not createSuccess then
+    return nil
+  end
+  
+  return newScale
 end
 
 -- Open a panel with animation
 function PanelAnimation:open(panel, options)
-  if not panel or not panel:IsA("GuiObject") then
-    warn("[PanelAnimation] Invalid panel provided to open()")
+  -- Validate panel exists and is a GuiObject
+  if not panel then
+    warn("[PanelAnimation] No panel provided to open()")
     return false
   end
   
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to open() - must be a GuiObject")
+    return false
+  end
+  
+  -- Merge config with proper nil handling (not truthy/falsy)
   local config = {
-    duration = (options and options.duration) or DEFAULT_CONFIG.duration,
-    scaleStart = (options and options.scaleStart) or DEFAULT_CONFIG.scaleStart,
-    easingStyle = (options and options.easingStyle) or DEFAULT_CONFIG.easingStyle,
-    easingDirection = (options and options.easingDirection) or DEFAULT_CONFIG.easingDirection,
+    duration = options and options.duration ~= nil and options.duration or DEFAULT_CONFIG.duration,
+    scaleStart = options and options.scaleStart ~= nil and options.scaleStart or DEFAULT_CONFIG.scaleStart,
+    easingStyle = options and options.easingStyle ~= nil and options.easingStyle or DEFAULT_CONFIG.easingStyle,
+    easingDirection = options and options.easingDirection ~= nil and options.easingDirection or DEFAULT_CONFIG.easingDirection,
     onComplete = options and options.onComplete,
   }
+  
+  -- Validate duration is positive
+  if config.duration <= 0 then
+    warn("[PanelAnimation] Duration must be positive, got: " .. tostring(config.duration))
+    return false
+  end
   
   -- Cancel any existing animation on this panel
   if activeTweens[panel] then
     for _, tween in ipairs(activeTweens[panel]) do
-      tween:Cancel()
+      pcall(function() tween:Cancel() end)
     end
     activeTweens[panel] = nil
   end
@@ -93,19 +132,31 @@ function PanelAnimation:open(panel, options)
   if not uiScale then
     warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
     -- Only animate transparency
-    local fadeTween = TweenService:Create(panel, TweenInfo.new(
-      config.duration,
-      config.easingStyle,
-      config.easingDirection
-    ), {
-      BackgroundTransparency = 0,
-    })
+    local fadeTweenSuccess, fadeTween = pcall(function()
+      return TweenService:Create(panel, TweenInfo.new(
+        config.duration,
+        config.easingStyle,
+        config.easingDirection
+      ), {
+        BackgroundTransparency = 0,
+      })
+    end)
+    
+    if not fadeTweenSuccess then
+      warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+      return false
+    end
+    
+    -- Set initial state AFTER successful tween creation
+    panel.BackgroundTransparency = 1
+    
     activeTweens[panel] = {fadeTween}
     fadeTween.Completed:Connect(function(playbackState)
       if playbackState ~= Enum.PlaybackState.Completed then
         return
       end
       activeTweens[panel] = nil
+      animationContext[panel] = nil
       if config.onComplete then
         config.onComplete()
       end
@@ -114,27 +165,47 @@ function PanelAnimation:open(panel, options)
     return true
   end
   
-  -- Set initial state
+  -- Create tweens BEFORE setting initial state to avoid partial initialization
+  local fadeTweenSuccess, fadeTween = pcall(function()
+    return TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 0,
+    })
+  end)
+  
+  if not fadeTweenSuccess then
+    warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+    return false
+  end
+  
+  local scaleTweenSuccess, scaleTween = pcall(function()
+    return TweenService:Create(uiScale, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      Scale = 1,
+    })
+  end)
+  
+  if not scaleTweenSuccess then
+    warn("[PanelAnimation] Failed to create scale tween: " .. tostring(scaleTween))
+    -- Clean up the fade tween we already created
+    pcall(function() fadeTween:Cancel() end)
+    return false
+  end
+  
+  -- Store animation context for proper close animations
+  animationContext[panel] = {
+    scaleStart = config.scaleStart,
+  }
+  
+  -- Set initial state AFTER all tweens are successfully created
   panel.BackgroundTransparency = 1
   uiScale.Scale = config.scaleStart
-  
-  -- Create fade-in tween
-  local fadeTween = TweenService:Create(panel, TweenInfo.new(
-    config.duration,
-    config.easingStyle,
-    config.easingDirection
-  ), {
-    BackgroundTransparency = 0,
-  })
-  
-  -- Create scale-up tween
-  local scaleTween = TweenService:Create(uiScale, TweenInfo.new(
-    config.duration,
-    config.easingStyle,
-    config.easingDirection
-  ), {
-    Scale = 1,
-  })
   
   -- Track tweens
   activeTweens[panel] = {fadeTween, scaleTween}
@@ -145,6 +216,7 @@ function PanelAnimation:open(panel, options)
       return
     end
     activeTweens[panel] = nil
+    animationContext[panel] = nil
     if config.onComplete then
       config.onComplete()
     end
@@ -159,45 +231,69 @@ end
 
 -- Close a panel with animation
 function PanelAnimation:close(panel, options)
-  if not panel or not panel:IsA("GuiObject") then
-    warn("[PanelAnimation] Invalid panel provided to close()")
+  -- Validate panel exists and is a GuiObject
+  if not panel then
+    warn("[PanelAnimation] No panel provided to close()")
     return false
   end
   
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to close() - must be a GuiObject")
+    return false
+  end
+  
+  -- Merge config with proper nil handling
   local config = {
-    duration = (options and options.duration) or DEFAULT_CONFIG.duration,
-    scaleEnd = (options and options.scaleEnd) or DEFAULT_CONFIG.scaleStart,
-    easingStyle = (options and options.easingStyle) or Enum.EasingStyle.Quad,
-    easingDirection = (options and options.easingDirection) or Enum.EasingDirection.In,
+    duration = options and options.duration ~= nil and options.duration or DEFAULT_CONFIG.duration,
+    scaleEnd = options and options.scaleEnd ~= nil and options.scaleEnd or DEFAULT_CONFIG.scaleStart,
+    easingStyle = options and options.easingStyle ~= nil and options.easingStyle or Enum.EasingStyle.Quad,
+    easingDirection = options and options.easingDirection ~= nil and options.easingDirection or Enum.EasingDirection.In,
     onComplete = options and options.onComplete,
     destroyOnComplete = options and options.destroyOnComplete,
   }
   
+  -- Validate duration is positive
+  if config.duration <= 0 then
+    warn("[PanelAnimation] Duration must be positive, got: " .. tostring(config.duration))
+    return false
+  end
+  
   -- Cancel any existing animation
   if activeTweens[panel] then
     for _, tween in ipairs(activeTweens[panel]) do
-      tween:Cancel()
+      pcall(function() tween:Cancel() end)
     end
     activeTweens[panel] = nil
   end
   
+  -- Get or create UIScale
   local uiScale = ensureUIScale(panel)
   if not uiScale then
     warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
     -- Only animate transparency
-    local fadeTween = TweenService:Create(panel, TweenInfo.new(
-      config.duration,
-      config.easingStyle,
-      config.easingDirection
-    ), {
-      BackgroundTransparency = 1,
-    })
+    local fadeTweenSuccess, fadeTween = pcall(function()
+      return TweenService:Create(panel, TweenInfo.new(
+        config.duration,
+        config.easingStyle,
+        config.easingDirection
+      ), {
+        BackgroundTransparency = 1,
+      })
+    end)
+    
+    if not fadeTweenSuccess then
+      warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+      return false
+    end
+    
     activeTweens[panel] = {fadeTween}
     fadeTween.Completed:Connect(function(playbackState)
       if playbackState ~= Enum.PlaybackState.Completed then
         return
       end
       activeTweens[panel] = nil
+      animationContext[panel] = nil
       if config.destroyOnComplete and panel.Parent then
         panel:Destroy()
       end
@@ -209,23 +305,47 @@ function PanelAnimation:close(panel, options)
     return true
   end
   
-  -- Create fade-out tween
-  local fadeTween = TweenService:Create(panel, TweenInfo.new(
-    config.duration,
-    config.easingStyle,
-    config.easingDirection
-  ), {
-    BackgroundTransparency = 1,
-  })
+  -- Use stored context if available, otherwise use provided scaleEnd or default
+  local context = animationContext[panel]
+  local targetScaleEnd = config.scaleEnd
+  if context and context.scaleStart then
+    -- Use the original scaleStart as the default scaleEnd if not explicitly provided
+    if not (options and options.scaleEnd ~= nil) then
+      targetScaleEnd = context.scaleStart
+    end
+  end
   
-  -- Create scale-down tween
-  local scaleTween = TweenService:Create(uiScale, TweenInfo.new(
-    config.duration,
-    config.easingStyle,
-    config.easingDirection
-  ), {
-    Scale = config.scaleEnd,
-  })
+  -- Create fade-out tween with error handling
+  local fadeTweenSuccess, fadeTween = pcall(function()
+    return TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 1,
+    })
+  end)
+  
+  if not fadeTweenSuccess then
+    warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+    return false
+  end
+  
+  -- Create scale-down tween with error handling
+  local scaleTweenSuccess, scaleTween = pcall(function()
+    return TweenService:Create(uiScale, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      Scale = targetScaleEnd,
+    })
+  end)
+  
+  if not scaleTweenSuccess then
+    warn("[PanelAnimation] Failed to create scale tween: " .. tostring(scaleTween))
+    return false
+  end
   
   -- Track tweens
   activeTweens[panel] = {fadeTween, scaleTween}
@@ -236,6 +356,7 @@ function PanelAnimation:close(panel, options)
       return
     end
     activeTweens[panel] = nil
+    animationContext[panel] = nil
     if config.destroyOnComplete and panel.Parent then
       panel:Destroy()
     end
@@ -253,17 +374,27 @@ end
 
 -- Cancel animation immediately
 function PanelAnimation:cancel(panel)
+  -- Validate panel exists and is a GuiObject
   if not panel then
     warn("[PanelAnimation] No panel provided to cancel()")
     return false
   end
   
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to cancel() - must be a GuiObject")
+    return false
+  end
+  
   if activeTweens[panel] then
     for _, tween in ipairs(activeTweens[panel]) do
-      tween:Cancel()
+      pcall(function() tween:Cancel() end)
     end
     activeTweens[panel] = nil
   end
+  
+  -- Clear animation context to prevent memory leak
+  animationContext[panel] = nil
   
   return true
 end
@@ -275,14 +406,22 @@ end
 
 -- Cleanup all animations
 function PanelAnimation:cleanup()
-  for panel, tweens in pairs(activeTweens) do
-    for _, tween in ipairs(tweens) do
-      tween:Cancel()
-    end
+  -- Collect all panels first to avoid modifying table while iterating
+  local panelsToClean = {}
+  for panel in pairs(activeTweens) do
+    table.insert(panelsToClean, panel)
   end
-  -- Clear the table but preserve the weak-keyed metatable
-  for k in pairs(activeTweens) do
-    activeTweens[k] = nil
+  
+  -- Cancel all tweens and clear context
+  for _, panel in ipairs(panelsToClean) do
+    local tweens = activeTweens[panel]
+    if tweens then
+      for _, tween in ipairs(tweens) do
+        pcall(function() tween:Cancel() end)
+      end
+    end
+    activeTweens[panel] = nil
+    animationContext[panel] = nil
   end
 end
 
