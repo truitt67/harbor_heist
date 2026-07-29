@@ -9775,8 +9775,9 @@ local function getLayoutMode(viewportW)
 	end
 end
 
--- Current layout mode (updated on resize)
-local currentLayoutMode = getLayoutMode()
+-- Current layout mode (updated on resize); seeded from the live viewport so
+-- wide-screen players don't sit in "standard" until their first resize.
+local currentLayoutMode = getLayoutMode(workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X)
 
 -- Viewport-resize wiring lives after updatePanelSizing's definition
 -- (layoutDesktopBar / layoutMobileStack are feature-branch locals with their
@@ -10451,6 +10452,8 @@ function ContextMenu.new(items, props)
 		itemBtn.TextSize = Theme.type.sizes.sm
 		itemBtn.TextColor3 = Theme.color.text.primary
 		itemBtn.TextXAlignment = Enum.TextXAlignment.Left
+		itemBtn.TextTruncate = Enum.TextTruncate.AtEnd
+		itemBtn.ClipsDescendants = true
 		itemBtn.Text = "  " .. item.text
 		itemBtn.Parent = menuFrame
 		corner(itemBtn, Theme.corners.sm)
@@ -10509,20 +10512,27 @@ function ContextMenu.new(items, props)
 		self.isOpen = true
 
 		-- Click-outside-to-close: connected on show, disconnected on hide.
+		-- Deferred so the same right-click that opened the menu can never be
+		-- seen by this handler (the menu spawns 8px from the cursor, i.e. the
+		-- opening click is technically "outside" the menu rect).
 		if self._outsideConn then self._outsideConn:Disconnect() end
-		self._outsideConn = UserInputService.InputBegan:Connect(function(input, processed)
-			if input.UserInputType ~= Enum.UserInputType.MouseButton1
-				and input.UserInputType ~= Enum.UserInputType.MouseButton2
-				and input.UserInputType ~= Enum.UserInputType.Touch then
-				return
-			end
-			local pos = input.Position
-			local framePos = menuFrame.AbsolutePosition
-			local frameSize = menuFrame.AbsoluteSize
-			if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
-				or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
-				self:hide()
-			end
+		task.defer(function()
+			if not self.isOpen then return end
+			if self._outsideConn then self._outsideConn:Disconnect() end
+			self._outsideConn = UserInputService.InputBegan:Connect(function(input, processed)
+				if input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.MouseButton2
+					and input.UserInputType ~= Enum.UserInputType.Touch then
+					return
+				end
+				local pos = input.Position
+				local framePos = menuFrame.AbsolutePosition
+				local frameSize = menuFrame.AbsoluteSize
+				if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
+					or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
+					self:hide()
+				end
+			end)
 		end)
 	end
 
@@ -12068,6 +12078,10 @@ backdrop.ZIndex = 20
 backdrop.Parent = screenGui
 
 local activePanel = nil
+-- harborheist-vasr: forward declaration — the context menu implementation
+-- lives in the inventory section below, but hidePanels must be able to
+-- destroy an open menu when its panel closes.
+local activeContextMenu = nil
 -- R4 polish: forward declaration — makePanel's mobile drag-to-dismiss
 -- handlers (defined below, before hidePanels' body) need the upvalue.
 -- Assigned where the original `local function hidePanels()` stood.
@@ -12123,11 +12137,25 @@ local function registerLayoutPanel(panel, baseW, baseH)
 	table.insert(registeredPanels, { panel = panel, baseW = baseW, baseH = baseH })
 end
 
-local function updatePanelSizing()
+-- Apply the current layout mode's base size to one registered panel.
+local function applyLayoutPanelSize(panel)
 	for _, entry in ipairs(registeredPanels) do
-		if entry.panel and entry.panel.Parent then
+		if entry.panel == panel then
 			local factor = LAYOUT_PANEL_SCALE[currentLayoutMode] or 1
 			entry.panel.Size = UDim2.new(0, math.floor(entry.baseW * factor + 0.5), 0, math.floor(entry.baseH * factor + 0.5))
+			return
+		end
+	end
+end
+
+local function updatePanelSizing()
+	for _, entry in ipairs(registeredPanels) do
+		-- Skip the panel while it's on screen: resizing a visible panel
+		-- mid pop-animation snaps the layout and conflicts with the 28.3
+		-- UIScale fit tween. Hidden panels pick up the new base size; the
+		-- open one is re-fit by the desktopPanelFitScale resize handler.
+		if entry.panel and entry.panel.Parent and not entry.panel.Visible then
+			applyLayoutPanelSize(entry.panel)
 		end
 	end
 end
@@ -12285,6 +12313,14 @@ hidePanels = function()
 		if disarmSellButton then
 			disarmSellButton()
 		end
+		-- harborheist-vasr: an open row context menu is screenGui-level —
+		-- destroy it when panels close so it can't float orphaned. (It is
+		-- only ever spawned from the inventory panel; `inventoryPanel`
+		-- itself is declared below hidePanels so it can't be compared here.)
+		if activeContextMenu then
+			activeContextMenu:destroy()
+			activeContextMenu = nil
+		end
 		local panel = activePanel
 		activePanel = nil
 		if updateActionBarIndicator then
@@ -12380,6 +12416,10 @@ local function showPanel(panel)
 		Anim:slide(panel, "up", 0.28)
 	else
 		-- harborheist-pytn: Use AnimationSystem scale and fade transitions for desktop show
+		-- harborheist-0ci3: re-apply the layout-mode base size first — the
+		-- mode may have changed while this panel was open (then skipped by
+		-- updatePanelSizing), and desktopPanelFitScale reads panel.Size.
+		applyLayoutPanelSize(panel)
 		local scale = panel:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 		scale.Parent = panel
 		-- TASK 28.3: clamp oversized panels to the viewport — the pop
@@ -12686,8 +12726,9 @@ end
 -- carry limit actually change.
 local lastInventorySignature = nil
 
--- harborheist-vasr: forward-declared — defined after renderInventory (the
--- menu actions reuse invStoreAllBtn / friendlyFailureReason from this file).
+-- harborheist-vasr: forward-declared — the implementation lives after
+-- renderInventory (it closes over createInventoryContextMenu, defined below),
+-- while renderInventory must call it during row construction.
 local bindInventoryRowContextMenu
 
 local function renderInventory()
@@ -12883,7 +12924,8 @@ end)
 -- (touch users already have per-row SELL/STORE buttons).
 -- ============================================================
 
-local activeContextMenu = nil
+-- activeContextMenu itself is forward-declared near hidePanels (top of file)
+-- so hidePanels can destroy an open menu when panels close.
 
 local function createInventoryContextMenu(fish, x, y)
 	if activeContextMenu then
@@ -12947,6 +12989,9 @@ bindInventoryRowContextMenu = function(row, fish)
 	if IS_MOBILE then
 		return
 	end
+	-- Plain Frames only receive InputBegan when Active; this also sinks
+	-- row clicks so they don't fall through to the 3D world behind the panel.
+	row.Active = true
 	row.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
 			createInventoryContextMenu(fish, input.Position.X, input.Position.Y)
