@@ -6175,13 +6175,133 @@ end
 
 actionButtons.boat.Activated:Connect(trySpawnBoat)
 
+-- harborheist-i74e (EPIC 40): keyboard-shortcut help panel + completion
+-- of the action shortcuts. The core F/G/C/T/Q/R/B/Escape handlers below
+-- already existed; this adds S (shop), Space (cast), I (inventory alias),
+-- H (toggle this help panel), and the discoverable help panel itself so
+-- all shortcuts are documented in-game (acceptance: "Help panel shows all
+-- shortcuts").
+local helpPanel, helpContent, helpClose = makePanel("SHORTCUTS", Theme.color.accent.base, UDim2.new(0, 360, 0, 480))
+
+makeLabel(helpContent, {
+	Size = UDim2.new(1, 0, 0, 18),
+	Position = UDim2.new(0, 0, 0, 0),
+	Text = IS_MOBILE and "Tap an action button:" or "Press a key or click an action:",
+	Font = Theme.type.fonts.med,
+	TextSize = Theme.type.sizes.xs,
+	TextColor3 = Theme.color.text.tertiary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local helpList = Instance.new("ScrollingFrame")
+helpList.Name = "ShortcutList"
+helpList.Size = UDim2.new(1, 0, 1, -26)
+helpList.Position = UDim2.new(0, 0, 0, 26)
+helpList.BackgroundTransparency = 1
+helpList.BorderSizePixel = 0
+helpList.ScrollBarThickness = 4
+helpList.ScrollBarImageColor3 = Theme.color.text.tertiary
+helpList.CanvasSize = UDim2.new(0, 0, 0, 0)
+helpList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+helpList.ZIndex = 26
+helpList.Parent = helpContent
+
+local helpListLayout = Instance.new("UIListLayout")
+helpListLayout.FillDirection = Enum.FillDirection.Vertical
+helpListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+helpListLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+helpListLayout.Padding = UDim.new(0, 6)
+helpListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+helpListLayout.Parent = helpList
+
+local SHORTCUT_ROWS = {
+	{ key = "F",     desc = "Cast / Start Fishing" },
+	{ key = "Space", desc = "Cast (when no panel is open)" },
+	{ key = "G",     desc = "Fish Bag (carried fish)" },
+	{ key = "I",     desc = "Fish Bag (alias of G)" },
+	{ key = "C",     desc = "Collection Book" },
+	{ key = "T",     desc = "My Aquarium (Tank)" },
+	{ key = "S",     desc = "Bait & Tackle (Shop)" },
+	{ key = "Q",     desc = "Quests" },
+	{ key = "R",     desc = "Raid Waters" },
+	{ key = "B",     desc = "Spawn Boat" },
+	{ key = "Tab",   desc = "Navigate buttons (Shift+Tab reverses)" },
+	{ key = "Enter", desc = "Activate the focused button" },
+	{ key = "Esc",   desc = "Close panel / dismiss prompt" },
+	{ key = "H",     desc = "Toggle this shortcuts panel" },
+}
+
+for idx, row in ipairs(SHORTCUT_ROWS) do
+	local rowFrame = Instance.new("Frame")
+	rowFrame.Size = UDim2.new(1, 0, 0, 30)
+	rowFrame.BackgroundTransparency = 1
+	rowFrame.LayoutOrder = idx
+	rowFrame.ZIndex = 26
+	rowFrame.Parent = helpList
+
+	local chip = Instance.new("Frame")
+	chip.Size = UDim2.new(0, 46, 0, 24)
+	chip.Position = UDim2.new(0, 0, 0.5, 0)
+	chip.AnchorPoint = Vector2.new(0, 0.5)
+	chip.BackgroundColor3 = Theme.color.surface.elevated
+	chip.ZIndex = 27
+	chip.Parent = rowFrame
+	corner(chip, Theme.corners.compact)
+	stroke(chip, 0.85)
+
+	makeLabel(chip, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = row.key,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.secondary,
+		ZIndex = 28,
+	})
+
+	makeLabel(rowFrame, {
+		Size = UDim2.new(1, -56, 1, 0),
+		Position = UDim2.new(0, 56, 0, 0),
+		Text = row.desc,
+		Font = Theme.type.fonts.med,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.text.primary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+end
+
+helpClose.Activated:Connect(hidePanels)
+if not IS_MOBILE then
+	KeyboardNav:Register(helpClose, 100)
+end
+
+local function toggleHelpPanel()
+	if overlayBlocksPanels() then
+		return
+	end
+	if activePanel == helpPanel then
+		hidePanels()
+		return
+	end
+	showPanel(helpPanel)
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
 	if input.KeyCode == Enum.KeyCode.F then
 		doFish()
-	elseif input.KeyCode == Enum.KeyCode.G then
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		-- harborheist-i74e: Space casts when no panel is open. When a panel
+		-- is open, Space activates the focused button via KeyboardNav, so we
+		-- defer to that to avoid a double-action.
+		if not activePanel then
+			doFish()
+		end
+	elseif input.KeyCode == Enum.KeyCode.G or input.KeyCode == Enum.KeyCode.I then
 		toggleInventoryPanel()
 	elseif input.KeyCode == Enum.KeyCode.C then
 		toggleCollectionPanel()
@@ -6190,12 +6310,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			showPanel(aquariumPanel)
 			render() -- R3 audit #20: aquarium block is push-gated; render on open
 		end
+	elseif input.KeyCode == Enum.KeyCode.S then
+		-- harborheist-i74e: open the Bait & Tackle shop panel.
+		if not overlayBlocksPanels() then
+			showPanel(shopPanel)
+			refreshShop()
+		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		toggleQuestPanel()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		toggleRaidPanel()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		trySpawnBoat()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		-- harborheist-i74e: toggle the keyboard-shortcut help panel.
+		toggleHelpPanel()
 	elseif input.KeyCode == Enum.KeyCode.Escape then
 		-- R3 audit #17: Escape dismissed panels only — the onboarding prompt
 		-- and sell/store comparison prompt had no keyboard path out.
