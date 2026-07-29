@@ -122,7 +122,7 @@ local EASE_IN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local Theme = {
 	spacing = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 },
 	type = {
-		sizes = { xs = 12, sm = 15, md = 19, lg = 24, xl = 30 }, -- 1.25 ratio
+		sizes = { xxs = 11, xs = 12, sm = 15, md = 19, lg = 24, xl = 30 }, -- 1.25 ratio
 		fonts = { head = FONT_HEAD, bold = FONT_BOLD, med = FONT_MED, body = FONT_BODY },
 	},
 	color = {
@@ -1611,7 +1611,7 @@ local function showToastDirect(message, color, category, actions)
 	-- padding. (Padding on the LABEL, not the toast, so the accent bar's
 	-- scale height keeps resolving against the full toast height.)
 	local textBottomPad = Instance.new("UIPadding")
-	textBottomPad.PaddingBottom = UDim.new(0, 8)
+	textBottomPad.PaddingBottom = UDim.new(0, Theme.spacing.sm)
 	textBottomPad.Parent = text
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
@@ -1646,7 +1646,7 @@ local function showToastDirect(message, color, category, actions)
 				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
-				TextSize = IS_MOBILE and 11 or 12,
+				TextSize = IS_MOBILE and Theme.type.sizes.xxs or Theme.type.sizes.xs,
 				BackgroundColor3 = Theme.color.surface.elevated,
 				TextColor3 = color,
 				CornerRadius = Theme.corners.sm,
@@ -2959,7 +2959,7 @@ local function buildFishSilhouette(parent, color)
 	tail.BorderSizePixel = 0
 	tail.Parent = parent
 	local tailCorner = Instance.new("UICorner")
-	tailCorner.CornerRadius = UDim.new(0, 2)
+	tailCorner.CornerRadius = UDim.new(0, Theme.corners.hairline)
 	tailCorner.Parent = tail
 
 	-- Eye (White dot for life)
