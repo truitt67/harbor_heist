@@ -18,6 +18,7 @@ print("Creating demo panels...")
 
 -- Track all created panels for cleanup
 local demoPanels = {}
+local toastCount = 0
 
 -- Create a modal panel
 local function createModalPanel(title, width, height)
@@ -28,18 +29,18 @@ local function createModalPanel(title, width, height)
   modal.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
   modal.BackgroundTransparency = 1
   modal.ZIndex = 1000
-  
+
   local corner = Instance.new("UICorner")
-  corner.CornerRadius = UDim.new(0, 8)
+  corner.CornerRadius = UDim.new(0, 12)
   corner.Parent = modal
-  
+
   -- Title bar
   local titleBar = Instance.new("Frame")
   titleBar.Size = UDim2.new(1, -16, 0, 32)
   titleBar.Position = UDim2.new(0, 8, 0, 0)
   titleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
   titleBar.Parent = modal
-  
+
   local titleLabel = Instance.new("TextLabel")
   titleLabel.Size = UDim2.new(1, -16, 1, -8)
   titleLabel.Position = UDim2.new(0, 8, 0, 4)
@@ -49,7 +50,7 @@ local function createModalPanel(title, width, height)
   titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
   titleLabel.BackgroundTransparency = 1
   titleLabel.Parent = titleBar
-  
+
   -- Close button
   local closeButton = Instance.new("TextButton")
   closeButton.Size = UDim2.new(0, 32, 0, 32)
@@ -60,7 +61,7 @@ local function createModalPanel(title, width, height)
   closeButton.TextColor3 = Color3.fromRGB(255, 100, 100)
   closeButton.BackgroundTransparency = 1
   closeButton.Parent = modal
-  
+
   closeButton.MouseButton1Click:Connect(function()
     PanelAnimation:close(modal, {
       destroyOnComplete = true,
@@ -69,7 +70,7 @@ local function createModalPanel(title, width, height)
       end
     })
   end)
-  
+
   return modal
 end
 
@@ -150,7 +151,8 @@ local function createToast(message, duration, toastType)
   local toast = Instance.new("Frame")
   toast.Name = "Toast Notification"
   toast.Size = UDim2.new(0, 350, 0, 64)
-  toast.Position = UDim2.new(0.5, -175, 0.8, -32)
+  -- Stack toasts vertically with offset
+  toast.Position = UDim2.new(0.5, -175, 0.8, -32 - (toastCount * 70))
   toast.BackgroundColor3 = toastType == "error" and Color3.fromRGB(255, 92, 92) or
                           toastType == "success" and Color3.fromRGB(52, 199, 123) or
                           Color3.fromRGB(40, 40, 40)
@@ -170,6 +172,19 @@ local function createToast(message, duration, toastType)
   messageLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
   messageLabel.BackgroundTransparency = 1
   messageLabel.Parent = toast
+  
+  -- Track for cleanup
+  toastCount = toastCount + 1
+  demoPanels[toast] = true
+  
+  -- Auto-close after duration
+  task.delay(duration, function()
+    if toast.Parent then
+      PanelAnimation:close(toast, {destroyOnComplete = true})
+      demoPanels[toast] = nil
+      toastCount = math.max(0, toastCount - 1)
+    end
+  end)
   
   return toast
 end
@@ -241,14 +256,6 @@ PanelAnimation:open(toast2, {duration = 0.25, scaleStart = 0.9})
 local toast3 = createToast("Regular notification", 2.0)
 toast3.Parent = playerGui
 PanelAnimation:open(toast3, {duration = 0.25, scaleStart = 0.9})
-
--- Auto-close toasts after duration
-task.delay(2.5, function()
-  print("   Closing toast notifications...")
-  PanelAnimation:close(toast1, {destroyOnComplete = true})
-  PanelAnimation:close(toast2, {destroyOnComplete = true})
-  PanelAnimation:close(toast3, {destroyOnComplete = true})
-end)
 
 -- Cleanup on game shutdown
 game:BindToClose(function()

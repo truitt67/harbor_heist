@@ -41,18 +41,85 @@ local playerMouse = player:GetMouse()
 -- ============================================================
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- R4 polish #2 (mobile): light haptic tick at celebration moments (Epic+
--- reveal, milestone claim). Fully pcall-guarded — HapticService.Play only
--- does anything on haptic-capable touch devices; everywhere else it is a
--- silent no-op. Deliberately NOT wired to every button press — haptics
--- everywhere is haptics nowhere.
-local function hapticTick()
-	if not IS_MOBILE then
-		return
-	end
-	pcall(function()
-		HapticService:Play(Enum.HapticEffectType.UI_Click)
+-- R4 polish #2 (mobile): context-aware haptic feedback system for touch interactions.
+-- Implements variable intensity, duration control, and context-aware effects.
+-- Fully pcall-guarded — HapticService.Play only does anything on haptic-capable
+-- touch devices; everywhere else it is a silent no-op. Deliberately NOT wired to
+-- every UI moment — haptics everywhere is haptics nowhere.
+
+-- Resolve an Enum.HapticEffectType member by name, falling back to UI_Click when
+-- the member does not exist on this platform (graceful degradation).
+local function resolveHapticEffect(effectName)
+	local ok, effect = pcall(function()
+		return Enum.HapticEffectType[effectName]
 	end)
+	if ok and effect then
+		return effect
+	end
+	return Enum.HapticEffectType.UI_Click
+end
+
+local function createHapticEffect(effectName, intensity, duration)
+	return {
+		type = resolveHapticEffect(effectName),
+		intensity = intensity or 0.5,
+		duration = duration or 0.1,
+	}
+end
+
+-- Haptic feedback categories with tuned parameters (string keys — harborheist-l0rb)
+local HAPTIC_CATEGORIES = {
+	-- Basic interactions
+	PressStart = createHapticEffect("UI_Click", 0.3, 0.08), -- Light tap on press
+	PressEnd = createHapticEffect("UI_Click", 0.4, 0.12), -- Slightly stronger release
+
+	-- Success states (use Rumble for success feedback)
+	SuccessSmall = createHapticEffect("Rumble", 0.35, 0.15), -- Quick success tick
+	SuccessLarge = createHapticEffect("Rumble", 0.45, 0.25), -- Celebratory success
+
+	-- Error states (use Rumble for error feedback)
+	ErrorSmall = createHapticEffect("Rumble", 0.3, 0.18), -- Short error buzz
+	ErrorLarge = createHapticEffect("Rumble", 0.4, 0.25), -- More pronounced error
+
+	-- Special events (use Rumble for significant events)
+	RarityReveal = createHapticEffect("Rumble", 0.6, 0.35), -- Legendary/epic catch
+	QuestComplete = createHapticEffect("Rumble", 0.5, 0.4), -- Quest milestone
+	MilestoneClaim = createHapticEffect("Rumble", 0.55, 0.45), -- Major achievement
+}
+
+-- Haptic feedback dispatcher (fallback to PressEnd if category not found).
+-- harborheist-l0rb / consolidation: single source of truth — all wrappers below
+-- delegate here so the IS_MOBILE guard + pcall + lookup live in exactly one place.
+local function playHaptic(category)
+	if not IS_MOBILE then return end
+
+	local effectConfig = HAPTIC_CATEGORIES[category] or HAPTIC_CATEGORIES.PressEnd
+
+	pcall(function()
+		HapticService:Play(effectConfig.type, effectConfig.intensity, effectConfig.duration)
+	end)
+end
+
+-- Convenience wrappers for common actions
+local function hapticPressStart()
+	playHaptic("PressStart")
+end
+
+local function hapticPressEnd()
+	playHaptic("PressEnd")
+end
+
+local function hapticSuccess()
+	playHaptic("SuccessSmall")
+end
+
+local function hapticError()
+	playHaptic("ErrorSmall")
+end
+
+-- Legacy compatibility - kept for existing code paths (celebration moments)
+local function hapticTick()
+	playHaptic("RarityReveal")
 end
 
 -- ============================================================
@@ -649,24 +716,29 @@ local function makeButton(parent, props)
 			-- Press state - scale down slightly for tactile feedback
 			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
 			activeTweens.scale:Play()
-			
-			-- Haptic tick on mobile devices
+
+			-- Haptic feedback on mobile devices (R4 polish #2)
 			if IS_MOBILE then
-				pcall(function()
-					HapticService:Play(Enum.HapticEffectType.UI_Click)
-				end)
-			end
-			
-			-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
-			if props and props.onSuccess then
-				button.MouseButton1Click:Connect(props.onSuccess)
-			end
-			if props and props.onError then
-				button.MouseButton1Click:Connect(function()
-					props.onError(button)
-				end)
+				hapticPressStart()
 			end
 		end)
+		
+		-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
+		-- harborheist-qrj9: connect ONCE at setup time. These used to live inside the
+		-- MouseButton1Down handler, so every press added another pair of click
+		-- connections — handlers fired N times after N presses and connections leaked.
+		if props and props.onSuccess then
+			button.MouseButton1Click:Connect(function()
+				hapticSuccess()
+				props.onSuccess()
+			end)
+		end
+		if props and props.onError then
+			button.MouseButton1Click:Connect(function()
+				hapticError()
+				props.onError(button)
+			end)
+		end
 		
 		button.MouseButton1Up:Connect(function()
 			-- harborheist-g9z2: Guard against disabled buttons
@@ -679,11 +751,10 @@ local function makeButton(parent, props)
 			-- Release state - bounce back with spring physics
 			activeTweens.scale = TweenService:Create(button, EASE_POP, { Scale = 1 })
 			activeTweens.scale:Play()
-			
+
+			-- Haptic feedback on mobile devices (R4 polish #2)
 			if IS_MOBILE then
-				pcall(function()
-					HapticService:Play(Enum.HapticEffectType.UI_Click)
-				end)
+				hapticPressEnd()
 			end
 		end)
 		
@@ -713,11 +784,12 @@ local function makeButton(parent, props)
 				end
 				
 				-- harborheist-g9z2: Fade in hover shadows for elevation lift
+				-- harborheist-8qv8: track these in activeTweens so cancelTweens() covers them
 				local shadowConfig = Theme.shadows.low
 				for i, shadow in ipairs(hoverShadows) do
 					local targetAlpha = 1 - (shadowConfig.alpha * (1 - (i - 1) / shadowConfig.layers))
-					local t = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = targetAlpha })
-					t:Play()
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = targetAlpha })
+					activeTweens["shadow_" .. i]:Play()
 				end
 				
 				-- harborheist-g9z2: Change cursor to pointing hand
@@ -742,9 +814,10 @@ local function makeButton(parent, props)
 				end
 				
 				-- harborheist-g9z2: Fade out hover shadows
-				for _, shadow in ipairs(hoverShadows) do
-					local t = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 })
-					t:Play()
+				-- harborheist-8qv8: track these in activeTweens so cancelTweens() covers them
+				for i, shadow in ipairs(hoverShadows) do
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens["shadow_" .. i]:Play()
 				end
 				
 				-- harborheist-g9z2: Reset cursor

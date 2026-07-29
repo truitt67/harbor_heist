@@ -1114,6 +1114,738 @@ return GameConfig
       </Item>
       <Item class="ModuleScript" referent="7">
         <Properties>
+          <string name="Name">PanelAnimation</string>
+          <string name="Source"><![CDATA[--[[
+=============================================================================
+EPIC 34: Animation & Motion Design — Panel Animations Module
+=============================================================================
+
+Provides smooth fade + scale animations for panels, modals, and dialogs.
+
+USAGE:
+  local PanelAnimation = require(ReplicatedStorage.Modules.PanelAnimation)
+  
+  -- Open a panel with animation
+  local panel = Instance.new("Frame")
+  panel.Size = UDim2.new(0, 400, 0, 300)
+  panel.BackgroundTransparency = 1
+  
+  PanelAnimation:open(panel, {
+    duration = 0.3,
+    scaleStart = 0.8,
+    onComplete = function() print("Panel opened") end,
+  })
+  
+  -- Close a panel with animation
+  PanelAnimation:close(panel)
+
+CONFIGURATION:
+- duration: Animation duration in seconds (default: 0.25)
+- scaleStart: Starting scale for open animation (default: 0.8)
+- easingStyle: Easing style to use (default: Enum.EasingStyle.Back)
+--]]
+
+local PanelAnimation = {}
+
+-- Services
+local TweenService = game:GetService("TweenService")
+
+-- Default configuration
+local DEFAULT_CONFIG = {
+  duration = 0.25,
+  scaleStart = 0.8,
+  easingStyle = Enum.EasingStyle.Back,
+  easingDirection = Enum.EasingDirection.Out,
+}
+
+-- Track active animations for cleanup (weak keys prevent memory leaks
+-- when panels are destroyed externally without going through close())
+local activeTweens = {}
+setmetatable(activeTweens, { __mode = "k" })
+
+-- Track animation context for proper close animations
+local animationContext = {}
+setmetatable(animationContext, { __mode = "k" })
+
+-- Helper to get or create a UIScale for animation
+-- Returns the UIScale to animate, or nil if the panel has a user-managed UIScale
+-- Uses the PanelAnimationOwned attribute to distinguish our UIScales from user ones
+local function ensureUIScale(guiObject)
+  local success, uiScale = pcall(function()
+    return guiObject:FindFirstChildWhichIsA("UIScale")
+  end)
+  
+  if not success then
+    return nil
+  end
+  
+  if uiScale then
+    -- If it has our ownership attribute, it's ours — safe to reuse
+    local success, hasAttr = pcall(function()
+      return uiScale:GetAttribute("PanelAnimationOwned")
+    end)
+    if success and hasAttr then
+      return uiScale
+    end
+    -- Otherwise it's user-managed — don't interfere
+    return nil
+  end
+  
+  -- No UIScale exists — create one and mark it as ours
+  local createSuccess, newScale = pcall(function()
+    local scale = Instance.new("UIScale")
+    scale.Scale = 1
+    scale:SetAttribute("PanelAnimationOwned", true)
+    scale.Parent = guiObject
+    return scale
+  end)
+  
+  if not createSuccess then
+    return nil
+  end
+  
+  return newScale
+end
+
+-- Open a panel with animation
+function PanelAnimation:open(panel, options)
+  -- Validate panel exists and is a GuiObject
+  if not panel then
+    warn("[PanelAnimation] No panel provided to open()")
+    return false
+  end
+  
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to open() - must be a GuiObject")
+    return false
+  end
+  
+  -- Merge config with proper nil handling (not truthy/falsy)
+  local config = {
+    duration = options and options.duration ~= nil and options.duration or DEFAULT_CONFIG.duration,
+    scaleStart = options and options.scaleStart ~= nil and options.scaleStart or DEFAULT_CONFIG.scaleStart,
+    easingStyle = options and options.easingStyle ~= nil and options.easingStyle or DEFAULT_CONFIG.easingStyle,
+    easingDirection = options and options.easingDirection ~= nil and options.easingDirection or DEFAULT_CONFIG.easingDirection,
+    onComplete = options and options.onComplete,
+  }
+  
+  -- Validate duration is positive
+  if config.duration <= 0 then
+    warn("[PanelAnimation] Duration must be positive, got: " .. tostring(config.duration))
+    return false
+  end
+  
+  -- Cancel any existing animation on this panel
+  if activeTweens[panel] then
+    for _, tween in ipairs(activeTweens[panel]) do
+      pcall(function() tween:Cancel() end)
+    end
+    activeTweens[panel] = nil
+  end
+  
+  -- Ensure panel has UIScale for scaling animation
+  local uiScale = ensureUIScale(panel)
+  if not uiScale then
+    warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
+    -- Only animate transparency
+    local fadeTweenSuccess, fadeTween = pcall(function()
+      return TweenService:Create(panel, TweenInfo.new(
+        config.duration,
+        config.easingStyle,
+        config.easingDirection
+      ), {
+        BackgroundTransparency = 0,
+      })
+    end)
+    
+    if not fadeTweenSuccess then
+      warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+      return false
+    end
+    
+    -- Set initial state AFTER successful tween creation
+    panel.BackgroundTransparency = 1
+    
+    activeTweens[panel] = {fadeTween}
+    fadeTween.Completed:Connect(function(playbackState)
+      if playbackState ~= Enum.PlaybackState.Completed then
+        return
+      end
+      activeTweens[panel] = nil
+      animationContext[panel] = nil
+      if config.onComplete then
+        config.onComplete()
+      end
+    end)
+    fadeTween:Play()
+    return true
+  end
+  
+  -- Create tweens BEFORE setting initial state to avoid partial initialization
+  local fadeTweenSuccess, fadeTween = pcall(function()
+    return TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 0,
+    })
+  end)
+  
+  if not fadeTweenSuccess then
+    warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+    return false
+  end
+  
+  local scaleTweenSuccess, scaleTween = pcall(function()
+    return TweenService:Create(uiScale, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      Scale = 1,
+    })
+  end)
+  
+  if not scaleTweenSuccess then
+    warn("[PanelAnimation] Failed to create scale tween: " .. tostring(scaleTween))
+    -- Clean up the fade tween we already created
+    pcall(function() fadeTween:Cancel() end)
+    return false
+  end
+  
+  -- Store animation context for proper close animations
+  animationContext[panel] = {
+    scaleStart = config.scaleStart,
+  }
+  
+  -- Set initial state AFTER all tweens are successfully created
+  panel.BackgroundTransparency = 1
+  uiScale.Scale = config.scaleStart
+  
+  -- Track tweens
+  activeTweens[panel] = {fadeTween, scaleTween}
+  
+  -- Set up completion callback (only fires on natural completion, not cancellation)
+  fadeTween.Completed:Connect(function(playbackState)
+    if playbackState ~= Enum.PlaybackState.Completed then
+      return
+    end
+    activeTweens[panel] = nil
+    animationContext[panel] = nil
+    if config.onComplete then
+      config.onComplete()
+    end
+  end)
+  
+  -- Play both tweens
+  fadeTween:Play()
+  scaleTween:Play()
+  
+  return true
+end
+
+-- Close a panel with animation
+function PanelAnimation:close(panel, options)
+  -- Validate panel exists and is a GuiObject
+  if not panel then
+    warn("[PanelAnimation] No panel provided to close()")
+    return false
+  end
+  
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to close() - must be a GuiObject")
+    return false
+  end
+  
+  -- Merge config with proper nil handling
+  local config = {
+    duration = options and options.duration ~= nil and options.duration or DEFAULT_CONFIG.duration,
+    scaleEnd = options and options.scaleEnd ~= nil and options.scaleEnd or DEFAULT_CONFIG.scaleStart,
+    easingStyle = options and options.easingStyle ~= nil and options.easingStyle or Enum.EasingStyle.Quad,
+    easingDirection = options and options.easingDirection ~= nil and options.easingDirection or Enum.EasingDirection.In,
+    onComplete = options and options.onComplete,
+    destroyOnComplete = options and options.destroyOnComplete,
+  }
+  
+  -- Validate duration is positive
+  if config.duration <= 0 then
+    warn("[PanelAnimation] Duration must be positive, got: " .. tostring(config.duration))
+    return false
+  end
+  
+  -- Cancel any existing animation
+  if activeTweens[panel] then
+    for _, tween in ipairs(activeTweens[panel]) do
+      pcall(function() tween:Cancel() end)
+    end
+    activeTweens[panel] = nil
+  end
+  
+  -- Get or create UIScale
+  local uiScale = ensureUIScale(panel)
+  if not uiScale then
+    warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
+    -- Only animate transparency
+    local fadeTweenSuccess, fadeTween = pcall(function()
+      return TweenService:Create(panel, TweenInfo.new(
+        config.duration,
+        config.easingStyle,
+        config.easingDirection
+      ), {
+        BackgroundTransparency = 1,
+      })
+    end)
+    
+    if not fadeTweenSuccess then
+      warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+      return false
+    end
+    
+    activeTweens[panel] = {fadeTween}
+    fadeTween.Completed:Connect(function(playbackState)
+      if playbackState ~= Enum.PlaybackState.Completed then
+        return
+      end
+      activeTweens[panel] = nil
+      animationContext[panel] = nil
+      if config.destroyOnComplete and panel.Parent then
+        panel:Destroy()
+      end
+      if config.onComplete then
+        config.onComplete()
+      end
+    end)
+    fadeTween:Play()
+    return true
+  end
+  
+  -- Use stored context if available, otherwise use provided scaleEnd or default
+  local context = animationContext[panel]
+  local targetScaleEnd = config.scaleEnd
+  if context and context.scaleStart then
+    -- Use the original scaleStart as the default scaleEnd if not explicitly provided
+    if not (options and options.scaleEnd ~= nil) then
+      targetScaleEnd = context.scaleStart
+    end
+  end
+  
+  -- Create fade-out tween with error handling
+  local fadeTweenSuccess, fadeTween = pcall(function()
+    return TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 1,
+    })
+  end)
+  
+  if not fadeTweenSuccess then
+    warn("[PanelAnimation] Failed to create fade tween: " .. tostring(fadeTween))
+    return false
+  end
+  
+  -- Create scale-down tween with error handling
+  local scaleTweenSuccess, scaleTween = pcall(function()
+    return TweenService:Create(uiScale, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      Scale = targetScaleEnd,
+    })
+  end)
+  
+  if not scaleTweenSuccess then
+    warn("[PanelAnimation] Failed to create scale tween: " .. tostring(scaleTween))
+    -- Clean up the fade tween we already created
+    pcall(function() fadeTween:Cancel() end)
+    return false
+  end
+  
+  -- Track tweens
+  activeTweens[panel] = {fadeTween, scaleTween}
+  
+  -- Set up completion callback (only fires on natural completion, not cancellation)
+  fadeTween.Completed:Connect(function(playbackState)
+    if playbackState ~= Enum.PlaybackState.Completed then
+      return
+    end
+    activeTweens[panel] = nil
+    animationContext[panel] = nil
+    if config.destroyOnComplete and panel.Parent then
+      panel:Destroy()
+    end
+    if config.onComplete then
+      config.onComplete()
+    end
+  end)
+  
+  -- Play both tweens
+  fadeTween:Play()
+  scaleTween:Play()
+  
+  return true
+end
+
+-- Cancel animation immediately
+function PanelAnimation:cancel(panel)
+  -- Validate panel exists and is a GuiObject
+  if not panel then
+    warn("[PanelAnimation] No panel provided to cancel()")
+    return false
+  end
+  
+  local success, isGui = pcall(function() return panel:IsA("GuiObject") end)
+  if not success or not isGui then
+    warn("[PanelAnimation] Invalid panel provided to cancel() - must be a GuiObject")
+    return false
+  end
+  
+  if activeTweens[panel] then
+    for _, tween in ipairs(activeTweens[panel]) do
+      pcall(function() tween:Cancel() end)
+    end
+    activeTweens[panel] = nil
+  end
+  
+  -- Reset panel to fully visible state
+  pcall(function()
+    panel.BackgroundTransparency = 0
+  end)
+  
+  -- Reset UIScale to 1 if it exists
+  local uiScale = panel:FindFirstChildWhichIsA("UIScale")
+  if uiScale then
+    pcall(function()
+      uiScale.Scale = 1
+    end)
+  end
+  
+  -- Clear animation context to prevent memory leak
+  animationContext[panel] = nil
+  
+  return true
+end
+
+-- Check if panel is animating
+function PanelAnimation:isAnimating(panel)
+  return activeTweens[panel] ~= nil
+end
+
+-- Cleanup all animations
+function PanelAnimation:cleanup()
+  -- Collect all panels first to avoid modifying table while iterating
+  local panelsToClean = {}
+  for panel in pairs(activeTweens) do
+    table.insert(panelsToClean, panel)
+  end
+  
+  -- Cancel all tweens and clear context
+  for _, panel in ipairs(panelsToClean) do
+    local tweens = activeTweens[panel]
+    if tweens then
+      for _, tween in ipairs(tweens) do
+        pcall(function() tween:Cancel() end)
+      end
+    end
+    activeTweens[panel] = nil
+    animationContext[panel] = nil
+  end
+end
+
+-- Cleanup on game shutdown
+game:BindToClose(function()
+  PanelAnimation:cleanup()
+end)
+
+return PanelAnimation
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="8">
+        <Properties>
+          <string name="Name">PanelAnimationDemo</string>
+          <string name="Source"><![CDATA[--[[
+=============================================================================
+EPIC 34: Animation & Motion Design — Panel Animation Demo Script
+=============================================================================
+
+This script demonstrates the PanelAnimation module with various panel types.
+
+RUN IN ROBLOX STUDIO:
+1. Place this script in StarterPlayerScripts
+2. Run the game to see demo panels opening/closing with animations
+
+--]]
+
+local PanelAnimation = require(script.Parent.PanelAnimation)
+
+print("=== Panel Animation Demo ===")
+print("Creating demo panels...")
+
+-- Track all created panels for cleanup
+local demoPanels = {}
+local toastCount = 0
+
+-- Create a modal panel
+local function createModalPanel(title, width, height)
+  local modal = Instance.new("Frame")
+  modal.Name = title .. " Modal"
+  modal.Size = UDim2.new(0, width, 0, height)
+  modal.Position = UDim2.new(0.5, -width/2, 0.5, -height/2)
+  modal.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+  modal.BackgroundTransparency = 1
+  modal.ZIndex = 1000
+
+  local corner = Instance.new("UICorner")
+  corner.CornerRadius = UDim.new(0, 12)
+  corner.Parent = modal
+
+  -- Title bar
+  local titleBar = Instance.new("Frame")
+  titleBar.Size = UDim2.new(1, -16, 0, 32)
+  titleBar.Position = UDim2.new(0, 8, 0, 0)
+  titleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+  titleBar.Parent = modal
+
+  local titleLabel = Instance.new("TextLabel")
+  titleLabel.Size = UDim2.new(1, -16, 1, -8)
+  titleLabel.Position = UDim2.new(0, 8, 0, 4)
+  titleLabel.Text = title
+  titleLabel.Font = Enum.Font.GothamBold
+  titleLabel.TextSize = 16
+  titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+  titleLabel.BackgroundTransparency = 1
+  titleLabel.Parent = titleBar
+
+  -- Close button
+  local closeButton = Instance.new("TextButton")
+  closeButton.Size = UDim2.new(0, 32, 0, 32)
+  closeButton.Position = UDim2.new(1, -40, 0.5, -16)
+  closeButton.Text = "✕"
+  closeButton.Font = Enum.Font.GothamBold
+  closeButton.TextSize = 20
+  closeButton.TextColor3 = Color3.fromRGB(255, 100, 100)
+  closeButton.BackgroundTransparency = 1
+  closeButton.Parent = modal
+
+  closeButton.MouseButton1Click:Connect(function()
+    PanelAnimation:close(modal, {
+      destroyOnComplete = true,
+      onComplete = function()
+        print("   Modal panel closed and destroyed")
+      end
+    })
+  end)
+
+  return modal
+end
+
+-- Create a settings panel
+local function createSettingsPanel(width, height)
+  local panel = Instance.new("Frame")
+  panel.Name = "Settings Panel"
+  panel.Size = UDim2.new(0, width, 0, height)
+  panel.Position = UDim2.new(0.5, -width/2, 0.5, -height/2)
+  panel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+  panel.BackgroundTransparency = 1
+  panel.ZIndex = 900
+  
+  local corner = Instance.new("UICorner")
+  corner.CornerRadius = UDim.new(0, 12)
+  corner.Parent = panel
+  
+  -- Header
+  local header = Instance.new("Frame")
+  header.Size = UDim2.new(1, -16, 0, 48)
+  header.Position = UDim2.new(0, 8, 0, 0)
+  header.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+  header.Parent = panel
+  
+  local headerLabel = Instance.new("TextLabel")
+  headerLabel.Size = UDim2.new(1, -16, 1, -8)
+  headerLabel.Position = UDim2.new(0, 8, 0, 4)
+  headerLabel.Text = "⚙️ Settings"
+  headerLabel.Font = Enum.Font.GothamBold
+  headerLabel.TextSize = 18
+  headerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+  headerLabel.BackgroundTransparency = 1
+  headerLabel.Parent = header
+  
+  -- Content area
+  local content = Instance.new("Frame")
+  content.Size = UDim2.new(1, -16, 1, -64)
+  content.Position = UDim2.new(0, 8, 0, 56)
+  content.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+  content.BackgroundTransparency = 1
+  content.Parent = panel
+  
+  local contentLabel = Instance.new("TextLabel")
+  contentLabel.Size = UDim2.new(1, -16, 1, -8)
+  contentLabel.Position = UDim2.new(0, 8, 0, 4)
+  contentLabel.Text = "Settings content here..."
+  contentLabel.Font = Enum.Font.GothamRegular
+  contentLabel.TextSize = 14
+  contentLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+  contentLabel.BackgroundTransparency = 1
+  contentLabel.Parent = content
+  
+  -- Close button
+  local closeButton = Instance.new("TextButton")
+  closeButton.Size = UDim2.new(0, 48, 0, 48)
+  closeButton.Position = UDim2.new(1, -56, 0.5, -24)
+  closeButton.Text = "Close"
+  closeButton.Font = Enum.Font.GothamRegular
+  closeButton.TextSize = 14
+  closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+  closeButton.BackgroundTransparency = 1
+  closeButton.Parent = panel
+  
+  closeButton.MouseButton1Click:Connect(function()
+    PanelAnimation:close(panel, {
+      destroyOnComplete = true,
+      onComplete = function()
+        print("   Settings panel closed and destroyed")
+      end
+    })
+  end)
+  
+  return panel
+end
+
+-- Create a toast notification
+local function createToast(message, duration, toastType)
+  local toast = Instance.new("Frame")
+  toast.Name = "Toast Notification"
+  toast.Size = UDim2.new(0, 350, 0, 64)
+  -- Stack toasts vertically with offset
+  toast.Position = UDim2.new(0.5, -175, 0.8, -32 - (toastCount * 70))
+  toast.BackgroundColor3 = toastType == "error" and Color3.fromRGB(255, 92, 92) or
+                          toastType == "success" and Color3.fromRGB(52, 199, 123) or
+                          Color3.fromRGB(40, 40, 40)
+  toast.BackgroundTransparency = 1
+  toast.ZIndex = 2000
+  
+  local corner = Instance.new("UICorner")
+  corner.CornerRadius = UDim.new(0, 8)
+  corner.Parent = toast
+  
+  local messageLabel = Instance.new("TextLabel")
+  messageLabel.Size = UDim2.new(1, -32, 1, -8)
+  messageLabel.Position = UDim2.new(0, 16, 0, 4)
+  messageLabel.Text = message or "Notification"
+  messageLabel.Font = Enum.Font.GothamRegular
+  messageLabel.TextSize = 14
+  messageLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+  messageLabel.BackgroundTransparency = 1
+  messageLabel.Parent = toast
+  
+  -- Track for cleanup
+  toastCount = toastCount + 1
+  demoPanels[toast] = true
+  
+  -- Auto-close after duration
+  task.delay(duration, function()
+    if toast.Parent then
+      PanelAnimation:close(toast, {destroyOnComplete = true})
+      demoPanels[toast] = nil
+      toastCount = math.max(0, toastCount - 1)
+    end
+  end)
+  
+  return toast
+end
+
+-- Demo sequence
+print("\n=== Running Demo Sequence ===\n")
+
+-- Get PlayerGui
+local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+
+-- Open modal panel
+print("1. Opening Modal Panel...")
+local modalPanel = createModalPanel("Welcome", 400, 300)
+modalPanel.Parent = playerGui
+PanelAnimation:open(modalPanel, {
+  duration = 0.3,
+  scaleStart = 0.8,
+  onComplete = function()
+    print("   Modal panel opened")
+  end
+})
+demoPanels[modalPanel] = true
+
+task.delay(2.0, function()
+  print("   Closing Modal Panel...")
+  PanelAnimation:close(modalPanel, {
+    destroyOnComplete = true,
+    onComplete = function()
+      print("   Modal panel closed and destroyed")
+    end
+  })
+  demoPanels[modalPanel] = nil
+end)
+
+-- Open settings panel
+print("\n2. Opening Settings Panel...")
+local settingsPanel = createSettingsPanel(500, 400)
+settingsPanel.Parent = playerGui
+PanelAnimation:open(settingsPanel, {
+  duration = 0.35,
+  scaleStart = 0.85,
+  onComplete = function()
+    print("   Settings panel opened")
+  end
+})
+demoPanels[settingsPanel] = true
+
+task.delay(3.0, function()
+  print("   Closing Settings Panel...")
+  PanelAnimation:close(settingsPanel, {
+    destroyOnComplete = true,
+    onComplete = function()
+      print("   Settings panel closed and destroyed")
+    end
+  })
+  demoPanels[settingsPanel] = nil
+end)
+
+-- Open toast notifications
+print("\n3. Opening Toast Notifications...")
+local toast1 = createToast("Settings saved successfully!", 2.0, "success")
+toast1.Parent = playerGui
+PanelAnimation:open(toast1, {duration = 0.25, scaleStart = 0.9})
+
+local toast2 = createToast("An error occurred!", 2.0, "error")
+toast2.Parent = playerGui
+PanelAnimation:open(toast2, {duration = 0.25, scaleStart = 0.9})
+
+local toast3 = createToast("Regular notification", 2.0)
+toast3.Parent = playerGui
+PanelAnimation:open(toast3, {duration = 0.25, scaleStart = 0.9})
+
+-- Cleanup on game shutdown
+game:BindToClose(function()
+  print("\n4. Demo complete! Cleaning up...")
+  for panel in pairs(demoPanels) do
+    if panel.Parent then
+      PanelAnimation:cancel(panel)
+      panel:Destroy()
+    end
+  end
+  print("   All panels destroyed.")
+end)
+
+print("\n=== Demo Started ===\n")
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="9">
+        <Properties>
           <string name="Name">PlayerProfile</string>
           <string name="Source"><![CDATA[--[[
 	PlayerProfile.lua — Structured profile schema for Harbor Heist V1.
@@ -1257,7 +1989,7 @@ return PlayerProfile
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="8">
+      <Item class="ModuleScript" referent="10">
         <Properties>
           <string name="Name">ZoneDefinitions</string>
           <string name="Source"><![CDATA[--[[
@@ -1319,11 +2051,11 @@ return ZoneDefinitions
       </Item>
     </Item>
   </Item>
-  <Item class="ServerScriptService" referent="9">
+  <Item class="ServerScriptService" referent="11">
     <Properties>
       <string name="Name">ServerScriptService</string>
     </Properties>
-    <Item class="Script" referent="10">
+    <Item class="Script" referent="12">
       <Properties>
         <string name="Name">HarborHeist</string>
         <token name="RunContext">0</token>
@@ -1621,7 +2353,7 @@ end
 
 print("[HarborHeist] Server initialized.")</string>
       </Properties>
-      <Item class="ModuleScript" referent="11">
+      <Item class="ModuleScript" referent="13">
         <Properties>
           <string name="Name">AnalyticsService</string>
           <string name="Source"><![CDATA[--!strict
@@ -1935,7 +2667,7 @@ return AnalyticsService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="12">
+      <Item class="ModuleScript" referent="14">
         <Properties>
           <string name="Name">AntiExploitService</string>
           <string name="Source"><![CDATA[--!strict
@@ -2080,7 +2812,7 @@ return AntiExploitService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="13">
+      <Item class="ModuleScript" referent="15">
         <Properties>
           <string name="Name">AquariumService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -2669,7 +3401,7 @@ return AquariumService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="14">
+      <Item class="ModuleScript" referent="16">
         <Properties>
           <string name="Name">AuditLogService</string>
           <string name="Source"><![CDATA[--!strict
@@ -2785,7 +3517,7 @@ return AuditLogService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="15">
+      <Item class="ModuleScript" referent="17">
         <Properties>
           <string name="Name">BoatService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -3279,7 +4011,7 @@ return BoatService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="16">
+      <Item class="ModuleScript" referent="18">
         <Properties>
           <string name="Name">CollectionService</string>
           <string name="Source"><![CDATA[--!strict
@@ -3578,7 +4310,7 @@ return CollectionService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="17">
+      <Item class="ModuleScript" referent="19">
         <Properties>
           <string name="Name">DataManager</string>
           <string name="Source">local DataStoreService = game:GetService("DataStoreService")
@@ -4421,7 +5153,7 @@ DataManager._sanitize = sanitize
 return DataManager</string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="18">
+      <Item class="ModuleScript" referent="20">
         <Properties>
           <string name="Name">DockManager</string>
           <string name="Source"><![CDATA[local TweenService = game:GetService("TweenService")
@@ -5135,7 +5867,7 @@ return DockManager
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="19">
+      <Item class="ModuleScript" referent="21">
         <Properties>
           <string name="Name">FishInventoryService</string>
           <string name="Source"><![CDATA[--[[
@@ -5403,7 +6135,7 @@ return FishInventoryService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="20">
+      <Item class="ModuleScript" referent="22">
         <Properties>
           <string name="Name">FishingService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -5918,7 +6650,7 @@ return FishingService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="21">
+      <Item class="ModuleScript" referent="23">
         <Properties>
           <string name="Name">OnboardingService</string>
           <string name="Source"><![CDATA[--!strict
@@ -6064,7 +6796,7 @@ return OnboardingService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="22">
+      <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">QuestService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -6307,7 +7039,7 @@ return QuestService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="23">
+      <Item class="ModuleScript" referent="25">
         <Properties>
           <string name="Name">RaidService</string>
           <string name="Source"><![CDATA[--!strict
@@ -7562,7 +8294,7 @@ return RaidService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="24">
+      <Item class="ModuleScript" referent="26">
         <Properties>
           <string name="Name">Remotes</string>
           <string name="Source"><![CDATA[local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7606,7 +8338,7 @@ return Remotes
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="25">
+      <Item class="ModuleScript" referent="27">
         <Properties>
           <string name="Name">RodService</string>
           <string name="Source"><![CDATA[local TweenService = game:GetService("TweenService")
@@ -8050,7 +8782,7 @@ return RodService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="26">
+      <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">ShopService</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -8229,7 +8961,7 @@ return ShopService
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="27">
+      <Item class="ModuleScript" referent="29">
         <Properties>
           <string name="Name">StateSync</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
@@ -8409,7 +9141,7 @@ return StateSync
 ]]></string>
         </Properties>
       </Item>
-      <Item class="ModuleScript" referent="28">
+      <Item class="ModuleScript" referent="30">
         <Properties>
           <string name="Name">WorldBuilder</string>
           <string name="Source"><![CDATA[local WorldBuilder = {}
@@ -8961,20 +9693,20 @@ return WorldBuilder
       </Item>
     </Item>
   </Item>
-  <Item class="ServerStorage" referent="29">
+  <Item class="ServerStorage" referent="31">
     <Properties>
       <string name="Name">ServerStorage</string>
     </Properties>
   </Item>
-  <Item class="StarterPlayer" referent="30">
+  <Item class="StarterPlayer" referent="32">
     <Properties>
       <string name="Name">StarterPlayer</string>
     </Properties>
-    <Item class="StarterPlayerScripts" referent="31">
+    <Item class="StarterPlayerScripts" referent="33">
       <Properties>
         <string name="Name">StarterPlayerScripts</string>
       </Properties>
-      <Item class="LocalScript" referent="32">
+      <Item class="LocalScript" referent="34">
         <Properties>
           <string name="Name">HarborHeistClient</string>
           <string name="Source">local Players = game:GetService("Players")
@@ -8994,6 +9726,11 @@ local Anim = AnimationSystem  -- shorthand for use in UI code
 -- harborheist-ncxu: Keyboard navigation system (EPIC 32: Accessibility)
 -- Provides Tab/Shift+Tab navigation, Enter/Space activation, focus indicators
 local KeyboardNav = require(script:WaitForChild("KeyboardNav"))
+
+-- harborheist-i39g.3: Gradient library (EPIC 35: Visual Polish)
+-- Provides named gradient presets for surfaces, accents, status, and rarity.
+-- Use Gradients.apply(element, "surface.default") instead of vGradient() for new code.
+local Gradients = require(script:WaitForChild("GradientLibrary"))
 
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
@@ -9015,18 +9752,85 @@ local playerMouse = player:GetMouse()
 -- ============================================================
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- R4 polish #2 (mobile): light haptic tick at celebration moments (Epic+
--- reveal, milestone claim). Fully pcall-guarded — HapticService.Play only
--- does anything on haptic-capable touch devices; everywhere else it is a
--- silent no-op. Deliberately NOT wired to every button press — haptics
--- everywhere is haptics nowhere.
-local function hapticTick()
-	if not IS_MOBILE then
-		return
-	end
-	pcall(function()
-		HapticService:Play(Enum.HapticEffectType.UI_Click)
+-- R4 polish #2 (mobile): context-aware haptic feedback system for touch interactions.
+-- Implements variable intensity, duration control, and context-aware effects.
+-- Fully pcall-guarded — HapticService.Play only does anything on haptic-capable
+-- touch devices; everywhere else it is a silent no-op. Deliberately NOT wired to
+-- every UI moment — haptics everywhere is haptics nowhere.
+
+-- Resolve an Enum.HapticEffectType member by name, falling back to UI_Click when
+-- the member does not exist on this platform (graceful degradation).
+local function resolveHapticEffect(effectName)
+	local ok, effect = pcall(function()
+		return Enum.HapticEffectType[effectName]
 	end)
+	if ok and effect then
+		return effect
+	end
+	return Enum.HapticEffectType.UI_Click
+end
+
+local function createHapticEffect(effectName, intensity, duration)
+	return {
+		type = resolveHapticEffect(effectName),
+		intensity = intensity or 0.5,
+		duration = duration or 0.1,
+	}
+end
+
+-- Haptic feedback categories with tuned parameters (string keys — harborheist-l0rb)
+local HAPTIC_CATEGORIES = {
+	-- Basic interactions
+	PressStart = createHapticEffect("UI_Click", 0.3, 0.08), -- Light tap on press
+	PressEnd = createHapticEffect("UI_Click", 0.4, 0.12), -- Slightly stronger release
+
+	-- Success states (use Rumble for success feedback)
+	SuccessSmall = createHapticEffect("Rumble", 0.35, 0.15), -- Quick success tick
+	SuccessLarge = createHapticEffect("Rumble", 0.45, 0.25), -- Celebratory success
+
+	-- Error states (use Rumble for error feedback)
+	ErrorSmall = createHapticEffect("Rumble", 0.3, 0.18), -- Short error buzz
+	ErrorLarge = createHapticEffect("Rumble", 0.4, 0.25), -- More pronounced error
+
+	-- Special events (use Rumble for significant events)
+	RarityReveal = createHapticEffect("Rumble", 0.6, 0.35), -- Legendary/epic catch
+	QuestComplete = createHapticEffect("Rumble", 0.5, 0.4), -- Quest milestone
+	MilestoneClaim = createHapticEffect("Rumble", 0.55, 0.45), -- Major achievement
+}
+
+-- Haptic feedback dispatcher (fallback to PressEnd if category not found).
+-- harborheist-l0rb / consolidation: single source of truth — all wrappers below
+-- delegate here so the IS_MOBILE guard + pcall + lookup live in exactly one place.
+local function playHaptic(category)
+	if not IS_MOBILE then return end
+
+	local effectConfig = HAPTIC_CATEGORIES[category] or HAPTIC_CATEGORIES.PressEnd
+
+	pcall(function()
+		HapticService:Play(effectConfig.type, effectConfig.intensity, effectConfig.duration)
+	end)
+end
+
+-- Convenience wrappers for common actions
+local function hapticPressStart()
+	playHaptic("PressStart")
+end
+
+local function hapticPressEnd()
+	playHaptic("PressEnd")
+end
+
+local function hapticSuccess()
+	playHaptic("SuccessSmall")
+end
+
+local function hapticError()
+	playHaptic("ErrorSmall")
+end
+
+-- Legacy compatibility - kept for existing code paths (celebration moments)
+local function hapticTick()
+	playHaptic("RarityReveal")
 end
 
 -- ============================================================
@@ -9049,6 +9853,15 @@ local UI = {
 	textDim = Color3.fromRGB(148, 163, 184),
 	textFaint = Color3.fromRGB(138, 154, 177),
 	ink = Color3.fromRGB(10, 16, 26),
+	-- Additional palette colors for semantic tokens
+	money = Color3.fromRGB(134, 239, 172),
+	undiscovered = Color3.fromRGB(16, 24, 36),
+	claimReady = Color3.fromRGB(50, 160, 80),
+	claimReadyHi = Color3.fromRGB(74, 198, 114),
+	disabled = Color3.fromRGB(100, 60, 60),
+	neutral = Color3.fromRGB(60, 70, 80),
+	alert = Color3.fromRGB(255, 170, 80),
+	raidAlert = Color3.fromRGB(255, 120, 120),
 }
 
 local FONT_HEAD = Enum.Font.GothamBlack
@@ -9087,18 +9900,19 @@ local EASE_IN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local Theme = {
 	spacing = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 },
 	type = {
-		sizes = { xs = 12, sm = 15, md = 19, lg = 24, xl = 30 }, -- 1.25 ratio
+		sizes = { xxs = 11, xs = 12, sm = 15, md = 19, lg = 24, xl = 30 }, -- 1.25 ratio
 		fonts = { head = FONT_HEAD, bold = FONT_BOLD, med = FONT_MED, body = FONT_BODY },
 	},
 	color = {
-		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi },
+		surface = { primary = UI.bg, secondary = UI.surface, elevated = UI.surfaceHi, undiscovered = UI.undiscovered },
 		text = { primary = UI.text, secondary = UI.textDim, tertiary = UI.textFaint, ink = UI.ink },
 		stroke = UI.stroke,
 		accent = { base = UI.accent, soft = UI.accentSoft },
-		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft },
+		status = { good = UI.good, bad = UI.bad, warn = UI.warn, info = UI.accentSoft, claimReady = UI.claimReady, claimReadyHi = UI.claimReadyHi, disabled = UI.disabled, neutral = UI.neutral, alert = UI.alert, raidAlert = UI.raidAlert },
 		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
+		money = UI.money,
 	},
-	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
+	corners = { hairline = 2, thin = 3, slim = 4, compact = 5, snug = 6, tight = 7, sm = 8, roomy = 10, md = 12, spacious = 14, lg = 16, xl = 20, pill = 999 },
 	-- Roblox UI has no native shadow; elevation is faked with layered
 	-- Frames. Consumed by EPIC 35 (harborheist-i39g.1); defined here so
 	-- the token system is complete and that bead reads a single source.
@@ -9108,17 +9922,12 @@ local Theme = {
 		high = { layers = 4, spread = 16, alpha = 0.3 },
 	},
 	buttonVariants = {
-		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
-		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7 },
-		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
-		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
+		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
+		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7, radius = Theme.corners.md },
+		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85, radius = Theme.corners.md },
+		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
 	},
 }
--- Link button-variant radii to the single corner token (corners.md == 12),
--- so the radius scale has one source of truth.
-for _, variant in pairs(Theme.buttonVariants) do
-	variant.radius = Theme.corners.md
-end
 
 local state = nil
 local casting = false
@@ -9164,12 +9973,59 @@ local function isOverlayActive(kind)
 end
 
 -- ============================================================
--- TASK 23.2 (hvfh.3.2): Unified overlay visual language
--- All three minigame overlays (cast, bite, raid) share the same
--- frame treatment: corner radius, stroke, gradient, title style.
--- ZIndex ladder: backdrop(20) &lt; panels(25-29) &lt; overlays(40-49)
--- &lt; reveal card(50-54) &lt; toasts(55-59). Toasts always win — they
--- carry server truth like raid-victim notifications.
+-- harborheist-i39g.4: Z-Index Ladder (canonical reference)
+--
+-- Roblox renders siblings by ZIndex (higher = on top) when the
+-- ScreenGui uses ZIndexBehavior.Sibling (set below). This ladder
+-- is the single source of truth for layering — new UI must slot
+-- into an existing band or extend it, never invent a new value
+-- in the middle of a band.
+--
+--   0-9    HUD elements (cash card, carry pill, HUD buttons)
+--          4 = hudClick, 5 = income line / action bar
+--
+--   10     Action button badges (bag badge, boat state dot)
+--          These are children of action buttons, layered above the button
+--
+--   15-19  Onboarding / coach marks / raid banner
+--          15 = onboardingPrompt, 16 = accent bar / labels,
+--          18 = raid banner background, 19 = raid banner icon / text
+--
+--   20-24  Panel backdrops (dimmed screen behind a modal panel)
+--          20 = backdrop
+--
+--   25-29  Panel content (the modal itself + its children)
+--          25 = panel frame, 26 = grabber / drag surface / content,
+--          27 = inner controls (capacity bar, claim button),
+--          28 = shop/quest panel fills
+--
+--   30-39  Prompts (sell/store confirmations)
+--          30 = sellStorePrompt, 31 = prompt children
+--
+--   40-49  Minigame overlays (cast, bite, raid)
+--          40 = OVERLAY_Z_BASE (frame), 41 = OVERLAY_Z_CONTENT,
+--          42 = OVERLAY_Z_ZONE (good zone), 43 = OVERLAY_Z_MARKER,
+--          49 = rarity flash (legendary catch celebration)
+--
+--   50-54  Reveal card (first-catch / epic-catch celebration)
+--          50 = card, 51 = topBar / tag / icon, 52 = rarity stroke
+--
+--   55-59  Toasts (ALWAYS WIN — carry server truth like raid-victim)
+--          55 = toastHost, 56 = toast, 57 = accentBar / action buttons,
+--          58 = toast title, 59 = dismiss button, 60+i = stacked toasts
+--
+--   100    Empty-state overlays (panel-local, not a global layer)
+--          Used by showCollectionSkeleton / empty-frame factories
+--
+-- RULES:
+-- 1. Toasts (55-59) always render above everything — they carry
+--    server-authoritative notifications (raid-victim, datastore errors).
+-- 2. Minigame overlays (40-49) must be above panels (25-29) so the
+--    timing bar is visible when a panel is open behind it.
+-- 3. Never assign ZIndex between bands (e.g., 35) — that creates
+--    ambiguous layering. Use the band assigned to your UI category.
+-- 4. If you need a new band, extend the nearest one (e.g., 60-69 for
+--    a new overlay type) and update this comment.
 -- ============================================================
 local OVERLAY_Z_BASE = 40
 local OVERLAY_Z_CONTENT = 41
@@ -9223,6 +10079,8 @@ local function padding(parent, all)
 end
 
 local function vGradient(parent, topColor, bottomColor)
+	-- DEPRECATED: Use Gradients.apply() with named presets for new code.
+	-- This function remains for backward compatibility with existing call sites.
 	local g = Instance.new("UIGradient")
 	g.Rotation = 90
 	g.Color = ColorSequence.new(topColor, bottomColor)
@@ -9236,7 +10094,7 @@ local function makeLabel(parent, props)
 	label.TextColor3 = Theme.color.text.primary
 	label.Font = Theme.type.fonts.body
 	label.TextScaled = false
-	label.TextSize = 15
+	label.TextSize = Theme.type.sizes.sm
 	for key, value in pairs(props) do
 		label[key] = value
 	end
@@ -9267,7 +10125,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	frame.Parent = screenGui
 	corner(frame, Theme.corners.lg)
 	stroke(frame, 0.8)
-	vGradient(frame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(frame, "surface.default")
 
 	-- Title (unified style)
 	local title = makeLabel(frame, {
@@ -9275,7 +10133,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 		Position = UDim2.new(0, 10, 0, 10),
 		Text = titleText,
 		Font = Theme.type.fonts.head,
-		TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+		TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md,
 		TextColor3 = Theme.color.status.warn,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
@@ -9287,7 +10145,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	barTrack.BackgroundColor3 = Theme.color.surface.secondary
 	barTrack.ZIndex = OVERLAY_Z_CONTENT
 	barTrack.Parent = frame
-	corner(barTrack, 10)
+	corner(barTrack, Theme.corners.roomy)
 	stroke(barTrack, 0.85)
 
 	-- Good zone (unified)
@@ -9308,11 +10166,11 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	perfectZone.AnchorPoint = Vector2.new(0.5, 0)
 	perfectZone.Size = UDim2.new(0.4, 0, 1, -8)
 	perfectZone.Position = UDim2.new(0.5, 0, 0, 4)
-	perfectZone.BackgroundColor3 = Color3.fromRGB(134, 239, 172)
+	perfectZone.BackgroundColor3 = Theme.color.money
 	perfectZone.BackgroundTransparency = 0.12
 	perfectZone.ZIndex = OVERLAY_Z_MARKER
 	perfectZone.Parent = goodZone
-	corner(perfectZone, 7)
+	corner(perfectZone, Theme.corners.tight)
 
 	-- Subtitle (unified) - TASK 26.3: improved readability
 	local subtitle = makeLabel(frame, {
@@ -9320,7 +10178,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 		Position = UDim2.new(0, 12, 1, -20),
 		Text = subtitleText,
 		Font = Theme.type.fonts.bold,
-		TextSize = IS_MOBILE and 13 or Theme.type.sizes.xs,
+		TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = OVERLAY_Z_CONTENT,
 	})
@@ -9332,7 +10190,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	marker.BackgroundColor3 = Color3.new(1, 1, 1)
 	marker.ZIndex = OVERLAY_Z_MARKER
 	marker.Parent = barTrack
-	corner(marker, 3)
+	corner(marker, Theme.corners.thin)
 
 	local markerGlow = Instance.new("Frame")
 	markerGlow.Size = UDim2.new(0, 15, 1, 10)
@@ -9471,7 +10329,7 @@ local function makeButton(parent, props)
 	button.BackgroundColor3 = (variant and variant.bg) or Theme.color.accent.base
 	button.TextColor3 = (variant and variant.text) or Theme.color.text.ink
 	button.Font = Theme.type.fonts.bold
-	button.TextSize = IS_MOBILE and 16 or Theme.type.sizes.sm
+	button.TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.sm
 	button.AutoButtonColor = false
 	
 	-- Apply custom properties if provided
@@ -9517,46 +10375,178 @@ local function makeButton(parent, props)
 	end
 	
 	-- Press feedback with proper easing (fallback if AnimationSystem unavailable)
+	-- harborheist-g9z2: Enhanced with hover effects, animation cancellation, and disabled button guards
 	local function setupPressFeedback()
 		if hasAnimPress then return end  -- AnimationSystem handles this
 		if pressTween then return end
 		
-		pressTween = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		pressTween = EASE_FAST
+		
+		-- harborheist-g9z2: Track active tweens for cancellation during rapid interactions
+		local activeTweens = {}
+		local function cancelTweens()
+			for _, tween in pairs(activeTweens) do
+				if tween and tween.PlaybackState ~= Enum.PlaybackState.Completed then
+					pcall(function() tween:Cancel() end)
+				end
+			end
+			activeTweens = {}
+		end
+		
+		-- harborheist-g9z2: Store original color for hover lerp
+		local originalColor = button.BackgroundColor3
+		
+		-- harborheist-g9z2: Pre-create shadow layers for hover elevation (desktop only)
+		local hoverShadows = {}
+		if not IS_MOBILE then
+			local shadowConfig = Theme.shadows.low
+			for i = 1, shadowConfig.layers do
+				local shadow = Instance.new("Frame")
+				shadow.Name = "HoverShadow_" .. i
+				shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+				shadow.BackgroundTransparency = 1 -- start invisible
+				shadow.Size = UDim2.new(1, shadowConfig.spread * i, 1, shadowConfig.spread * i)
+				shadow.Position = UDim2.new(0, -shadowConfig.spread * i / 2, 0, -shadowConfig.spread * i / 2)
+				shadow.ZIndex = button.ZIndex - 1
+				shadow.Active = false
+				shadow.Parent = button
+				corner(shadow, resolveRadius)
+				hoverShadows[i] = shadow
+			end
+		end
 		
 		button.MouseButton1Down:Connect(function()
+			-- harborheist-g9z2: Guard against disabled buttons
+			if not button.Active then
+				return
+			end
+			
+			-- harborheist-g9z2: Cancel any running animations before starting new ones
+			cancelTweens()
+			
 			-- Press state - scale down slightly for tactile feedback
-			local pressTweenObj = TweenService:Create(button, pressTween, { Scale = 0.96 })
-			pressTweenObj:Play()
-			
-			-- Haptic tick on mobile devices
+			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
+			activeTweens.scale:Play()
+
+			-- Haptic feedback on mobile devices (R4 polish #2)
 			if IS_MOBILE then
-				pcall(function()
-					HapticService:Play(Enum.HapticEffectType.UI_Click)
-				end)
-			end
-			
-			-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
-			if props and props.onSuccess then
-				button.MouseButton1Click:Connect(props.onSuccess)
-			end
-			if props and props.onError then
-				button.MouseButton1Click:Connect(function()
-					props.onError(button)
-				end)
+				hapticPressStart()
 			end
 		end)
 		
+		-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
+		-- harborheist-qrj9: connect ONCE at setup time. These used to live inside the
+		-- MouseButton1Down handler, so every press added another pair of click
+		-- connections — handlers fired N times after N presses and connections leaked.
+		if props and props.onSuccess then
+			button.MouseButton1Click:Connect(function()
+				hapticSuccess()
+				props.onSuccess()
+			end)
+		end
+		if props and props.onError then
+			button.MouseButton1Click:Connect(function()
+				hapticError()
+				props.onError(button)
+			end)
+		end
+		
 		button.MouseButton1Up:Connect(function()
-			-- Release state - bounce back with spring physics
-			local releaseTweenObj = TweenService:Create(button, EASE_POP, { Scale = 1 })
-			releaseTweenObj:Play()
+			-- harborheist-g9z2: Guard against disabled buttons
+			if not button.Active then
+				return
+			end
 			
+			cancelTweens()
+			
+			-- Release state - bounce back with spring physics
+			activeTweens.scale = TweenService:Create(button, EASE_POP, { Scale = 1 })
+			activeTweens.scale:Play()
+
+			-- Haptic feedback on mobile devices (R4 polish #2)
 			if IS_MOBILE then
-				pcall(function()
-					HapticService:Play(Enum.HapticEffectType.UI_Click)
-				end)
+				hapticPressEnd()
 			end
 		end)
+		
+		-- harborheist-g9z2: Desktop hover effects
+		if not IS_MOBILE then
+			button.MouseEnter:Connect(function()
+				-- harborheist-g9z2: Guard against disabled buttons
+				if not button.Active then
+					return
+				end
+				
+				cancelTweens()
+				
+				-- harborheist-g9z2: Scale up slightly on hover
+				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1.02 })
+				activeTweens.scale:Play()
+				
+				-- harborheist-g9z2: Brighten background color (lerp toward white by 10%)
+				local hoverColor = originalColor:Lerp(Color3.new(1, 1, 1), 0.1)
+				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = hoverColor })
+				activeTweens.color:Play()
+				
+				-- harborheist-g9z2: Show hover glow overlay
+				if hoverGlow then
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 0.9 })
+					activeTweens.glow:Play()
+				end
+				
+				-- harborheist-g9z2: Fade in hover shadows for elevation lift
+				-- harborheist-8qv8: track these in activeTweens so cancelTweens() covers them
+				local shadowConfig = Theme.shadows.low
+				for i, shadow in ipairs(hoverShadows) do
+					local targetAlpha = 1 - (shadowConfig.alpha * (1 - (i - 1) / shadowConfig.layers))
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = targetAlpha })
+					activeTweens["shadow_" .. i]:Play()
+				end
+				
+				-- harborheist-g9z2: Change cursor to pointing hand
+				playerMouse.Icon = "rbxasset://SystemCursors/PointingHand"
+			end)
+			
+			button.MouseLeave:Connect(function()
+				cancelTweens()
+				
+				-- harborheist-g9z2: Scale back to normal
+				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1 })
+				activeTweens.scale:Play()
+				
+				-- harborheist-g9z2: Restore original color
+				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = originalColor })
+				activeTweens.color:Play()
+				
+				-- harborheist-g9z2: Hide hover glow
+				if hoverGlow then
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens.glow:Play()
+				end
+				
+				-- harborheist-g9z2: Fade out hover shadows
+				-- harborheist-8qv8: track these in activeTweens so cancelTweens() covers them
+				for i, shadow in ipairs(hoverShadows) do
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens["shadow_" .. i]:Play()
+				end
+				
+				-- harborheist-g9z2: Reset cursor
+				playerMouse.Icon = ""
+			end)
+			
+			-- harborheist-g9z2: Clean up cursor and shadows on destroy
+			button.Destroying:Connect(function()
+				if playerMouse.Icon == "rbxasset://SystemCursors/PointingHand" then
+					playerMouse.Icon = ""
+				end
+				for _, shadow in ipairs(hoverShadows) do
+					if shadow.Parent then
+						shadow:Destroy()
+					end
+				end
+			end)
+		end
 	end
 	
 	setupPressFeedback()
@@ -9663,7 +10653,7 @@ local function createSkeletonRows(parent, config)
 		corner(row, Theme.corners.sm)
 		
 		local skeletonStroke = Instance.new("UIStroke")
-		skeletonStroke.Color = Theme.color.textFaint
+		skeletonStroke.Color = Theme.color.text.tertiary
 		skeletonStroke.Thickness = 1
 		skeletonStroke.Transparency = 0.7
 		skeletonStroke.Parent = row
@@ -9680,7 +10670,7 @@ local function createSkeletonRows(parent, config)
 			item.Parent = row
 			
 			local itemStroke = Instance.new("UIStroke")
-			itemStroke.Color = Theme.color.textFaint
+			itemStroke.Color = Theme.color.text.tertiary
 			itemStroke.Thickness = 1
 			itemStroke.Transparency = 0.6
 			itemStroke.Parent = item
@@ -9726,8 +10716,8 @@ local function showEmptyState(parent, message)
 	emptyLabel.AnchorPoint = Vector2.new(0.5, 0.5)
 	emptyLabel.Text = message or "No data available"
 	emptyLabel.Font = Theme.type.fonts.body
-	emptyLabel.TextSize = IS_MOBILE and 14 or 16
-	emptyLabel.TextColor3 = Theme.color.textFaint
+	emptyLabel.TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md
+	emptyLabel.TextColor3 = Theme.color.text.tertiary
 	emptyLabel.BackgroundTransparency = 1
 	emptyLabel.ZIndex = 101
 	emptyLabel.Parent = emptyFrame
@@ -10068,14 +11058,14 @@ hud.BackgroundTransparency = 0.18
 hud.Parent = screenGui
 corner(hud, Theme.corners.lg)
 stroke(hud, 0.85)
-vGradient(hud, Color3.fromRGB(24, 36, 54), Theme.color.surface.primary)
+Gradients.apply(hud, "surface.hud")
 
 makeLabel(hud, {
 	Size = UDim2.new(0, 76, 0, 12),
 	Position = UDim2.new(0, 14, 0, IS_MOBILE and 6 or 8),
 	Text = "BALANCE",
 	Font = Theme.type.fonts.bold,
-	TextSize = 9,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
@@ -10086,7 +11076,7 @@ local cashLabel = makeLabel(hud, {
 	Text = "$0",
 	Font = Theme.type.fonts.head,
 	TextSize = IS_MOBILE and Theme.type.sizes.lg or Theme.type.sizes.xl,
-	TextColor3 = Color3.fromRGB(134, 239, 172),
+	TextColor3 = Theme.color.money,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 
@@ -10095,7 +11085,7 @@ local incomeLabel = makeLabel(hud, {
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
 	Text = "+$0.0/min",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	-- TASK 24.1 (hvfh.4.1): RichText so the claimable "ready" segment can be
@@ -10168,13 +11158,13 @@ local function updateIncomeLine(readyTransparency)
 		-- One notch smaller on the 178px mobile card so rate + ready fit on
 		-- one line (the no-layout-shift path; 6+ digit ready values may still
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
-		incomeLabel.TextSize = IS_MOBILE and 11 or 13
+		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = string.format(
 			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
-		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or 13
+		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	end
 end
@@ -10271,7 +11261,7 @@ local carryLabel = makeLabel(carryPill, {
 	Position = UDim2.new(0, Theme.spacing.md, 0, 0),
 	Text = "On line: 0 / 3 fish",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and Theme.type.sizes.xs or 13,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
 	TextColor3 = Theme.color.accent.soft,
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
@@ -10377,13 +11367,13 @@ local function showToastDirect(message, color, category, actions)
 	accentBar.BackgroundTransparency = 1
 	accentBar.ZIndex = 57
 	accentBar.Parent = toast
-	corner(accentBar, 2)
+	corner(accentBar, Theme.corners.hairline)
 	local chip = makeLabel(toast, {
 		Size = UDim2.new(0, 80, 0, 16),
 		Position = UDim2.new(0, 18, 0, 4),
 		Text = TOAST_CATEGORIES[category] or "INFO",
 		Font = Theme.type.fonts.bold,
-		TextSize = 10,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = color,
 		TextTransparency = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -10394,7 +11384,7 @@ local function showToastDirect(message, color, category, actions)
 		Position = UDim2.new(0, 22, 0, 20),
 		Text = message,
 		Font = Theme.type.fonts.med,
-		TextSize = IS_MOBILE and 13 or 14,
+		TextSize = Theme.type.sizes.sm,
 		TextTransparency = 1,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -10405,7 +11395,7 @@ local function showToastDirect(message, color, category, actions)
 	-- padding. (Padding on the LABEL, not the toast, so the accent bar's
 	-- scale height keeps resolving against the full toast height.)
 	local textBottomPad = Instance.new("UIPadding")
-	textBottomPad.PaddingBottom = UDim.new(0, 8)
+	textBottomPad.PaddingBottom = UDim.new(0, Theme.spacing.sm)
 	textBottomPad.Parent = text
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
@@ -10440,7 +11430,7 @@ local function showToastDirect(message, color, category, actions)
 				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
-				TextSize = IS_MOBILE and 11 or 12,
+				TextSize = IS_MOBILE and Theme.type.sizes.xxs or Theme.type.sizes.xs,
 				BackgroundColor3 = Theme.color.surface.elevated,
 				TextColor3 = color,
 				CornerRadius = Theme.corners.sm,
@@ -10579,6 +11569,7 @@ local MOBILE_STACK_PITCH = 70
 -- mutates this on short screens; updateOnboardingPromptOffset reads it so the
 -- prompt tracks the actual (possibly shrunk) stack top, not the design default.
 local mobileStackPitch = MOBILE_STACK_PITCH
+local MOBILE_STACK_PADDING = 10
 local PROMPT_STACK_GAP = 12
 local DESKTOP_BAR_BOTTOM = 18
 local DESKTOP_BAR_H = 58
@@ -10614,7 +11605,7 @@ onboardingAccentBar.Position = UDim2.new(0, 8, 0, 7)
 onboardingAccentBar.BackgroundColor3 = Theme.color.accent.base
 onboardingAccentBar.ZIndex = 16
 onboardingAccentBar.Parent = onboardingPrompt
-corner(onboardingAccentBar, 2)
+corner(onboardingAccentBar, Theme.corners.hairline)
 
 local onboardingLabel = makeLabel(onboardingPrompt, {
 	-- harborheist-bpem.1: widened right padding (-52 -> -60) to match the
@@ -10624,7 +11615,7 @@ local onboardingLabel = makeLabel(onboardingPrompt, {
 	Position = UDim2.new(0, 20, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.primary,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -10708,7 +11699,7 @@ sellStorePrompt.Visible = false
 -- was open rendered this prompt BEHIND it, invisible until closed.
 sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
-corner(sellStorePrompt, 14)
+corner(sellStorePrompt, Theme.corners.spacious)
 stroke(sellStorePrompt, 0.7, Theme.color.accent.base, 1.5)
 
 makeLabel(sellStorePrompt, {
@@ -10739,7 +11730,7 @@ local sellStoreClose = makeButton(sellStorePrompt, {
 	Size = UDim2.new(0, IS_MOBILE and 44 or 26, 0, IS_MOBILE and 44 or 26),
 	Position = UDim2.new(1, IS_MOBILE and -49 or -31, 0, IS_MOBILE and 4 or 8),
 	Text = "✕",
-	TextSize = 13,
+	TextSize = Theme.type.sizes.sm,
 	BackgroundColor3 = Theme.color.surface.elevated,
 	TextColor3 = Theme.color.text.secondary,
 	CornerRadius = Theme.corners.pill,
@@ -10957,7 +11948,7 @@ local function makePanel(title, titleColor, desktopSize)
 	panel.Parent = screenGui
 	corner(panel, IS_MOBILE and Theme.corners.xl or Theme.corners.lg)
 	stroke(panel, 0.82)
-	vGradient(panel, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(panel, "surface.default")
 
 	if IS_MOBILE then
 		local grabber = Instance.new("Frame")
@@ -10968,7 +11959,7 @@ local function makePanel(title, titleColor, desktopSize)
 		grabber.BackgroundTransparency = 0.4
 		grabber.ZIndex = 26
 		grabber.Parent = panel
-		corner(grabber, 2)
+		corner(grabber, Theme.corners.hairline)
 
 		-- R4 polish (mobile): drag-to-dismiss — THE bottom-sheet pattern.
 		-- The grabber was decorative; now the header strip is a drag surface.
@@ -11022,7 +12013,7 @@ local function makePanel(title, titleColor, desktopSize)
 		Position = UDim2.new(0, 18, 0, headerY),
 		Text = title,
 		Font = Theme.type.fonts.head,
-		TextSize = IS_MOBILE and 18 or 20,
+		TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.lg,
 		TextColor3 = titleColor,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 26,
@@ -11207,7 +12198,7 @@ local aquariumStats = makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 15 or 14,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
@@ -11221,7 +12212,7 @@ capacityBar.Position = UDim2.new(0, 0, 0, 68)
 capacityBar.BackgroundColor3 = Theme.color.surface.elevated
 capacityBar.ZIndex = 26
 capacityBar.Parent = aquariumContent
-corner(capacityBar, 5)
+corner(capacityBar, Theme.corners.compact)
 stroke(capacityBar, 0.9)
 
 local capacityFill = Instance.new("Frame")
@@ -11229,18 +12220,18 @@ capacityFill.Size = UDim2.new(0, 0, 1, 0)
 capacityFill.BackgroundColor3 = Theme.color.brand.purple
 capacityFill.ZIndex = 27
 capacityFill.Parent = capacityBar
-corner(capacityFill, 5)
+corner(capacityFill, Theme.corners.compact)
 -- Captured for R4 #10: render() tweens the threshold color through BOTH
 -- the fill and its gradient (a UIGradient multiplies the background — a
 -- red fill under a purple gradient would read muddy).
-local capacityGradient = vGradient(capacityFill, Color3.fromRGB(196, 181, 253), Theme.color.brand.purple)
+local capacityGradient = Gradients.apply(capacityFill, "accent.capacity")
 
 -- TASK 5.1: claim accumulated aquarium income
 local claimButton = makeButton(aquariumPanel, {
 	Size = UDim2.new(1, -16, 0, IS_MOBILE and 44 or 34),
 	Position = UDim2.new(0, 8, 1, -122),
 	Text = "CLAIM $0",
-	BackgroundColor3 = Color3.fromRGB(60, 70, 80),
+	BackgroundColor3 = Theme.color.status.neutral,
 	-- thj.5: claimButton is a sibling of the content frame (ZIndex 26); ensure
 	-- it renders/interacts on top so the larger mobile buttons above it don't
 	-- steal input in the overlapping region.
@@ -11255,8 +12246,8 @@ local claimButton = makeButton(aquariumPanel, {
 -- Defined here — NOT in the income-line loop — because claimButton and
 -- aquariumPanel don't exist at that point in the file (lexical binding).
 task.spawn(function()
-	local GLOW_LO = Color3.fromRGB(50, 160, 80)
-	local GLOW_HI = Color3.fromRGB(74, 198, 114)
+	local GLOW_LO = Theme.color.status.claimReady
+	local GLOW_HI = Theme.color.status.claimReadyHi
 	while true do
 		-- Fresh-eyes fix: the pulse must NOT mask the DataStore-unhealthy
 		-- state — render() paints the button danger-red "SAVING UNAVAILABLE"
@@ -11281,7 +12272,7 @@ makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 88),
 	Text = "LIVE-WELL BREAKDOWN",
 	Font = Theme.type.fonts.bold,
-	TextSize = 10,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.tertiary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -11292,7 +12283,7 @@ local rarityList = makeLabel(aquariumContent, {
 	Position = UDim2.new(0, 0, 0, 110),
 	Text = "",
 	Font = Theme.type.fonts.body,
-	TextSize = IS_MOBILE and 15 or 14,
+	TextSize = Theme.type.sizes.sm,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
 	RichText = true,
@@ -11373,7 +12364,7 @@ local inventoryStats = makeLabel(inventoryContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -11506,7 +12497,7 @@ local function renderInventory()
 			Size = UDim2.new(1, 0, 0, 44),
 			Text = "No fish on the line — go catch some!",
 			Font = Theme.type.fonts.body,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			LayoutOrder = 1,
 			ZIndex = 26,
@@ -11528,7 +12519,7 @@ local function renderInventory()
 		row.LayoutOrder = i
 		row.ZIndex = 26
 		row.Parent = inventoryList
-		corner(row, Theme.corners.md)
+		corner(row, Theme.corners.roomy)
 		stroke(row, 0.9)
 
 		local tag = Instance.new("Frame")
@@ -11538,12 +12529,12 @@ local function renderInventory()
 		tag.BackgroundTransparency = 0.78
 		tag.ZIndex = 27
 		tag.Parent = row
-		corner(tag, 5)
+		corner(tag, Theme.corners.compact)
 		makeLabel(tag, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = string.upper(fish.Rarity or "?"),
 			Font = Theme.type.fonts.bold,
-			TextSize = 10,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = rarityColor,
 			ZIndex = 28,
 		})
@@ -11555,7 +12546,7 @@ local function renderInventory()
 			Position = UDim2.new(0, 90, 0, 6),
 			Text = fishDisplayName(fish),
 			Font = Theme.type.fonts.bold,
-			TextSize = 15,
+			TextSize = Theme.type.sizes.sm,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
 			ZIndex = 27,
@@ -11566,7 +12557,7 @@ local function renderInventory()
 			Position = UDim2.new(0, 10, 0, rowH - 24),
 			Text = string.format("$%s sell  •  $%.1f/min stored", formatCash(fish.BaseSellValue or 0), fish.IncomePerMinute or 0),
 			Font = Theme.type.fonts.body,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			ZIndex = 27,
@@ -11576,7 +12567,7 @@ local function renderInventory()
 			Size = UDim2.new(0.22, -4, 0, actionH),
 			Position = UDim2.new(0.54, 0, 0.5, -actionH / 2),
 			Text = "SELL",
-			TextSize = IS_MOBILE and 14 or 13,
+			TextSize = Theme.type.sizes.sm,
 			BackgroundColor3 = Theme.color.status.good,
 			ZIndex = 27,
 		})
@@ -11584,7 +12575,7 @@ local function renderInventory()
 			Size = UDim2.new(0.24, 0, 0, actionH),
 			Position = UDim2.new(0.76, 0, 0.5, -actionH / 2),
 			Text = "STORE",
-			TextSize = IS_MOBILE and 14 or 13,
+			TextSize = Theme.type.sizes.sm,
 			BackgroundColor3 = Theme.color.accent.base,
 			ZIndex = 27,
 		})
@@ -11669,7 +12660,7 @@ local collectionProgress = makeLabel(collectionContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "",
 	Font = Theme.type.fonts.med,
-	TextSize = IS_MOBILE and 14 or 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -11682,7 +12673,7 @@ collectionProgressBar.Position = UDim2.new(0, 0, 0, 24)
 collectionProgressBar.BackgroundColor3 = Theme.color.surface.elevated
 collectionProgressBar.ZIndex = 26
 collectionProgressBar.Parent = collectionContent
-corner(collectionProgressBar, 5)
+corner(collectionProgressBar, Theme.corners.compact)
 stroke(collectionProgressBar, 0.9)
 
 local collectionProgressFill = Instance.new("Frame")
@@ -11691,8 +12682,8 @@ collectionProgressFill.Size = UDim2.new(0, 0, 1, 0)
 collectionProgressFill.BackgroundColor3 = Theme.color.status.warn
 collectionProgressFill.ZIndex = 27
 collectionProgressFill.Parent = collectionProgressBar
-corner(collectionProgressFill, 5)
-vGradient(collectionProgressFill, Color3.fromRGB(255, 205, 92), Theme.color.status.warn)
+corner(collectionProgressFill, Theme.corners.compact)
+Gradients.apply(collectionProgressFill, "status.warning")
 
 local collectionList = Instance.new("ScrollingFrame")
 collectionList.Name = "CollectionList"
@@ -11752,7 +12743,7 @@ local function buildFishSilhouette(parent, color)
 	tail.BorderSizePixel = 0
 	tail.Parent = parent
 	local tailCorner = Instance.new("UICorner")
-	tailCorner.CornerRadius = UDim.new(0, 2)
+	tailCorner.CornerRadius = UDim.new(0, Theme.corners.hairline)
 	tailCorner.Parent = tail
 
 	-- Eye (White dot for life)
@@ -11771,7 +12762,7 @@ end
 local function makeCollectionCard(parent, order, data, discovered)
 	local card = Instance.new("Frame")
 	card.Size = UDim2.new(0, IS_MOBILE and 138 or 146, 0, IS_MOBILE and 130 or 126)
-	card.BackgroundColor3 = discovered and Theme.color.surface.secondary or Color3.fromRGB(16, 24, 36)
+	card.BackgroundColor3 = discovered and Theme.color.surface.secondary or Theme.color.surface.undiscovered
 	card.BackgroundTransparency = 0.1
 	card.LayoutOrder = order
 	card.ZIndex = 26
@@ -11786,7 +12777,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		topBar.BackgroundColor3 = rarityColor
 		topBar.ZIndex = 27
 		topBar.Parent = card
-		corner(topBar, 6)
+		corner(topBar, Theme.corners.snug)
 
 		local icon = Instance.new("Frame")
 		icon.Size = UDim2.new(0, 48, 0, 48)
@@ -11798,8 +12789,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "F" text with procedural fish silhouette
 		buildFishSilhouette(icon, rarityColor)
 
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = Theme.type.fonts.bold, TextSize = 14, TextColor3 = Theme.color.text.primary, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = Theme.type.fonts.body, TextSize = 11, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.primary, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
 
 		local tag = Instance.new("Frame")
 		tag.Size = UDim2.new(0, 74, 0, 18)
@@ -11808,8 +12799,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		tag.BackgroundTransparency = 0.78
 		tag.ZIndex = 27
 		tag.Parent = card
-		corner(tag, 5)
-		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = 10, TextColor3 = rarityColor, ZIndex = 28 })
+		corner(tag, Theme.corners.compact)
+		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 28 })
 	else
 		local icon = Instance.new("Frame")
 		icon.Size = UDim2.new(0, 48, 0, 48)
@@ -11822,8 +12813,8 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "?" text with greyed fish silhouette (no species-identifying info)
 		buildFishSilhouette(icon, Theme.color.text.tertiary)
 
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = 16, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = 11, TextColor3 = rarityColor, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 27 })
 	end
 	return card
 end
@@ -11841,7 +12832,7 @@ local function makeMilestoneRow(parent, order, milestone)
 	row.LayoutOrder = order
 	row.ZIndex = 26
 	row.Parent = parent
-	corner(row, 10)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	makeLabel(row, {
@@ -11849,7 +12840,7 @@ local function makeMilestoneRow(parent, order, milestone)
 		Position = UDim2.new(0, 10, 0, 6),
 		Text = milestone.label,
 		Font = Theme.type.fonts.bold,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -11861,7 +12852,7 @@ local function makeMilestoneRow(parent, order, milestone)
 		Position = UDim2.new(0, 10, 0, 26),
 		Text = string.format("%d / %d", milestone.have or 0, milestone.need or 0),
 		Font = Theme.type.fonts.body,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.secondary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 27,
@@ -11873,7 +12864,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, -90, 0.5, -14),
 			Text = "CLAIMED",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.status.good,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			ZIndex = 27,
@@ -11884,7 +12875,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, IS_MOBILE and -106 or -90, 0.5, IS_MOBILE and -22 or -16),
 			Text = "CLAIM",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			BackgroundColor3 = Theme.color.status.warn,
 			ZIndex = 27,
 		})
@@ -11910,7 +12901,7 @@ local function makeMilestoneRow(parent, order, milestone)
 			Position = UDim2.new(1, -90, 0.5, -14),
 			Text = "LOCKED",
 			Font = Theme.type.fonts.bold,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.tertiary,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			ZIndex = 27,
@@ -11953,7 +12944,7 @@ renderCollection = function()
 	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
 
 	if not book.ordered or #book.ordered == 0 then
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
 		return
 	end
 
@@ -11966,7 +12957,7 @@ renderCollection = function()
 		if data then
 			if data.rarity ~= currentRarity then
 				currentRarity = data.rarity
-				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = 12, TextColor3 = RARITY_COLORS[currentRarity] or Theme.color.text.secondary, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = RARITY_COLORS[currentRarity] or Theme.color.text.secondary, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 				order += 1
 
 				rarityGrid = Instance.new("Frame")
@@ -11998,7 +12989,7 @@ renderCollection = function()
 
 	-- Milestones section
 	order += 1
-	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = Theme.type.fonts.bold, TextSize = 12, TextColor3 = Theme.color.status.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.status.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 	order += 1
 
 	if book.milestones and #book.milestones > 0 then
@@ -12007,7 +12998,7 @@ renderCollection = function()
 			order += 1
 		end
 	else
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = order, ZIndex = 26 })
+		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = order, ZIndex = 26 })
 	end
 end
 
@@ -12058,7 +13049,7 @@ local function toggleCollectionPanel()
 			showNotification("Couldn't refresh the collection — showing saved data.", Theme.color.status.bad)
 		else
 			clearCollectionList()
-			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.status.bad, LayoutOrder = 1, ZIndex = 26 })
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Couldn't load the collection — tap again to retry.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.status.bad, LayoutOrder = 1, ZIndex = 26 })
 		end
 		return
 	end
@@ -12072,7 +13063,7 @@ local function toggleCollectionPanel()
 			showNotification("Collection book loading too fast — try again.", Theme.color.status.warn)
 		else
 			clearCollectionList()
-			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = Theme.type.fonts.body, TextSize = 14, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
+			makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "Still loading — tap again in a moment.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
 			showNotification("Collection book loading too fast — try again.", Theme.color.status.warn)
 		end
 	else
@@ -12178,7 +13169,7 @@ local function buildShopRow(entry)
 	row.LayoutOrder = entry.order
 	row.ZIndex = 26
 	row.Parent = shopList
-	corner(row, Theme.corners.md)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	local meta = KIND_META[entry.kind]
@@ -12189,12 +13180,12 @@ local function buildShopRow(entry)
 	tag.BackgroundTransparency = 0.75
 	tag.ZIndex = 27
 	tag.Parent = row
-	corner(tag, 5)
+	corner(tag, Theme.corners.compact)
 	makeLabel(tag, {
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = meta.tag,
 		Font = Theme.type.fonts.bold,
-		TextSize = 10,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = meta.color,
 		ZIndex = 28,
 	})
@@ -12204,7 +13195,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 62, 0, 7),
 		Text = itemDisplayName(entry),
 		Font = Theme.type.fonts.bold,
-		TextSize = 15,
+		TextSize = Theme.type.sizes.sm,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		ZIndex = 27,
@@ -12215,7 +13206,7 @@ local function buildShopRow(entry)
 		Position = UDim2.new(0, 10, 0, 30),
 		Text = itemSubText(entry),
 		Font = Theme.type.fonts.body,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.secondary,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -12355,7 +13346,7 @@ local function makeQuestRow(parent, quest, order)
 	row.LayoutOrder = order
 	row.ZIndex = 26
 	row.Parent = parent
-	corner(row, Theme.corners.md)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	makeLabel(row, {
@@ -12363,7 +13354,7 @@ local function makeQuestRow(parent, quest, order)
 		Position = UDim2.new(0, 12, 0, 8),
 		Text = quest.desc or "Quest",
 		Font = Theme.type.fonts.bold,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = quest.claimed and Theme.color.status.good or Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -12379,14 +13370,14 @@ local function makeQuestRow(parent, quest, order)
 	progressBar.BackgroundColor3 = Theme.color.surface.elevated
 	progressBar.ZIndex = 27
 	progressBar.Parent = row
-	corner(progressBar, 4)
+	corner(progressBar, Theme.corners.slim)
 
 	local fill = Instance.new("Frame")
 	fill.Size = UDim2.new(progressVal / target, 0, 1, 0)
 	fill.BackgroundColor3 = quest.claimed and Theme.color.status.good or Theme.color.brand.quest
 	fill.ZIndex = 28
 	fill.Parent = progressBar
-	corner(fill, 4)
+	corner(fill, Theme.corners.slim)
 
 	local chip = Instance.new("Frame")
 	chip.Size = UDim2.new(0, 92, 0, 24)
@@ -12401,7 +13392,7 @@ local function makeQuestRow(parent, quest, order)
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = quest.claimed and "CLAIMED" or string.format("%d/%d • $%s", progressVal, target, formatCash(quest.reward or 0)),
 		Font = Theme.type.fonts.bold,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = quest.claimed and Theme.color.status.good or Theme.color.accent.soft,
 		ZIndex = 28,
 	})
@@ -12418,7 +13409,7 @@ local function renderQuestPanel(data)
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "DAILY",
 		Font = Theme.type.fonts.bold,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.status.warn,
 		LayoutOrder = 1,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -12433,7 +13424,7 @@ local function renderQuestPanel(data)
 			Size = UDim2.new(1, -12, 0, 40),
 			Text = "No daily quests available right now. New quests refresh daily at midnight!",
 			Font = Theme.type.fonts.body,
-			TextSize = 13,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -12446,7 +13437,7 @@ local function renderQuestPanel(data)
 		Size = UDim2.new(1, 0, 0, 24),
 		Text = "WEEKLY",
 		Font = Theme.type.fonts.bold,
-		TextSize = 12,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.accent.base,
 		LayoutOrder = 100,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -12461,7 +13452,7 @@ local function renderQuestPanel(data)
 			Size = UDim2.new(1, -12, 0, 40),
 			Text = "No weekly quests available. Check back for new challenges!",
 			Font = Theme.type.fonts.body,
-			TextSize = 13,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.tertiary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -12482,7 +13473,7 @@ local raidStatusLabel = makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 0),
 	Text = "Raid waters are calm",
 	Font = Theme.type.fonts.head,
-	TextSize = IS_MOBILE and 18 or 20,
+	TextSize = IS_MOBILE and Theme.type.sizes.md or Theme.type.sizes.lg,
 	TextColor3 = Theme.color.text.primary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextWrapped = true,
@@ -12494,7 +13485,7 @@ local raidCountdownLabel = makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 50),
 	Text = "Next window: --",
 	Font = Theme.type.fonts.med,
-	TextSize = 14,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -12514,7 +13505,7 @@ makeLabel(raidContent, {
 	Position = UDim2.new(0, 0, 0, 116),
 	Text = "TARGETS",
 	Font = Theme.type.fonts.bold,
-	TextSize = 10,
+	TextSize = Theme.type.sizes.xs,
 	TextColor3 = Theme.color.text.tertiary,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 26,
@@ -12550,7 +13541,7 @@ local raidRefreshButton = makeButton(raidContent, {
 	Text = "REFRESH",
 	BackgroundColor3 = Theme.color.surface.elevated,
 	TextColor3 = Theme.color.text.primary,
-	TextSize = 11,
+	TextSize = Theme.type.sizes.xs,
 	ZIndex = 26,
 })
 
@@ -12575,7 +13566,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = data and data.reason or "Could not load targets.",
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -12599,7 +13590,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = reasonText,
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -12612,7 +13603,7 @@ local function renderRaidTargets(data)
 			Size = UDim2.new(1, 0, 0, 48),
 			Text = "No opted-in targets available. Other players must opt in to raids to appear here.",
 			Font = Theme.type.fonts.med,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = Theme.color.text.secondary,
 			TextWrapped = true,
 			TextXAlignment = Enum.TextXAlignment.Center,
@@ -12642,7 +13633,7 @@ local function renderRaidTargets(data)
 		row.LayoutOrder = i
 		row.ZIndex = 26
 		row.Parent = raidTargetList
-		corner(row, Theme.corners.md)
+		corner(row, Theme.corners.roomy)
 		stroke(row, isAvailable and 0.9 or 0.95)
 
 		makeLabel(row, {
@@ -12650,7 +13641,7 @@ local function renderRaidTargets(data)
 			Position = UDim2.new(0, 12, 0, 8),
 			Text = target.displayName or target.name or "Unknown",
 			Font = Theme.type.fonts.bold,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = isAvailable and Theme.color.text.primary or Theme.color.text.tertiary,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
@@ -12685,7 +13676,7 @@ local function renderRaidTargets(data)
 					Position = UDim2.new(0, 12, 0, 28),
 					Text = subtitleText,
 					Font = Theme.type.fonts.body,
-					TextSize = 12,
+					TextSize = Theme.type.sizes.xs,
 					TextColor3 = Theme.color.text.tertiary,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
@@ -12704,7 +13695,7 @@ local function renderRaidTargets(data)
 					Position = UDim2.new(0, 12, 0, 28),
 					Text = subtitleText,
 					Font = Theme.type.fonts.body,
-					TextSize = 12,
+					TextSize = Theme.type.sizes.xs,
 					TextColor3 = Theme.color.text.tertiary,
 					TextXAlignment = Enum.TextXAlignment.Left,
 					ZIndex = 27,
@@ -12719,7 +13710,7 @@ local function renderRaidTargets(data)
 				Position = UDim2.new(0, 12, 0, 28),
 				Text = subtitleText,
 				Font = Theme.type.fonts.body,
-				TextSize = 12,
+				TextSize = Theme.type.sizes.xs,
 				TextColor3 = isAvailable and Theme.color.text.secondary or Theme.color.text.tertiary,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				ZIndex = 27,
@@ -12732,7 +13723,7 @@ local function renderRaidTargets(data)
 			Text = isAvailable and "RAID" or "UNAVAILABLE",
 			BackgroundColor3 = isAvailable and Theme.color.status.bad or Theme.color.surface.elevated,
 			TextColor3 = isAvailable and Theme.color.text.primary or Theme.color.text.tertiary,
-			TextSize = 12,
+			TextSize = Theme.type.sizes.xs,
 			ZIndex = 27,
 			Active = isAvailable,
 		})
@@ -13102,7 +14093,7 @@ local raidBannerLabel = makeLabel(raidBanner, {
 	Position = UDim2.new(0, 28, 0, 0),
 	Text = IS_MOBILE and "RAID OPEN 0:00" or "RAID WATERS OPEN 0:00",
 	Font = Theme.type.fonts.bold,
-	TextSize = 13,
+	TextSize = Theme.type.sizes.sm,
 	TextColor3 = Theme.color.status.bad,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	ZIndex = 19,
@@ -13129,10 +14120,11 @@ local ACTIONS = {
 -- compute re-introduced the collision on rotation.
 local function updateOnboardingPromptOffset()
 	if IS_MOBILE then
-		-- Stack top = MOBILE_STACK_BOTTOM + #ACTIONS*mobileStackPitch px
-		-- above the screen bottom; the prompt bottom clears it by the gap.
-		-- (harborheist-hqn1: reads the viewport-fit pitch, not the default.)
-		local offset = MOBILE_STACK_BOTTOM + #ACTIONS * mobileStackPitch + PROMPT_STACK_GAP
+		-- Calculate actual stack content height: buttons + gaps between them
+		-- mobileStackPitch = btnSize + MOBILE_STACK_PADDING, so total = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		local btnSize = mobileStackPitch - MOBILE_STACK_PADDING
+		local stackContentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		local offset = MOBILE_STACK_BOTTOM + stackContentH + PROMPT_STACK_GAP
 		-- Short landscape phones: the derived offset would push the prompt
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
@@ -13174,18 +14166,21 @@ end)
 local actionButtons = {}
 
 if IS_MOBILE then
-	local stack = Instance.new("Frame")
+	local stack = Instance.new("ScrollingFrame")
+	stack.Name = "ActionStack"
 	stack.AnchorPoint = Vector2.new(1, 1)
 	stack.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
 	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * MOBILE_STACK_PITCH)
 	stack.BackgroundTransparency = 1
+	stack.ScrollingEnabled = false
+	stack.ScrollBarThickness = 0
 	stack.Parent = screenGui
 
 	local stackLayout = Instance.new("UIListLayout")
 	stackLayout.FillDirection = Enum.FillDirection.Vertical
 	stackLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
 	stackLayout.VerticalAlignment = Enum.VerticalAlignment.Bottom
-	stackLayout.Padding = UDim.new(0, 10)
+	stackLayout.Padding = UDim.new(0, MOBILE_STACK_PADDING)
 	stackLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	stackLayout.Parent = stack
 
@@ -13215,7 +14210,7 @@ if IS_MOBILE then
 			Position = UDim2.new(0, 0, 0, 9),
 			Text = action.short,
 			Font = Theme.type.fonts.head,
-			TextSize = 18,
+			TextSize = Theme.type.sizes.md,
 			TextColor3 = action.color,
 		})
 		makeLabel(btn, {
@@ -13223,7 +14218,7 @@ if IS_MOBILE then
 			Position = UDim2.new(0, 0, 1, -20),
 			Text = action.key,
 			Font = Theme.type.fonts.bold,
-			TextSize = 9,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.tertiary,
 		})
 		actionButtons[action.id] = btn
@@ -13231,25 +14226,64 @@ if IS_MOBILE then
 		mobileStackButtons[i] = { holder = holder, hero = heroLabel }
 	end
 
-	-- harborheist-hqn1: fit the stack to the viewport height. The fixed
-	-- 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
+	-- harborheist-hqn1 + harborheist-xrfp: fit the stack to the viewport height.
+	-- The fixed 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
 	-- short landscape phones (~375px) pushed the top buttons (QUEST/RAID/
 	-- BOAT) off-screen and unreachable. Mirrors the desktop bar's
 	-- responsive shrink (TASK 28.1). mobileStackPitch is shared with
 	-- updateOnboardingPromptOffset so the prompt tracks the shrunk stack.
+	--
+	-- harborheist-xrfp fix: enforce 44px minimum touch target (Apple HIG / Material Design).
+	-- If scaling would make buttons smaller than 44px, use a scrollable container instead.
+	local MIN_TOUCH_TARGET = 44
+	local MIN_SCALE = MIN_TOUCH_TARGET / 60  -- 0.733
+	
 	local function layoutMobileStack(viewportH)
 		local cam = workspace.CurrentCamera
 		viewportH = viewportH or (cam and cam.ViewportSize.Y) or 800
-		local fullH = MOBILE_STACK_BOTTOM + #ACTIONS * MOBILE_STACK_PITCH
-		-- Keep the stack top clear of the HUD / raid-banner zone.
-		local availH = viewportH - (SAFE_TOP + 60)
-		local scale = math.clamp(availH / fullH, 0.6, 1)
-		local btnSize = math.floor(60 * scale + 0.5)
-		mobileStackPitch = math.floor(MOBILE_STACK_PITCH * scale + 0.5)
-		stack.Size = UDim2.new(0, btnSize + 4, 0, #ACTIONS * mobileStackPitch)
-		for _, entry in ipairs(mobileStackButtons) do
-			entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
-			entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+		-- Calculate original content height: buttons + gaps between them
+		local fullH = #ACTIONS * 60 + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		-- Available height: viewport minus bottom margin and HUD zone
+		local availH = viewportH - MOBILE_STACK_BOTTOM - (SAFE_TOP + 60)
+		local idealScale = availH / fullH
+		
+		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
+		if idealScale &lt; MIN_SCALE then
+			local btnSize = MIN_TOUCH_TARGET
+			-- Pitch = button size + padding between buttons
+			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
+			-- Calculate actual content height: buttons + gaps between them
+			local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+			-- Clamp stack height to available space, let ScrollingFrame handle overflow
+			stack.Size = UDim2.new(0, btnSize + 4, 0, math.min(contentH, availH))
+			for _, entry in ipairs(mobileStackButtons) do
+				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+				entry.hero.TextSize = math.max(12, math.floor(18 * MIN_SCALE + 0.5))
+			end
+			-- Enable scrolling if stack overflows viewport
+			if stack:IsA("ScrollingFrame") then
+				stack.CanvasSize = UDim2.new(0, 0, 0, contentH)
+				stack.ScrollingEnabled = true
+				stack.ScrollingDirection = Enum.ScrollingDirection.Y
+			end
+		else
+			-- Normal scaling (fits within viewport)
+			local scale = math.clamp(idealScale, MIN_SCALE, 1)
+			local btnSize = math.floor(60 * scale + 0.5)
+			-- Pitch = button size + padding between buttons
+			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
+			-- Calculate actual content height: buttons + gaps between them
+			local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+			stack.Size = UDim2.new(0, btnSize + 4, 0, contentH)
+			for _, entry in ipairs(mobileStackButtons) do
+				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+				entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+			end
+			-- Disable scrolling when it fits
+			if stack:IsA("ScrollingFrame") then
+				stack.CanvasSize = UDim2.new(0, 0, 0, 0)
+				stack.ScrollingEnabled = false
+			end
 		end
 	end
 	layoutMobileStack()
@@ -13322,7 +14356,7 @@ else
 			Position = UDim2.new(0, 10, 0, 0),
 			Text = action.label,
 			Font = Theme.type.fonts.bold,
-			TextSize = 14,
+			TextSize = Theme.type.sizes.sm,
 			TextColor3 = action.color,
 			TextXAlignment = Enum.TextXAlignment.Left,
 		})
@@ -13333,12 +14367,12 @@ else
 		keyChip.Position = UDim2.new(1, -8, 0.5, 0)
 		keyChip.BackgroundColor3 = Theme.color.surface.elevated
 		keyChip.Parent = btn
-		corner(keyChip, 5)
+		corner(keyChip, Theme.corners.compact)
 		makeLabel(keyChip, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = action.key,
 			Font = Theme.type.fonts.bold,
-			TextSize = 11,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 		})
 
@@ -13824,7 +14858,7 @@ local function render()
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = "",
 			Font = Theme.type.fonts.bold,
-			TextSize = 9,
+			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
 		})
 	end
@@ -13863,7 +14897,7 @@ local function render()
 		boatStateDot.BorderSizePixel = 0
 		boatStateDot.ZIndex = 10
 		boatStateDot.Parent = actionButtons.boat
-		corner(boatStateDot, 4)
+		corner(boatStateDot, Theme.corners.slim)
 	end
 	boatStateDot.Visible = state.hasBoat == true
 
@@ -13988,13 +15022,13 @@ local function render()
 	local storeHealthy = state.dataStoreHealthy ~= false
 	if not storeHealthy then
 		claimButton.Text = "SAVING UNAVAILABLE"
-		claimButton.BackgroundColor3 = Color3.fromRGB(100, 60, 60)
+		claimButton.BackgroundColor3 = Theme.color.status.disabled
 	elseif state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
-		claimButton.BackgroundColor3 = Color3.fromRGB(50, 160, 80)
+		claimButton.BackgroundColor3 = Theme.color.status.claimReady
 	else
 		claimButton.Text = "CLAIM $0"
-		claimButton.BackgroundColor3 = Color3.fromRGB(60, 70, 80)
+		claimButton.BackgroundColor3 = Theme.color.status.neutral
 	end
 
 	-- TASK 9.2 (0jc.2): contextual onboarding prompts driven by flags.
@@ -14035,13 +15069,13 @@ local function render()
 		-- Stage 3: has stored fish earning income but hasn't claimed yet.
 		showOnboardingPrompt("firstClaim",
 			IS_MOBILE and "Tap CLAIM to collect your earned income!" or "Open your tank and hit CLAIM to collect your income!",
-			Color3.fromRGB(50, 160, 80))
+			Theme.color.status.claimReady)
 	elseif not ob.HasSeenRaidExplanation and raidWindow.open then
 		-- Stage 4: first raid window appeared and player hasn't seen the
 		-- explanation. Dismissible — the player can ignore it and stay safe.
 		showOnboardingPrompt("raidExplain",
 			"Raids are optional! Open your tank panel to opt in and steal fish from other docks.",
-			Color3.fromRGB(255, 120, 120))
+			Theme.color.status.raidAlert)
 	else
 		-- All onboarding stages complete or dismissed — hide the prompt.
 		currentPromptStage = nil
@@ -14099,14 +15133,14 @@ minigameFrame.ZIndex = OVERLAY_Z_BASE
 minigameFrame.Parent = screenGui
 corner(minigameFrame, Theme.corners.lg)
 stroke(minigameFrame, 0.8)
-vGradient(minigameFrame, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+Gradients.apply(minigameFrame, "surface.default")
 
 local minigameTitle = makeLabel(minigameFrame, {
 	Size = UDim2.new(1, -20, 0, 24),
 	Position = UDim2.new(0, 10, 0, 10),
 	Text = IS_MOBILE and "FISH ON! Tap when the marker is in the zone!" or "FISH ON! Click when the marker is in the zone!",
 	Font = Theme.type.fonts.head,
-	TextSize = IS_MOBILE and Theme.type.sizes.sm or 16,
+	TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md,
 	TextColor3 = Theme.color.status.warn,
 	ZIndex = OVERLAY_Z_CONTENT,
 })
@@ -14118,7 +15152,7 @@ barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
 barTrack.BackgroundColor3 = Theme.color.surface.secondary
 barTrack.ZIndex = OVERLAY_Z_CONTENT
 barTrack.Parent = minigameFrame
-corner(barTrack, 10)
+corner(barTrack, Theme.corners.roomy)
 stroke(barTrack, 0.85)
 
 -- The target zone (centered; width comes from the equipped rod's
@@ -14141,7 +15175,7 @@ biteMarker.Position = UDim2.new(0, 0, 0, -3)
 biteMarker.BackgroundColor3 = Color3.new(1, 1, 1)
 biteMarker.ZIndex = OVERLAY_Z_MARKER
 biteMarker.Parent = barTrack
-corner(biteMarker, 3)
+corner(biteMarker, Theme.corners.thin)
 
 local biteMarkerGlow = Instance.new("Frame")
 biteMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
@@ -14285,12 +15319,12 @@ local function showRevealCard(speciesId, rarity, value)
 	card.ZIndex = 50
 	card.Active = true
 	card.Parent = screenGui
-	corner(card, 14)
+	corner(card, Theme.corners.lg)
 	local cardStroke = stroke(card, 0.4, rarityColor, 2)
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
 	-- moment was the one flat card in the game.
-	vGradient(card, Color3.fromRGB(26, 38, 57), Theme.color.surface.primary)
+	Gradients.apply(card, "surface.default")
 
 	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
 	-- should feel different per tier. Rare: the standard pop. Epic: adds a
@@ -14350,7 +15384,7 @@ local function showRevealCard(speciesId, rarity, value)
 	topBar.BackgroundColor3 = rarityColor
 	topBar.ZIndex = 51
 	topBar.Parent = card
-	corner(topBar, 6)
+	corner(topBar, Theme.corners.snug)
 
 	-- Rarity tag
 	local tag = Instance.new("Frame")
@@ -14360,12 +15394,12 @@ local function showRevealCard(speciesId, rarity, value)
 	tag.BackgroundTransparency = 0.78
 	tag.ZIndex = 51
 	tag.Parent = card
-	corner(tag, 5)
+	corner(tag, Theme.corners.compact)
 	makeLabel(tag, {
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = string.upper(rarity or "?"),
 		Font = Theme.type.fonts.bold,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = rarityColor,
 		ZIndex = 52,
 	})
@@ -14387,7 +15421,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 76, 0, 54),
 		Text = displayName,
 		Font = Theme.type.fonts.head,
-		TextSize = 22,
+		TextSize = Theme.type.sizes.lg,
 		TextColor3 = Theme.color.text.primary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
@@ -14400,7 +15434,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 76, 0, 92),
 		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
 		Font = Theme.type.fonts.body,
-		TextSize = 14,
+		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.text.secondary,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		ZIndex = 51,
@@ -14412,7 +15446,7 @@ local function showRevealCard(speciesId, rarity, value)
 		Position = UDim2.new(0, 0, 0, 130),
 		Text = IS_MOBILE and "tap to dismiss" or "click to dismiss",
 		Font = Theme.type.fonts.body,
-		TextSize = 11,
+		TextSize = Theme.type.sizes.xs,
 		TextColor3 = Theme.color.text.tertiary,
 		ZIndex = 51,
 	})
@@ -14717,9 +15751,9 @@ sellButton.Activated:Connect(function()
 		if payout &lt;= 0 then
 			local locked = (state.lockedUntil or 0) > 0
 			if locked and (state.liveWellCount or 0) > 0 then
-				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
-			else
-				showNotification("No fish to sell!", Color3.fromRGB(255, 170, 80))
+				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
+				else
+				showNotification("No fish to sell!", Theme.color.status.alert)
 			end
 			return
 		end
@@ -14944,7 +15978,7 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		-- R3 audit #18: floor() printed '0 minutes' for sub-minute windows.
 		showNotification(
 			string.format("RAID WATERS OPEN for %s! Steal fish from other docks while the window lasts.", formatRaidTime(raidWindow.remainingSeconds)),
-			Color3.fromRGB(255, 120, 120)
+			Theme.color.status.raidAlert
 		)
 	elseif not raidWindow.open and wasOpen then
 		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
@@ -15234,7 +16268,7 @@ end
 -- Expose to global scope for other modules if needed
 setmetatable(toastHistory, {__mode = "k"})</string>
         </Properties>
-        <Item class="ModuleScript" referent="33">
+        <Item class="ModuleScript" referent="35">
           <Properties>
             <string name="Name">AnimationSystem</string>
             <string name="Source"><![CDATA[--[[
@@ -16065,7 +17099,185 @@ return AnimationSystem
 ]]></string>
           </Properties>
         </Item>
-        <Item class="ModuleScript" referent="34">
+        <Item class="ModuleScript" referent="36">
+          <Properties>
+            <string name="Name">GradientLibrary</string>
+            <string name="Source"><![CDATA[-- harborheist-i39g.3: Gradient library for EPIC 35 (Visual Polish)
+-- Provides reusable UIGradient presets for surfaces, accents, status, and rarity.
+-- Base colors reference the UI palette; some presets use tuned variants.
+--
+-- USAGE:
+--   local Gradients = require(script.Parent:WaitForChild("GradientLibrary"))
+--   Gradients.apply(myFrame, "surface.elevated")
+--   Gradients.apply(myButton, "accent.primary")
+--   Gradients.apply(progressBar, "status.success")
+--   Gradients.apply(rarityLabel, "rarity.Legendary")
+--
+-- DESIGN:
+--   Each preset is a {from, to} Color3 pair. apply() creates a UIGradient
+--   with Rotation=90 (vertical) and attaches it to the target. Returns the gradient
+--   instance so callers can adjust Rotation/Transparency if needed.
+--
+-- PERFORMANCE:
+--   UIGradient is cheap (GPU-side), but avoid stacking 10+ on a single frame.
+--   The presets are static tables — no per-frame allocation.
+--
+-- MAINTENANCE:
+--   The UI table (lines 28-43) mirrors init.client.lua's palette. If that palette
+--   changes, update both files. Presets use tuned RGB variants for visual polish;
+--   these aren't in the base UI table but are documented in the preset comments.
+
+local Gradients = {}
+
+-- ============================================================================
+-- Color references (must match init.client.lua UI table)
+-- ============================================================================
+-- These are duplicated here because modules can't access init.client.lua's
+-- locals. If the UI palette changes, update both files.
+local UI = {
+	bg = Color3.fromRGB(13, 20, 31),
+	surface = Color3.fromRGB(20, 30, 46),
+	surfaceHi = Color3.fromRGB(30, 43, 63),
+	accent = Color3.fromRGB(56, 152, 255),
+	accentSoft = Color3.fromRGB(120, 190, 255),
+	good = Color3.fromRGB(52, 199, 123),
+	bad = Color3.fromRGB(255, 92, 92),
+	warn = Color3.fromRGB(255, 184, 64),
+	quest = Color3.fromRGB(255, 205, 92),
+	boat = Color3.fromRGB(94, 200, 235),
+	purple = Color3.fromRGB(167, 139, 250),
+	text = Color3.fromRGB(238, 243, 250),
+	textDim = Color3.fromRGB(148, 163, 184),
+	ink = Color3.fromRGB(10, 16, 26),
+}
+
+-- ============================================================================
+-- Gradient presets
+-- ============================================================================
+-- Presets reference the UI table for base colors, with some tuned variants
+-- for visual polish (e.g., 26,38,57 is a surface highlight between UI.surface
+-- and UI.surfaceHi). These tuned values are documented inline.
+local PRESETS = {
+	-- Surface gradients: subtle background variations for panels/containers
+	-- "default" is the workhorse — used by overlays, panels, HUD, reveal cards
+	surface = {
+		default = { from = Color3.fromRGB(26, 38, 57), to = UI.bg },
+		elevated = { from = UI.surface, to = UI.surfaceHi },
+		hud = { from = Color3.fromRGB(24, 36, 54), to = UI.bg },
+	},
+
+	-- Accent gradients: buttons, highlights, interactive elements
+	accent = {
+		primary = { from = UI.accent, to = UI.accentSoft },
+		soft = { from = UI.accentSoft, to = UI.text },
+		brand = { from = UI.purple, to = UI.accent },
+		capacity = { from = Color3.fromRGB(196, 181, 253), to = UI.purple },
+	},
+
+	-- Status gradients: progress bars, health indicators, feedback
+	status = {
+		success = { from = UI.good, to = Color3.fromRGB(100, 220, 160) },
+		warning = { from = Color3.fromRGB(255, 205, 92), to = UI.warn },
+		collection = { from = UI.quest, to = UI.warn },
+		error = { from = UI.bad, to = Color3.fromRGB(255, 140, 140) },
+		info = { from = UI.accentSoft, to = UI.boat },
+	},
+
+	-- Rarity gradients: fish rarity colors (Common through Legendary)
+	-- Matches GameConfig.Rarities array order. Colors are illustrative —
+	-- adjust to match the actual rarity color palette used in the UI.
+	rarity = {
+		Common = { from = Color3.fromRGB(200, 200, 200), to = Color3.fromRGB(150, 150, 150) },
+		Uncommon = { from = Color3.fromRGB(100, 200, 100), to = Color3.fromRGB(50, 150, 50) },
+		Rare = { from = Color3.fromRGB(100, 150, 255), to = Color3.fromRGB(50, 100, 200) },
+		Epic = { from = UI.purple, to = Color3.fromRGB(120, 80, 200) },
+		Legendary = { from = UI.quest, to = Color3.fromRGB(255, 160, 50) },
+		Mythic = { from = Color3.fromRGB(255, 100, 200), to = Color3.fromRGB(200, 50, 150) },
+	},
+}
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Apply a gradient preset to a GUI element.
+-- @param element Instance - The Frame/TextLabel/TextButton to attach the gradient to
+-- @param presetPath string - Dot-separated path: "category.name" (e.g., "surface.default")
+-- @param rotation number? - Optional rotation in degrees (default 90 = vertical)
+-- @return UIGradient - The created gradient instance (caller can adjust further)
+function Gradients.apply(element, presetPath, rotation)
+	if not element or not presetPath then
+		warn("[GradientLibrary] apply() requires element and presetPath")
+		return nil
+	end
+
+	-- Parse "category.name" into nested table lookup
+	local category, name = presetPath:match("^([^.]+)%.(.+)$")
+	if not category then
+		warn("[GradientLibrary] Invalid preset path: ", presetPath, " (expected 'category.name')")
+		return nil
+	end
+
+	local preset = PRESETS[category] and PRESETS[category][name]
+	if not preset then
+		warn("[GradientLibrary] Unknown preset: ", presetPath)
+		return nil
+	end
+
+	-- Remove any existing UIGradient to avoid stacking
+	for _, child in ipairs(element:GetChildren()) do
+		if child:IsA("UIGradient") then
+			child:Destroy()
+		end
+	end
+
+	-- Create and configure the gradient
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new(preset.from, preset.to)
+	gradient.Rotation = rotation or 90
+	gradient.Parent = element
+
+	return gradient
+end
+
+--- Get a preset's color pair without applying it.
+-- @param presetPath string - Dot-separated path: "category.name"
+-- @return Color3, Color3 - The from and to colors, or nil if not found
+function Gradients.getColors(presetPath)
+	if not presetPath then
+		return nil
+	end
+	local category, name = presetPath:match("^([^.]+)%.(.+)$")
+	if not category then
+		return nil
+	end
+
+	local preset = PRESETS[category] and PRESETS[category][name]
+	if not preset then
+		return nil
+	end
+
+	return preset.from, preset.to
+end
+
+--- List all available preset paths.
+-- @return table - Array of preset path strings (e.g., {"surface.default", "accent.primary", ...})
+function Gradients.listPresets()
+	local paths = {}
+	for category, presets in pairs(PRESETS) do
+		for name, _ in pairs(presets) do
+			table.insert(paths, category .. "." .. name)
+		end
+	end
+	table.sort(paths)
+	return paths
+end
+
+return Gradients
+]]></string>
+          </Properties>
+        </Item>
+        <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">KeyboardNav</string>
             <string name="Source"><![CDATA[--[[
@@ -16332,7 +17544,7 @@ return KeyboardNav
       </Item>
     </Item>
   </Item>
-  <Item class="Workspace" referent="35">
+  <Item class="Workspace" referent="38">
     <Properties>
       <string name="Name">Workspace</string>
       <bool name="NeedsPivotMigration">false</bool>

@@ -344,6 +344,8 @@ function PanelAnimation:close(panel, options)
   
   if not scaleTweenSuccess then
     warn("[PanelAnimation] Failed to create scale tween: " .. tostring(scaleTween))
+    -- Clean up the fade tween we already created
+    pcall(function() fadeTween:Cancel() end)
     return false
   end
   
@@ -391,6 +393,19 @@ function PanelAnimation:cancel(panel)
       pcall(function() tween:Cancel() end)
     end
     activeTweens[panel] = nil
+  end
+  
+  -- Reset panel to fully visible state
+  pcall(function()
+    panel.BackgroundTransparency = 0
+  end)
+  
+  -- Reset UIScale to 1 if it exists
+  local uiScale = panel:FindFirstChildWhichIsA("UIScale")
+  if uiScale then
+    pcall(function()
+      uiScale.Scale = 1
+    end)
   end
   
   -- Clear animation context to prevent memory leak
