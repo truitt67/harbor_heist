@@ -134,7 +134,7 @@ local Theme = {
 		brand = { quest = UI.quest, boat = UI.boat, purple = UI.purple },
 		money = UI.money,
 	},
-	corners = { sm = 8, md = 12, lg = 16, xl = 20, pill = 999 },
+	corners = { hairline = 2, thin = 3, slim = 4, compact = 5, snug = 6, tight = 7, sm = 8, roomy = 10, md = 12, spacious = 14, lg = 16, xl = 20, pill = 999 },
 	-- Roblox UI has no native shadow; elevation is faked with layered
 	-- Frames. Consumed by EPIC 35 (harborheist-i39g.1); defined here so
 	-- the token system is complete and that bead reads a single source.
@@ -144,17 +144,12 @@ local Theme = {
 		high = { layers = 4, spread = 16, alpha = 0.3 },
 	},
 	buttonVariants = {
-		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
-		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7 },
-		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
-		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
+		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
+		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7, radius = Theme.corners.md },
+		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85, radius = Theme.corners.md },
+		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
 	},
 }
--- Link button-variant radii to the single corner token (corners.md == 12),
--- so the radius scale has one source of truth.
-for _, variant in pairs(Theme.buttonVariants) do
-	variant.radius = Theme.corners.md
-end
 
 local state = nil
 local casting = false
@@ -372,7 +367,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	barTrack.BackgroundColor3 = Theme.color.surface.secondary
 	barTrack.ZIndex = OVERLAY_Z_CONTENT
 	barTrack.Parent = frame
-	corner(barTrack, 10)
+	corner(barTrack, Theme.corners.roomy)
 	stroke(barTrack, 0.85)
 
 	-- Good zone (unified)
@@ -397,7 +392,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	perfectZone.BackgroundTransparency = 0.12
 	perfectZone.ZIndex = OVERLAY_Z_MARKER
 	perfectZone.Parent = goodZone
-	corner(perfectZone, 7)
+	corner(perfectZone, Theme.corners.tight)
 
 	-- Subtitle (unified) - TASK 26.3: improved readability
 	local subtitle = makeLabel(frame, {
@@ -417,7 +412,7 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	marker.BackgroundColor3 = Color3.new(1, 1, 1)
 	marker.ZIndex = OVERLAY_Z_MARKER
 	marker.Parent = barTrack
-	corner(marker, 3)
+	corner(marker, Theme.corners.thin)
 
 	local markerGlow = Instance.new("Frame")
 	markerGlow.Size = UDim2.new(0, 15, 1, 10)
@@ -1462,7 +1457,7 @@ local function showToastDirect(message, color, category, actions)
 	accentBar.BackgroundTransparency = 1
 	accentBar.ZIndex = 57
 	accentBar.Parent = toast
-	corner(accentBar, 2)
+	corner(accentBar, Theme.corners.hairline)
 	local chip = makeLabel(toast, {
 		Size = UDim2.new(0, 80, 0, 16),
 		Position = UDim2.new(0, 18, 0, 4),
@@ -1700,7 +1695,7 @@ onboardingAccentBar.Position = UDim2.new(0, 8, 0, 7)
 onboardingAccentBar.BackgroundColor3 = Theme.color.accent.base
 onboardingAccentBar.ZIndex = 16
 onboardingAccentBar.Parent = onboardingPrompt
-corner(onboardingAccentBar, 2)
+corner(onboardingAccentBar, Theme.corners.hairline)
 
 local onboardingLabel = makeLabel(onboardingPrompt, {
 	-- harborheist-bpem.1: widened right padding (-52 -> -60) to match the
@@ -1794,7 +1789,7 @@ sellStorePrompt.Visible = false
 -- was open rendered this prompt BEHIND it, invisible until closed.
 sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
-corner(sellStorePrompt, 14)
+corner(sellStorePrompt, Theme.corners.spacious)
 stroke(sellStorePrompt, 0.7, Theme.color.accent.base, 1.5)
 
 makeLabel(sellStorePrompt, {
@@ -2054,7 +2049,7 @@ local function makePanel(title, titleColor, desktopSize)
 		grabber.BackgroundTransparency = 0.4
 		grabber.ZIndex = 26
 		grabber.Parent = panel
-		corner(grabber, 2)
+		corner(grabber, Theme.corners.hairline)
 
 		-- R4 polish (mobile): drag-to-dismiss — THE bottom-sheet pattern.
 		-- The grabber was decorative; now the header strip is a drag surface.
@@ -2307,7 +2302,7 @@ capacityBar.Position = UDim2.new(0, 0, 0, 68)
 capacityBar.BackgroundColor3 = Theme.color.surface.elevated
 capacityBar.ZIndex = 26
 capacityBar.Parent = aquariumContent
-corner(capacityBar, 5)
+corner(capacityBar, Theme.corners.compact)
 stroke(capacityBar, 0.9)
 
 local capacityFill = Instance.new("Frame")
@@ -2315,7 +2310,7 @@ capacityFill.Size = UDim2.new(0, 0, 1, 0)
 capacityFill.BackgroundColor3 = Theme.color.brand.purple
 capacityFill.ZIndex = 27
 capacityFill.Parent = capacityBar
-corner(capacityFill, 5)
+corner(capacityFill, Theme.corners.compact)
 -- Captured for R4 #10: render() tweens the threshold color through BOTH
 -- the fill and its gradient (a UIGradient multiplies the background — a
 -- red fill under a purple gradient would read muddy).
@@ -2614,7 +2609,7 @@ local function renderInventory()
 		row.LayoutOrder = i
 		row.ZIndex = 26
 		row.Parent = inventoryList
-		corner(row, Theme.corners.md)
+		corner(row, Theme.corners.roomy)
 		stroke(row, 0.9)
 
 		local tag = Instance.new("Frame")
@@ -2624,7 +2619,7 @@ local function renderInventory()
 		tag.BackgroundTransparency = 0.78
 		tag.ZIndex = 27
 		tag.Parent = row
-		corner(tag, 5)
+		corner(tag, Theme.corners.compact)
 		makeLabel(tag, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = string.upper(fish.Rarity or "?"),
@@ -2768,7 +2763,7 @@ collectionProgressBar.Position = UDim2.new(0, 0, 0, 24)
 collectionProgressBar.BackgroundColor3 = Theme.color.surface.elevated
 collectionProgressBar.ZIndex = 26
 collectionProgressBar.Parent = collectionContent
-corner(collectionProgressBar, 5)
+corner(collectionProgressBar, Theme.corners.compact)
 stroke(collectionProgressBar, 0.9)
 
 local collectionProgressFill = Instance.new("Frame")
@@ -2777,7 +2772,7 @@ collectionProgressFill.Size = UDim2.new(0, 0, 1, 0)
 collectionProgressFill.BackgroundColor3 = Theme.color.status.warn
 collectionProgressFill.ZIndex = 27
 collectionProgressFill.Parent = collectionProgressBar
-corner(collectionProgressFill, 5)
+corner(collectionProgressFill, Theme.corners.compact)
 Gradients.apply(collectionProgressFill, "status.warning")
 
 local collectionList = Instance.new("ScrollingFrame")
@@ -2872,7 +2867,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		topBar.BackgroundColor3 = rarityColor
 		topBar.ZIndex = 27
 		topBar.Parent = card
-		corner(topBar, 6)
+		corner(topBar, Theme.corners.snug)
 
 		local icon = Instance.new("Frame")
 		icon.Size = UDim2.new(0, 48, 0, 48)
@@ -2894,7 +2889,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		tag.BackgroundTransparency = 0.78
 		tag.ZIndex = 27
 		tag.Parent = card
-		corner(tag, 5)
+		corner(tag, Theme.corners.compact)
 		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 28 })
 	else
 		local icon = Instance.new("Frame")
@@ -2927,7 +2922,7 @@ local function makeMilestoneRow(parent, order, milestone)
 	row.LayoutOrder = order
 	row.ZIndex = 26
 	row.Parent = parent
-	corner(row, 10)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	makeLabel(row, {
@@ -3264,7 +3259,7 @@ local function buildShopRow(entry)
 	row.LayoutOrder = entry.order
 	row.ZIndex = 26
 	row.Parent = shopList
-	corner(row, Theme.corners.md)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	local meta = KIND_META[entry.kind]
@@ -3275,7 +3270,7 @@ local function buildShopRow(entry)
 	tag.BackgroundTransparency = 0.75
 	tag.ZIndex = 27
 	tag.Parent = row
-	corner(tag, 5)
+	corner(tag, Theme.corners.compact)
 	makeLabel(tag, {
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = meta.tag,
@@ -3441,7 +3436,7 @@ local function makeQuestRow(parent, quest, order)
 	row.LayoutOrder = order
 	row.ZIndex = 26
 	row.Parent = parent
-	corner(row, Theme.corners.md)
+	corner(row, Theme.corners.roomy)
 	stroke(row, 0.9)
 
 	makeLabel(row, {
@@ -3465,14 +3460,14 @@ local function makeQuestRow(parent, quest, order)
 	progressBar.BackgroundColor3 = Theme.color.surface.elevated
 	progressBar.ZIndex = 27
 	progressBar.Parent = row
-	corner(progressBar, 4)
+	corner(progressBar, Theme.corners.slim)
 
 	local fill = Instance.new("Frame")
 	fill.Size = UDim2.new(progressVal / target, 0, 1, 0)
 	fill.BackgroundColor3 = quest.claimed and Theme.color.status.good or Theme.color.brand.quest
 	fill.ZIndex = 28
 	fill.Parent = progressBar
-	corner(fill, 4)
+	corner(fill, Theme.corners.slim)
 
 	local chip = Instance.new("Frame")
 	chip.Size = UDim2.new(0, 92, 0, 24)
@@ -3728,7 +3723,7 @@ local function renderRaidTargets(data)
 		row.LayoutOrder = i
 		row.ZIndex = 26
 		row.Parent = raidTargetList
-		corner(row, Theme.corners.md)
+		corner(row, Theme.corners.roomy)
 		stroke(row, isAvailable and 0.9 or 0.95)
 
 		makeLabel(row, {
@@ -4462,7 +4457,7 @@ else
 		keyChip.Position = UDim2.new(1, -8, 0.5, 0)
 		keyChip.BackgroundColor3 = Theme.color.surface.elevated
 		keyChip.Parent = btn
-		corner(keyChip, 5)
+		corner(keyChip, Theme.corners.compact)
 		makeLabel(keyChip, {
 			Size = UDim2.new(1, 0, 1, 0),
 			Text = action.key,
@@ -4992,7 +4987,7 @@ local function render()
 		boatStateDot.BorderSizePixel = 0
 		boatStateDot.ZIndex = 10
 		boatStateDot.Parent = actionButtons.boat
-		corner(boatStateDot, 4)
+		corner(boatStateDot, Theme.corners.slim)
 	end
 	boatStateDot.Visible = state.hasBoat == true
 
@@ -5247,7 +5242,7 @@ barTrack.Position = UDim2.new(0, 12, 0, IS_MOBILE and 52 or 48)
 barTrack.BackgroundColor3 = Theme.color.surface.secondary
 barTrack.ZIndex = OVERLAY_Z_CONTENT
 barTrack.Parent = minigameFrame
-corner(barTrack, 10)
+corner(barTrack, Theme.corners.roomy)
 stroke(barTrack, 0.85)
 
 -- The target zone (centered; width comes from the equipped rod's
@@ -5270,7 +5265,7 @@ biteMarker.Position = UDim2.new(0, 0, 0, -3)
 biteMarker.BackgroundColor3 = Color3.new(1, 1, 1)
 biteMarker.ZIndex = OVERLAY_Z_MARKER
 biteMarker.Parent = barTrack
-corner(biteMarker, 3)
+corner(biteMarker, Theme.corners.thin)
 
 local biteMarkerGlow = Instance.new("Frame")
 biteMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
@@ -5414,7 +5409,7 @@ local function showRevealCard(speciesId, rarity, value)
 	card.ZIndex = 50
 	card.Active = true
 	card.Parent = screenGui
-	corner(card, 14)
+	corner(card, Theme.corners.lg)
 	local cardStroke = stroke(card, 0.4, rarityColor, 2)
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
@@ -5479,7 +5474,7 @@ local function showRevealCard(speciesId, rarity, value)
 	topBar.BackgroundColor3 = rarityColor
 	topBar.ZIndex = 51
 	topBar.Parent = card
-	corner(topBar, 6)
+	corner(topBar, Theme.corners.snug)
 
 	-- Rarity tag
 	local tag = Instance.new("Frame")
@@ -5489,7 +5484,7 @@ local function showRevealCard(speciesId, rarity, value)
 	tag.BackgroundTransparency = 0.78
 	tag.ZIndex = 51
 	tag.Parent = card
-	corner(tag, 5)
+	corner(tag, Theme.corners.compact)
 	makeLabel(tag, {
 		Size = UDim2.new(1, 0, 1, 0),
 		Text = string.upper(rarity or "?"),
