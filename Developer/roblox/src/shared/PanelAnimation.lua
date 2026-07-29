@@ -42,16 +42,26 @@ local DEFAULT_CONFIG = {
   easingDirection = Enum.EasingDirection.Out,
 }
 
--- Track active animations for cleanup
+-- Track active animations for cleanup (weak keys prevent memory leaks
+-- when panels are destroyed externally without going through close())
 local activeTweens = {}
+setmetatable(activeTweens, { __mode = "k" })
 
--- Helper to create UIScale if needed
+-- Helper to create or reuse UIScale for animation
+-- Returns nil if panel already has a UIScale with Scale ~= 1 (user-managed)
 local function ensureUIScale(guiObject)
   local uiScale = guiObject:FindFirstChildWhichIsA("UIScale")
-  if not uiScale then
-    uiScale = Instance.new("UIScale")
-    uiScale.Parent = guiObject
+  if uiScale then
+    -- If UIScale exists but isn't at default scale, it's user-managed
+    -- Don't interfere with existing animations
+    if uiScale.Scale ~= 1 then
+      return nil
+    end
+    return uiScale
   end
+  uiScale = Instance.new("UIScale")
+  uiScale.Scale = 1
+  uiScale.Parent = guiObject
   return uiScale
 end
 
@@ -80,6 +90,29 @@ function PanelAnimation:open(panel, options)
   
   -- Ensure panel has UIScale for scaling animation
   local uiScale = ensureUIScale(panel)
+  if not uiScale then
+    warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
+    -- Only animate transparency
+    local fadeTween = TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 0,
+    })
+    activeTweens[panel] = {fadeTween}
+    fadeTween.Completed:Connect(function(playbackState)
+      if playbackState ~= Enum.PlaybackState.Completed then
+        return
+      end
+      activeTweens[panel] = nil
+      if config.onComplete then
+        config.onComplete()
+      end
+    end)
+    fadeTween:Play()
+    return true
+  end
   
   -- Set initial state
   panel.BackgroundTransparency = 1
@@ -106,8 +139,11 @@ function PanelAnimation:open(panel, options)
   -- Track tweens
   activeTweens[panel] = {fadeTween, scaleTween}
   
-  -- Set up completion callback
-  fadeTween.Completed:Connect(function()
+  -- Set up completion callback (only fires on natural completion, not cancellation)
+  fadeTween.Completed:Connect(function(playbackState)
+    if playbackState ~= Enum.PlaybackState.Completed then
+      return
+    end
     activeTweens[panel] = nil
     if config.onComplete then
       config.onComplete()
@@ -146,6 +182,32 @@ function PanelAnimation:close(panel, options)
   end
   
   local uiScale = ensureUIScale(panel)
+  if not uiScale then
+    warn("[PanelAnimation] Panel has user-managed UIScale, skipping scale animation")
+    -- Only animate transparency
+    local fadeTween = TweenService:Create(panel, TweenInfo.new(
+      config.duration,
+      config.easingStyle,
+      config.easingDirection
+    ), {
+      BackgroundTransparency = 1,
+    })
+    activeTweens[panel] = {fadeTween}
+    fadeTween.Completed:Connect(function(playbackState)
+      if playbackState ~= Enum.PlaybackState.Completed then
+        return
+      end
+      activeTweens[panel] = nil
+      if config.destroyOnComplete and panel.Parent then
+        panel:Destroy()
+      end
+      if config.onComplete then
+        config.onComplete()
+      end
+    end)
+    fadeTween:Play()
+    return true
+  end
   
   -- Create fade-out tween
   local fadeTween = TweenService:Create(panel, TweenInfo.new(
@@ -168,8 +230,11 @@ function PanelAnimation:close(panel, options)
   -- Track tweens
   activeTweens[panel] = {fadeTween, scaleTween}
   
-  -- Set up completion callback
-  fadeTween.Completed:Connect(function()
+  -- Set up completion callback (only fires on natural completion, not cancellation)
+  fadeTween.Completed:Connect(function(playbackState)
+    if playbackState ~= Enum.PlaybackState.Completed then
+      return
+    end
     activeTweens[panel] = nil
     if config.destroyOnComplete and panel.Parent then
       panel:Destroy()
@@ -215,7 +280,10 @@ function PanelAnimation:cleanup()
       tween:Cancel()
     end
   end
-  activeTweens = {}
+  -- Clear the table but preserve the weak-keyed metatable
+  for k in pairs(activeTweens) do
+    activeTweens[k] = nil
+  end
 end
 
 -- Cleanup on game shutdown
