@@ -9750,7 +9750,37 @@ local playerMouse = player:GetMouse()
 -- ============================================================
 -- Device profile: hyper-optimize layout per modality.
 -- ============================================================
+-- Layout mode detection (harborheist-0ci3): compact/standard/wide screens
 local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+
+-- Viewport width thresholds for layout modes
+local LAYOUT_THRESHOLDS = {
+	compact = 1200,   -- &lt; 1200px: single column, compact UI
+	standard = 1600,  -- 1200-1600px: standard desktop layout
+	wide = 1920,      -- > 1600px: wide screen with side panels
+}
+
+-- Detect current layout mode based on viewport width
+local function getLayoutMode(viewportW)
+	if not viewportW then return "standard" end
+	
+	viewportW = math.floor(viewportW)
+	
+	if viewportW &lt; LAYOUT_THRESHOLDS.compact then
+		return "compact"
+	elseif viewportW &lt; LAYOUT_THRESHOLDS.standard then
+		return "standard"
+	else
+		return "wide"
+	end
+end
+
+-- Current layout mode (updated on resize)
+local currentLayoutMode = getLayoutMode()
+
+-- Viewport-resize wiring lives after updatePanelSizing's definition
+-- (layoutDesktopBar / layoutMobileStack are feature-branch locals with their
+-- own resize handlers; the layout-mode tracker only refreshes panel sizing).
 
 -- R4 polish #2 (mobile): context-aware haptic feedback system for touch interactions.
 -- Implements variable intensity, duration control, and context-aware effects.
@@ -9836,6 +9866,11 @@ end
 -- ============================================================
 -- Design system
 -- ============================================================
+-- ============================================================
+-- Design system (Theme token integration - harborheist-nk22)
+-- Migrated from hardcoded Color3 values to Theme tokens
+-- ============================================================
+
 local UI = {
 	bg = Color3.fromRGB(13, 20, 31),
 	surface = Color3.fromRGB(20, 30, 46),
@@ -9922,12 +9957,20 @@ local Theme = {
 		high = { layers = 4, spread = 16, alpha = 0.3 },
 	},
 	buttonVariants = {
-		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
-		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7, radius = Theme.corners.md },
-		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85, radius = Theme.corners.md },
-		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1, radius = Theme.corners.md },
+		primary = { bg = UI.accent, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
+		secondary = { bg = UI.surfaceHi, text = UI.text, strokeColor = UI.stroke, strokeTransparency = 0.7 },
+		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
+		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
 	},
 }
+
+-- Variant radii are assigned AFTER the constructor: a table constructor
+-- cannot self-reference its own `local Theme` (resolves to nil global and
+-- crashes at load — regression introduced in 4199fc5, reverted here to the
+-- uabg.7 pattern).
+for _, variant in pairs(Theme.buttonVariants) do
+	variant.radius = Theme.corners.md
+end
 
 local state = nil
 local casting = false
@@ -10045,8 +10088,43 @@ screenGui.IgnoreGuiInset = true
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
+-- Safe area handling (harborheist-fxfx): proper inset detection for all devices
 local inset = GuiService:GetGuiInset()
-local SAFE_TOP = math.max(inset.Y, IS_MOBILE and 12 or 8)
+
+-- Detect notch height on iOS devices (accounts for under-display area)
+local function getNotchHeight()
+	-- Use Roblox's built-in safe area detection via GuiInset
+	return inset.Y or 0
+end
+
+-- Calculate safe top offset based on device type and orientation
+local function calculateSafeTop()
+	-- Get current viewport dimensions to detect landscape (Camera is not a
+	-- service — read the CurrentCamera; nil-safe before the first camera exists)
+	local cam = workspace.CurrentCamera
+	local viewportSize = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+
+	-- Detect if in landscape mode (width > height)
+	local isLandscape = viewportSize.X > viewportSize.Y
+	
+	-- Base safe area values: accounts for notch, status bar, and system UI
+	local baseSafeArea = {
+		portrait = { mobile = 12, desktop = 8 },
+		landscape = { mobile = 16, desktop = 10 }, -- Extra padding in landscape
+	}
+	
+	-- Use the appropriate value based on device type and orientation
+	local safeTop = baseSafeArea[isLandscape and "landscape" or "portrait"][IS_MOBILE and "mobile" or "desktop"]
+	
+	-- Add notch compensation if detected (iOS devices have larger inset.Y)
+	if inset.Y and inset.Y > 20 then
+		safeTop = math.max(safeTop, inset.Y + 4) -- Extra 4px for notch safety margin
+	end
+	
+	return safeTop
+end
+
+local SAFE_TOP = calculateSafeTop()
 
 -- ============================================================
 -- Primitive helpers
@@ -10313,6 +10391,156 @@ local function pressFeedback(button, hoverGlow)
 			end
 		end)
 	end
+end
+
+-- ============================================================
+-- Context Menu System (harborheist-vasr)
+-- Custom Frame-based right-click menus for desktop power users
+-- ============================================================
+
+local ContextMenu = {}
+ContextMenu.__index = ContextMenu
+
+-- Create a new context menu instance. items: { { id, text, action, disabled?, icon? } }
+function ContextMenu.new(items, props)
+	local self = setmetatable({}, ContextMenu)
+
+	props = props or {}
+	self.items = items or {}
+	self.isOpen = false
+
+	-- Visual settings from Theme (corners tokens are plain numbers)
+	self.cornerRadius = props.CornerRadius or Theme.corners.md
+	self.hoverColor = Theme.color.surface.elevated
+
+	-- Menu root frame
+	local menuFrame = Instance.new("Frame")
+	menuFrame.Name = "ContextMenu"
+	menuFrame.BackgroundColor3 = Theme.color.surface.primary
+	menuFrame.BackgroundTransparency = 0
+	menuFrame.BorderSizePixel = 0
+	menuFrame.ZIndex = 200 -- High Z to stay on top
+	menuFrame.Visible = false
+	corner(menuFrame, self.cornerRadius)
+	stroke(menuFrame, 0.8)
+
+	-- Store menu items data
+	self.itemsData = {}
+	for i, item in ipairs(self.items) do
+		table.insert(self.itemsData, {
+			id = item.id or tostring(i),
+			text = item.text or "",
+			icon = item.icon,
+			action = item.action or function() end,
+			disabled = item.disabled or false,
+		})
+	end
+
+	-- Item buttons (built once; hover wired once — not per show())
+	self.itemFrames = {}
+	for i, item in ipairs(self.itemsData) do
+		local itemBtn = Instance.new("TextButton")
+		itemBtn.Name = "Item_" .. item.id
+		itemBtn.Size = UDim2.new(1, -8, 0, 32)
+		itemBtn.Position = UDim2.new(0, 4, 0, 4 + (i - 1) * 36)
+		itemBtn.BackgroundColor3 = Theme.color.surface.primary
+		itemBtn.BackgroundTransparency = 1
+		itemBtn.ZIndex = 201
+		itemBtn.AutoButtonColor = false
+		itemBtn.Font = Theme.type.fonts.body
+		itemBtn.TextSize = Theme.type.sizes.sm
+		itemBtn.TextColor3 = Theme.color.text.primary
+		itemBtn.TextXAlignment = Enum.TextXAlignment.Left
+		itemBtn.Text = "  " .. item.text
+		itemBtn.Parent = menuFrame
+		corner(itemBtn, Theme.corners.sm)
+
+		if item.disabled then
+			itemBtn.TextColor3 = Theme.color.text.tertiary
+		end
+
+		itemBtn.MouseEnter:Connect(function()
+			if not item.disabled then
+				itemBtn.BackgroundTransparency = 0
+				itemBtn.BackgroundColor3 = self.hoverColor
+			end
+		end)
+		itemBtn.MouseLeave:Connect(function()
+			itemBtn.BackgroundTransparency = 1
+		end)
+		itemBtn.Activated:Connect(function()
+			if not item.disabled then
+				self:hide()
+				item.action()
+			end
+		end)
+
+		table.insert(self.itemFrames, itemBtn)
+	end
+
+	self.frame = menuFrame
+
+	-- Parented lazily on first show (screenGui exists by then)
+	function self:show(x, y)
+		if not x or not y then return end
+		if menuFrame.Parent == nil then
+			menuFrame.Parent = screenGui
+		end
+
+		local cam = workspace.CurrentCamera
+		local viewportW = cam and cam.ViewportSize.X or 1920
+		local viewportH = cam and cam.ViewportSize.Y or 1080
+
+		local menuWidth = 180
+		local menuHeight = #self.itemsData * 36 + 8
+
+		local posX = x + 8
+		local posY = y
+		if posX + menuWidth > viewportW then
+			posX = math.max(0, x - menuWidth - 8)
+		end
+		if posY + menuHeight > viewportH then
+			posY = math.max(0, viewportH - menuHeight - 8)
+		end
+
+		menuFrame.Size = UDim2.new(0, menuWidth, 0, menuHeight)
+		menuFrame.Position = UDim2.new(0, posX, 0, posY)
+		menuFrame.Visible = true
+		self.isOpen = true
+
+		-- Click-outside-to-close: connected on show, disconnected on hide.
+		if self._outsideConn then self._outsideConn:Disconnect() end
+		self._outsideConn = UserInputService.InputBegan:Connect(function(input, processed)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.MouseButton2
+				and input.UserInputType ~= Enum.UserInputType.Touch then
+				return
+			end
+			local pos = input.Position
+			local framePos = menuFrame.AbsolutePosition
+			local frameSize = menuFrame.AbsoluteSize
+			if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
+				or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
+				self:hide()
+			end
+		end)
+	end
+
+	function self:hide()
+		menuFrame.Visible = false
+		self.isOpen = false
+		if self._outsideConn then
+			self._outsideConn:Disconnect()
+			self._outsideConn = nil
+		end
+	end
+
+	function self:destroy()
+		self:hide()
+		menuFrame:Destroy()
+	end
+
+	return self
 end
 
 local function makeButton(parent, props)
@@ -10738,56 +10966,6 @@ local function refreshPanelState(parent, isLoading, hasData)
 			end
 		end
 	end
-end
-	config = config or {}
-	local rows = config.rows or 3
-	local rowHeight = config.rowHeight or (IS_MOBILE and 110 or 120)
-	local gap = config.gap or Theme.spacing.md
-	local zIndex = config.zIndex or 26
-	local animated = config.animated ~= false
-	local barColor = config.barColor or Theme.color.surface.elevated
-	local radius = config.radius or Theme.corners.md
-
-	local bars = {}
-	for i = 1, rows do
-		local bar = Instance.new("Frame")
-		bar.Name = "SkeletonRow"
-		bar.Size = UDim2.new(1, 0, 0, rowHeight)
-		bar.BackgroundColor3 = barColor
-		bar.BackgroundTransparency = 0.5
-		bar.LayoutOrder = i
-		bar.ZIndex = zIndex
-		bar.Parent = parent
-		corner(bar, radius)
-		bars[i] = bar
-	end
-
-	-- Ensure a UIListLayout exists for sequential positioning + gap. If the
-	-- parent already has one (e.g. collectionList's configured layout), leave
-	-- it untouched — only add one for parents that don't.
-	if not parent:FindFirstChildOfClass("UIListLayout") then
-		local layout = Instance.new("UIListLayout")
-		layout.SortOrder = Enum.SortOrder.LayoutOrder
-		layout.Padding = UDim.new(0, gap)
-		layout.Parent = parent
-	end
-
-	if animated then
-		task.spawn(function()
-			while bars[1] and bars[1].Parent do
-				local phase = (os.clock() % 1.4) / 1.4
-				for i, bar in ipairs(bars) do
-					if bar.Parent then
-						local wave = math.abs(((phase + (i - 1) * 0.18) % 1) * 2 - 1)
-						bar.BackgroundTransparency = 0.35 + 0.35 * wave
-					end
-				end
-				task.wait(0.08)
-			end
-		end)
-	end
-
-	return bars
 end
 
 -- ============================================================
@@ -11334,6 +11512,7 @@ local toastQueue = {}
 -- Forward declaration: showToastDirect calls drainToastQueue (line 517)
 -- before it's defined, causing a runtime error.
 local drainToastQueue
+local dismissToast
 
 local function showToastDirect(message, color, category, actions)
 	toastOrder += 1
@@ -11449,7 +11628,7 @@ local function showToastDirect(message, color, category, actions)
 	-- button (persistent). Runs the count decrement unconditionally so
 	-- external destruction doesn't leak activeToastCount (fresh-eyes fix
 	-- preserved from the original implementation).
-	local function dismissToast()
+	dismissToast = function()
 		if toast.Parent then
 			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
@@ -11497,6 +11676,10 @@ drainToastQueue = function()
 		showToastDirect(pending.message, pending.color, pending.category)
 	end
 end
+
+-- Forward declarations: showNotification calls addToHistory (defined near
+-- the bottom of this file); without these the call sites read nil globals.
+local addToHistory
 
 local function showNotification(message, color, category, actions)
 	category = category or "info"
@@ -11929,6 +12112,51 @@ local function desktopPanelFitScale(panel)
 	return math.max(0.1, math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset))
 end
 
+-- Panel sizing for wide screens (harborheist-0ci3): panels are registered
+-- with their base desktop size; on "wide" viewports they get a modest bump,
+-- on "compact" a slight shrink. UIScale fit clamping (28.3) stays in charge
+-- of small windows — this only adjusts the base size.
+local LAYOUT_PANEL_SCALE = { compact = 0.95, standard = 1, wide = 1.08 }
+local registeredPanels = {} -- { { panel = Frame, baseW = int, baseH = int }, ... }
+
+local function registerLayoutPanel(panel, baseW, baseH)
+	table.insert(registeredPanels, { panel = panel, baseW = baseW, baseH = baseH })
+end
+
+local function updatePanelSizing()
+	for _, entry in ipairs(registeredPanels) do
+		if entry.panel and entry.panel.Parent then
+			local factor = LAYOUT_PANEL_SCALE[currentLayoutMode] or 1
+			entry.panel.Size = UDim2.new(0, math.floor(entry.baseW * factor + 0.5), 0, math.floor(entry.baseH * factor + 0.5))
+		end
+	end
+end
+
+-- Layout-mode resize wiring: declared after updatePanelSizing exists
+-- (layoutDesktopBar / layoutMobileStack are feature-branch locals that keep
+-- their own resize handlers; only panel sizing is refreshed here).
+local function bindViewportWidth(cam)
+	if not cam then return end
+
+	local viewportConn
+
+	local function updateLayoutMode()
+		local newMode = getLayoutMode(cam.ViewportSize.X)
+		if newMode ~= currentLayoutMode then
+			currentLayoutMode = newMode
+			task.spawn(updatePanelSizing)
+		end
+	end
+
+	if viewportConn then viewportConn:Disconnect() end
+	viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayoutMode)
+end
+
+bindViewportWidth(workspace.CurrentCamera)
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+	bindViewportWidth(workspace.CurrentCamera)
+end)
+
 local function makePanel(title, titleColor, desktopSize)
 	local panel = Instance.new("Frame")
 	panel.Name = title
@@ -12039,6 +12267,12 @@ local function makePanel(title, titleColor, desktopSize)
 	content.Position = UDim2.new(0, 16, 0, headerY + 40)
 	content.ZIndex = 26
 	content.Parent = panel
+
+	-- harborheist-0ci3: register for layout-mode resizing (desktop only;
+	-- mobile uses the bottom-sheet size set above).
+	if not IS_MOBILE and desktopSize then
+		registerLayoutPanel(panel, desktopSize.X.Offset, desktopSize.Y.Offset)
+	end
 
 	return panel, content, close
 end
@@ -12452,6 +12686,10 @@ end
 -- carry limit actually change.
 local lastInventorySignature = nil
 
+-- harborheist-vasr: forward-declared — defined after renderInventory (the
+-- menu actions reuse invStoreAllBtn / friendlyFailureReason from this file).
+local bindInventoryRowContextMenu
+
 local function renderInventory()
 	if not state then
 		-- harborheist-9yli: skeleton loader on initial load before state snapshot arrives
@@ -12617,6 +12855,9 @@ local function renderInventory()
 		end)
 		-- R4 polish: staggered entrance on rebuild.
 		staggerFadeIn(row, i)
+		
+		-- harborheist-vasr: right-click context menu on this row (desktop)
+		bindInventoryRowContextMenu(row, fish)
 	end
 end
 
@@ -12634,6 +12875,84 @@ invStoreAllBtn.Activated:Connect(function()
 	end
 	Remotes.RequestStoreFish:InvokeServer()
 end)
+
+-- ============================================================
+-- ============================================================
+-- Inventory Panel Context Menu (harborheist-vasr)
+-- Right-click a bag row: sell / store / species details. Desktop-only
+-- (touch users already have per-row SELL/STORE buttons).
+-- ============================================================
+
+local activeContextMenu = nil
+
+local function createInventoryContextMenu(fish, x, y)
+	if activeContextMenu then
+		activeContextMenu:destroy()
+		activeContextMenu = nil
+	end
+
+	local items = {
+		{
+			id = "sell",
+			text = "Sell for $" .. formatCash(fish.BaseSellValue or 0),
+			action = function()
+				-- pcall-guarded: a network drop must not error the handler
+				local ok, result = pcall(function()
+					return Remotes.SellFish:InvokeServer(fish.InstanceId)
+				end)
+				if ok and result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+					showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
+				end
+			end,
+		},
+		{
+			id = "store",
+			text = "Store in aquarium",
+			action = function()
+				local ok, result = pcall(function()
+					return Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
+				end)
+				if ok and result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+					showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
+				end
+			end,
+		},
+		{
+			id = "details",
+			text = "Species details",
+			action = function()
+				local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
+				if ok and def then
+					showNotification(
+						string.format("%s — %s\n$%s sell  •  $%.1f/min stored",
+							def.DisplayName or fish.SpeciesId,
+							fish.Rarity or "?",
+							formatCash(fish.BaseSellValue or 0),
+							fish.IncomePerMinute or 0),
+						Theme.color.status.info)
+				else
+					showNotification("Unknown species", Theme.color.status.bad)
+				end
+			end,
+		},
+	}
+
+	activeContextMenu = ContextMenu.new(items)
+	activeContextMenu:show(x, y)
+end
+
+-- Bound per-row inside renderInventory (the fish reference rides the
+-- closure — no fake Instance properties, no list-level hit-testing).
+bindInventoryRowContextMenu = function(row, fish)
+	if IS_MOBILE then
+		return
+	end
+	row.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then
+			createInventoryContextMenu(fish, input.Position.X, input.Position.Y)
+		end
+	end)
+end
 
 local function toggleInventoryPanel()
 	if overlayBlocksPanels() then
@@ -15886,13 +16205,133 @@ end
 
 actionButtons.boat.Activated:Connect(trySpawnBoat)
 
+-- harborheist-i74e (EPIC 40): keyboard-shortcut help panel + completion
+-- of the action shortcuts. The core F/G/C/T/Q/R/B/Escape handlers below
+-- already existed; this adds S (shop), Space (cast), I (inventory alias),
+-- H (toggle this help panel), and the discoverable help panel itself so
+-- all shortcuts are documented in-game (acceptance: "Help panel shows all
+-- shortcuts").
+local helpPanel, helpContent, helpClose = makePanel("SHORTCUTS", Theme.color.accent.base, UDim2.new(0, 360, 0, 480))
+
+makeLabel(helpContent, {
+	Size = UDim2.new(1, 0, 0, 18),
+	Position = UDim2.new(0, 0, 0, 0),
+	Text = IS_MOBILE and "Tap an action button:" or "Press a key or click an action:",
+	Font = Theme.type.fonts.med,
+	TextSize = Theme.type.sizes.xs,
+	TextColor3 = Theme.color.text.tertiary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 26,
+})
+
+local helpList = Instance.new("ScrollingFrame")
+helpList.Name = "ShortcutList"
+helpList.Size = UDim2.new(1, 0, 1, -26)
+helpList.Position = UDim2.new(0, 0, 0, 26)
+helpList.BackgroundTransparency = 1
+helpList.BorderSizePixel = 0
+helpList.ScrollBarThickness = 4
+helpList.ScrollBarImageColor3 = Theme.color.text.tertiary
+helpList.CanvasSize = UDim2.new(0, 0, 0, 0)
+helpList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+helpList.ZIndex = 26
+helpList.Parent = helpContent
+
+local helpListLayout = Instance.new("UIListLayout")
+helpListLayout.FillDirection = Enum.FillDirection.Vertical
+helpListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+helpListLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+helpListLayout.Padding = UDim.new(0, 6)
+helpListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+helpListLayout.Parent = helpList
+
+local SHORTCUT_ROWS = {
+	{ key = "F",     desc = "Cast / Start Fishing" },
+	{ key = "Space", desc = "Cast (when no panel is open)" },
+	{ key = "G",     desc = "Fish Bag (carried fish)" },
+	{ key = "I",     desc = "Fish Bag (alias of G)" },
+	{ key = "C",     desc = "Collection Book" },
+	{ key = "T",     desc = "My Aquarium (Tank)" },
+	{ key = "S",     desc = "Bait &amp; Tackle (Shop)" },
+	{ key = "Q",     desc = "Quests" },
+	{ key = "R",     desc = "Raid Waters" },
+	{ key = "B",     desc = "Spawn Boat" },
+	{ key = "Tab",   desc = "Navigate buttons (Shift+Tab reverses)" },
+	{ key = "Enter", desc = "Activate the focused button" },
+	{ key = "Esc",   desc = "Close panel / dismiss prompt" },
+	{ key = "H",     desc = "Toggle this shortcuts panel" },
+}
+
+for idx, row in ipairs(SHORTCUT_ROWS) do
+	local rowFrame = Instance.new("Frame")
+	rowFrame.Size = UDim2.new(1, 0, 0, 30)
+	rowFrame.BackgroundTransparency = 1
+	rowFrame.LayoutOrder = idx
+	rowFrame.ZIndex = 26
+	rowFrame.Parent = helpList
+
+	local chip = Instance.new("Frame")
+	chip.Size = UDim2.new(0, 46, 0, 24)
+	chip.Position = UDim2.new(0, 0, 0.5, 0)
+	chip.AnchorPoint = Vector2.new(0, 0.5)
+	chip.BackgroundColor3 = Theme.color.surface.elevated
+	chip.ZIndex = 27
+	chip.Parent = rowFrame
+	corner(chip, Theme.corners.compact)
+	stroke(chip, 0.85)
+
+	makeLabel(chip, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = row.key,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.secondary,
+		ZIndex = 28,
+	})
+
+	makeLabel(rowFrame, {
+		Size = UDim2.new(1, -56, 1, 0),
+		Position = UDim2.new(0, 56, 0, 0),
+		Text = row.desc,
+		Font = Theme.type.fonts.med,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.text.primary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+end
+
+helpClose.Activated:Connect(hidePanels)
+if not IS_MOBILE then
+	KeyboardNav:Register(helpClose, 100)
+end
+
+local function toggleHelpPanel()
+	if overlayBlocksPanels() then
+		return
+	end
+	if activePanel == helpPanel then
+		hidePanels()
+		return
+	end
+	showPanel(helpPanel)
+end
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then
 		return
 	end
 	if input.KeyCode == Enum.KeyCode.F then
 		doFish()
-	elseif input.KeyCode == Enum.KeyCode.G then
+	elseif input.KeyCode == Enum.KeyCode.Space then
+		-- harborheist-i74e: Space casts when no panel is open. When a panel
+		-- is open, Space activates the focused button via KeyboardNav, so we
+		-- defer to that to avoid a double-action.
+		if not activePanel then
+			doFish()
+		end
+	elseif input.KeyCode == Enum.KeyCode.G or input.KeyCode == Enum.KeyCode.I then
 		toggleInventoryPanel()
 	elseif input.KeyCode == Enum.KeyCode.C then
 		toggleCollectionPanel()
@@ -15901,12 +16340,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			showPanel(aquariumPanel)
 			render() -- R3 audit #20: aquarium block is push-gated; render on open
 		end
+	elseif input.KeyCode == Enum.KeyCode.S then
+		-- harborheist-i74e: open the Bait &amp; Tackle shop panel.
+		if not overlayBlocksPanels() then
+			showPanel(shopPanel)
+			refreshShop()
+		end
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		toggleQuestPanel()
 	elseif input.KeyCode == Enum.KeyCode.R then
 		toggleRaidPanel()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		trySpawnBoat()
+	elseif input.KeyCode == Enum.KeyCode.H then
+		-- harborheist-i74e: toggle the keyboard-shortcut help panel.
+		toggleHelpPanel()
 	elseif input.KeyCode == Enum.KeyCode.Escape then
 		-- R3 audit #17: Escape dismissed panels only — the onboarding prompt
 		-- and sell/store comparison prompt had no keyboard path out.
@@ -16229,7 +16677,7 @@ end
 local toastHistory = {}
 local MAX_HISTORY = 50
 
-local function addToHistory(message, color, category, actions)
+addToHistory = function(message, color, category, actions)
 	-- Create history entry with timestamp and optional actions
 	table.insert(toastHistory, 1, {
 		message = message,
