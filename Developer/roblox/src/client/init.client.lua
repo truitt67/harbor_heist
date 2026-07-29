@@ -597,16 +597,58 @@ local function makeButton(parent, props)
 	end
 	
 	-- Press feedback with proper easing (fallback if AnimationSystem unavailable)
+	-- harborheist-g9z2: Enhanced with hover effects, animation cancellation, and disabled button guards
 	local function setupPressFeedback()
 		if hasAnimPress then return end  -- AnimationSystem handles this
 		if pressTween then return end
 		
-		pressTween = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		pressTween = EASE_FAST
+		
+		-- harborheist-g9z2: Track active tweens for cancellation during rapid interactions
+		local activeTweens = {}
+		local function cancelTweens()
+			for _, tween in pairs(activeTweens) do
+				if tween and tween.PlaybackState ~= Enum.PlaybackState.Completed then
+					pcall(function() tween:Cancel() end)
+				end
+			end
+			activeTweens = {}
+		end
+		
+		-- harborheist-g9z2: Store original color for hover lerp
+		local originalColor = button.BackgroundColor3
+		
+		-- harborheist-g9z2: Pre-create shadow layers for hover elevation (desktop only)
+		local hoverShadows = {}
+		if not IS_MOBILE then
+			local shadowConfig = Theme.shadows.low
+			for i = 1, shadowConfig.layers do
+				local shadow = Instance.new("Frame")
+				shadow.Name = "HoverShadow_" .. i
+				shadow.BackgroundColor3 = Color3.new(0, 0, 0)
+				shadow.BackgroundTransparency = 1 -- start invisible
+				shadow.Size = UDim2.new(1, shadowConfig.spread * i, 1, shadowConfig.spread * i)
+				shadow.Position = UDim2.new(0, -shadowConfig.spread * i / 2, 0, -shadowConfig.spread * i / 2)
+				shadow.ZIndex = button.ZIndex - 1
+				shadow.Active = false
+				shadow.Parent = button
+				corner(shadow, resolveRadius)
+				hoverShadows[i] = shadow
+			end
+		end
 		
 		button.MouseButton1Down:Connect(function()
+			-- harborheist-g9z2: Guard against disabled buttons
+			if not button.Active then
+				return
+			end
+			
+			-- harborheist-g9z2: Cancel any running animations before starting new ones
+			cancelTweens()
+			
 			-- Press state - scale down slightly for tactile feedback
-			local pressTweenObj = TweenService:Create(button, pressTween, { Scale = 0.96 })
-			pressTweenObj:Play()
+			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
+			activeTweens.scale:Play()
 			
 			-- Haptic tick on mobile devices
 			if IS_MOBILE then
@@ -627,9 +669,16 @@ local function makeButton(parent, props)
 		end)
 		
 		button.MouseButton1Up:Connect(function()
+			-- harborheist-g9z2: Guard against disabled buttons
+			if not button.Active then
+				return
+			end
+			
+			cancelTweens()
+			
 			-- Release state - bounce back with spring physics
-			local releaseTweenObj = TweenService:Create(button, EASE_POP, { Scale = 1 })
-			releaseTweenObj:Play()
+			activeTweens.scale = TweenService:Create(button, EASE_POP, { Scale = 1 })
+			activeTweens.scale:Play()
 			
 			if IS_MOBILE then
 				pcall(function()
@@ -637,6 +686,83 @@ local function makeButton(parent, props)
 				end)
 			end
 		end)
+		
+		-- harborheist-g9z2: Desktop hover effects
+		if not IS_MOBILE then
+			button.MouseEnter:Connect(function()
+				-- harborheist-g9z2: Guard against disabled buttons
+				if not button.Active then
+					return
+				end
+				
+				cancelTweens()
+				
+				-- harborheist-g9z2: Scale up slightly on hover
+				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1.02 })
+				activeTweens.scale:Play()
+				
+				-- harborheist-g9z2: Brighten background color (lerp toward white by 10%)
+				local hoverColor = originalColor:Lerp(Color3.new(1, 1, 1), 0.1)
+				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = hoverColor })
+				activeTweens.color:Play()
+				
+				-- harborheist-g9z2: Show hover glow overlay
+				if hoverGlow then
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 0.9 })
+					activeTweens.glow:Play()
+				end
+				
+				-- harborheist-g9z2: Fade in hover shadows for elevation lift
+				local shadowConfig = Theme.shadows.low
+				for i, shadow in ipairs(hoverShadows) do
+					local targetAlpha = 1 - (shadowConfig.alpha * (1 - (i - 1) / shadowConfig.layers))
+					local t = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = targetAlpha })
+					t:Play()
+				end
+				
+				-- harborheist-g9z2: Change cursor to pointing hand
+				playerMouse.Icon = "rbxasset://SystemCursors/PointingHand"
+			end)
+			
+			button.MouseLeave:Connect(function()
+				cancelTweens()
+				
+				-- harborheist-g9z2: Scale back to normal
+				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1 })
+				activeTweens.scale:Play()
+				
+				-- harborheist-g9z2: Restore original color
+				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = originalColor })
+				activeTweens.color:Play()
+				
+				-- harborheist-g9z2: Hide hover glow
+				if hoverGlow then
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens.glow:Play()
+				end
+				
+				-- harborheist-g9z2: Fade out hover shadows
+				for _, shadow in ipairs(hoverShadows) do
+					local t = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 })
+					t:Play()
+				end
+				
+				-- harborheist-g9z2: Reset cursor
+				playerMouse.Icon = ""
+			end)
+			
+			-- harborheist-g9z2: Clean up cursor and shadows on destroy
+			button.Destroying:Connect(function()
+				if playerMouse.Icon == "rbxasset://SystemCursors/PointingHand" then
+					playerMouse.Icon = ""
+				end
+				for _, shadow in ipairs(hoverShadows) do
+					if shadow.Parent then
+						shadow:Destroy()
+					end
+				end
+			end)
+		end
 	end
 	
 	setupPressFeedback()
