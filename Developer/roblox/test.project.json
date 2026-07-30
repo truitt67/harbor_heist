@@ -27,6 +27,9 @@
       },
       "RunTests": {
         "$path": "test/bootstrap.server.lua"
+      },
+      "RunE2E": {
+        "$path": "tests/e2e/bootstrap.server.lua"
       }
     },
     "ServerStorage": {

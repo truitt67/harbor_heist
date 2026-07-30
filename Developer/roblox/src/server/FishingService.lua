@@ -224,6 +224,26 @@ function FishingService.init(deps)
 			if biteData then
 				biteData.biteTime = os.clock() -- reset to actual bite moment
 				remotes.BiteEvent:FireClient(player, zoneId, BITE_WINDOW_SECONDS)
+
+				-- If the player never responds to the bite (AFK / ignored it),
+				-- nothing used to clean up — activeBites[player] leaked and the
+				-- bobber FX floated until the player left. Schedule a sweeper that
+				-- fires just after the bite window closes; if the entry is STILL
+				-- the same one (a new cast replaces the table entry, so identity
+				-- comparison guards against killing a subsequent cast's state),
+				-- the player never responded.
+				local scheduledBite = biteData
+				task.delay(BITE_WINDOW_SECONDS + 0.5, function()
+					if activeBites[player] == scheduledBite then
+						activeBites[player] = nil
+						if rodService then
+							rodService.endCast(player, false)
+						end
+						if player.Parent then
+							remotes.notify(player, "The fish got away...", Color3.fromRGB(255, 120, 120))
+						end
+					end
+				end)
 			end
 		end)
 	end)
