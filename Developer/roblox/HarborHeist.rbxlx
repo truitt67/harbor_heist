@@ -9709,7 +9709,7 @@ return WorldBuilder
       <Item class="LocalScript" referent="34">
         <Properties>
           <string name="Name">HarborHeistClient</string>
-          <string name="Source"><![CDATA[local Players = game:GetService("Players")
+          <string name="Source">local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -9755,7 +9755,7 @@ local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.Keyboar
 
 -- Viewport width thresholds for layout modes
 local LAYOUT_THRESHOLDS = {
-	compact = 1200,   -- < 1200px: single column, compact UI
+	compact = 1200,   -- &lt; 1200px: single column, compact UI
 	standard = 1600,  -- 1200-1600px: standard desktop layout
 	wide = 1920,      -- > 1600px: wide screen with side panels
 }
@@ -9766,9 +9766,9 @@ local function getLayoutMode(viewportW)
 	
 	viewportW = math.floor(viewportW)
 	
-	if viewportW < LAYOUT_THRESHOLDS.compact then
+	if viewportW &lt; LAYOUT_THRESHOLDS.compact then
 		return "compact"
-	elseif viewportW < LAYOUT_THRESHOLDS.standard then
+	elseif viewportW &lt; LAYOUT_THRESHOLDS.standard then
 		return "standard"
 	else
 		return "wide"
@@ -9993,7 +9993,7 @@ local coachShownIdleCast = false
 -- Model: initiation gating, NOT preemption (see bead; preemption eats
 -- in-flight catches or races the server raid deadline). The single
 -- UserInputService.InputBegan router connection is wired at the BOTTOM of
--- this file (after every overlayInputHandlers.<name> assignment), because
+-- this file (after every overlayInputHandlers.&lt;name> assignment), because
 -- Lua locals are lexically scoped and the handlers don't exist yet here.
 local activeOverlay = nil -- nil | "cast" | "bite" | "raid"
 local overlayInputHandlers = {} -- name -> handler(input, gameProcessed)
@@ -10119,8 +10119,20 @@ local function calculateSafeTop()
 	return safeTop
 end
 
+-- Mutable: harborheist-vr21 — recalculated on viewport/orientation change by
+-- refreshSafeTop() below (HUD consumers reposition via safeTopConsumers).
 local SAFE_TOP = calculateSafeTop()
 
+-- Registry of SAFE_TOP consumers: each entry re-reads SAFE_TOP and
+-- repositions one UI element. Populated where each element is created
+-- (closures keep the element references alive).
+local safeTopConsumers = {}
+local function refreshSafeTop()
+	SAFE_TOP = calculateSafeTop()
+	for _, fn in ipairs(safeTopConsumers) do
+		task.spawn(fn)
+	end
+end
 -- ============================================================
 -- Primitive helpers
 -- ============================================================
@@ -10524,8 +10536,8 @@ function ContextMenu.new(items, props)
 				local pos = input.Position
 				local framePos = menuFrame.AbsolutePosition
 				local frameSize = menuFrame.AbsoluteSize
-				if pos.X < framePos.X or pos.X > framePos.X + frameSize.X
-					or pos.Y < framePos.Y or pos.Y > framePos.Y + frameSize.Y then
+				if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
+					or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
 					self:hide()
 				end
 			end)
@@ -10815,7 +10827,7 @@ end
 -- Returns: bars table (for caller reference; destroying any bar triggers
 -- self-termination).
 -- ============================================================
--- EPIC 31: Loading States & Empty States for async data panels (shop, raid, inventory)
+-- EPIC 31: Loading States &amp; Empty States for async data panels (shop, raid, inventory)
 -- Universal skeleton loader factory with loading spinner support
 local function createSkeletonRows(parent, config)
 	-- Clear existing skeletons if any (only destroy skeletons, not other content)
@@ -11237,6 +11249,9 @@ local hud = Instance.new("Frame")
 hud.Name = "HUD"
 hud.Size = IS_MOBILE and UDim2.new(0, 178, 0, 64) or UDim2.new(0, 224, 0, 78)
 hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
+table.insert(safeTopConsumers, function()
+	hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
+end)
 hud.BackgroundColor3 = Theme.color.surface.primary
 hud.BackgroundTransparency = 0.18
 hud.Parent = screenGui
@@ -11327,9 +11342,9 @@ local CLAIM_GREEN_HEX = "32A050"
 -- HUD card does not jump when the format flips threshold.
 local function formatIncomeRate(ratePerSec)
 	ratePerSec = ratePerSec or 0
-	if ratePerSec < 0.1 then
+	if ratePerSec &lt; 0.1 then
 		return string.format("+$%.1f/min", ratePerSec * 60)
-	elseif ratePerSec <= 10 then
+	elseif ratePerSec &lt;= 10 then
 		return string.format("+$%.2f/sec", ratePerSec)
 	else
 		return string.format("+$%.1f/sec", ratePerSec)
@@ -11344,7 +11359,7 @@ local function updateIncomeLine(readyTransparency)
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
 		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = string.format(
-			'%s  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
+			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
@@ -11434,6 +11449,9 @@ end
 local carryPill = Instance.new("Frame")
 carryPill.Size = IS_MOBILE and UDim2.new(0, 178, 0, 30) or UDim2.new(0, 224, 0, 34)
 carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
+table.insert(safeTopConsumers, function()
+	carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
+end)
 carryPill.BackgroundColor3 = Theme.color.surface.primary
 carryPill.BackgroundTransparency = 0.25
 carryPill.Parent = screenGui
@@ -11501,6 +11519,9 @@ toastHost.Name = "Toasts"
 toastHost.AnchorPoint = Vector2.new(0.5, 0)
 toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, TOAST_HOST_HEIGHT)
 toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
+table.insert(safeTopConsumers, function()
+	toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
+end)
 toastHost.BackgroundTransparency = 1
 toastHost.ZIndex = 55
 toastHost.Parent = screenGui
@@ -11677,7 +11698,7 @@ end
 
 -- Assign to the forward-declared local
 drainToastQueue = function()
-	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
+	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
 	end
@@ -11703,7 +11724,7 @@ local function showNotification(message, color, category, actions)
 	end
 	-- Add to history for toastHistory feature
 	addToHistory(message, color, category, actions)
-	if activeToastCount < MAX_VISIBLE_TOASTS then
+	if activeToastCount &lt; MAX_VISIBLE_TOASTS then
 		showToastDirect(message, color, category, actions)
 	else
 		local entry = { message = message, color = color, category = category }
@@ -11880,6 +11901,9 @@ sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
 -- stack (3 toasts ~= 152px from SAFE_TOP+8) so first-catch toasts no
 -- longer render on top of this prompt (toast ZIndex 51 > 16).
 sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
+table.insert(safeTopConsumers, function()
+	sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
+end)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
 sellStorePrompt.BackgroundColor3 = Theme.color.surface.secondary
 sellStorePrompt.BackgroundTransparency = 0.08
@@ -12117,7 +12141,7 @@ local function desktopPanelFitScale(panel)
 	-- clear the Roblox top bar (inset) plus the aesthetic margin.
 	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
 	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
-	-- Floor: on absurdly small windows (<~120px tall) availW/availH go
+	-- Floor: on absurdly small windows (&lt;~120px tall) availW/availH go
 	-- negative — never hand UIScale a non-positive scale (blanks the panel).
 	return math.max(0.1, math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset))
 end
@@ -12165,6 +12189,10 @@ local function bindViewportWidth(cam)
 	local viewportConn
 
 	local function updateLayoutMode()
+		-- harborheist-vr21: any viewport change can flip the orientation
+		-- branch (or, on mobile, the top inset) — recompute SAFE_TOP and
+		-- reposition its consumers even when the layout MODE is unchanged.
+		task.spawn(refreshSafeTop)
 		local newMode = getLayoutMode(cam.ViewportSize.X)
 		if newMode ~= currentLayoutMode then
 			currentLayoutMode = newMode
@@ -12688,7 +12716,7 @@ local function sortCarriedForDisplay(carried)
 		if va ~= vb then
 			return va > vb
 		end
-		return a.idx < b.idx
+		return a.idx &lt; b.idx
 	end)
 	local sorted = {}
 	for i, entry in ipairs(wrapped) do
@@ -13465,7 +13493,7 @@ end
 -- ============================================================
 -- Shop panel
 -- ============================================================
-local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", Theme.color.status.warn, UDim2.new(0, 420, 0, 520))
+local shopPanel, shopContent, shopClose = makePanel("BAIT &amp; TACKLE", Theme.color.status.warn, UDim2.new(0, 420, 0, 520))
 
 local shopList = Instance.new("ScrollingFrame")
 shopList.Size = UDim2.new(1, 0, 1, 0)
@@ -13506,7 +13534,7 @@ addCatalog("alarm", GameConfig.Upgrades.Alarm, 40)
 -- kind string the server dispatches on. Order base 50 so dock rows sort last.
 addCatalog("dock", GameConfig.DockUpgradeTiers, 50)
 table.sort(SHOP_CATALOG, function(a, b)
-	return a.order < b.order
+	return a.order &lt; b.order
 end)
 
 local KIND_META = {
@@ -13673,7 +13701,7 @@ function refreshShop()
 			-- snapshot's dockLevel field (1-4, 1-indexed like the catalog).
 			currentLevel = state.dockLevel or 1
 		end
-		if entry.level <= currentLevel then
+		if entry.level &lt;= currentLevel then
 			entry.buyButton.Text = "OWNED"
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.elevated
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
@@ -14005,7 +14033,7 @@ local function renderRaidTargets(data)
 	end
 	table.sort(sortedTargets, function(a, b)
 		if a.available == b.available then
-			return (a.displayName or a.name or "") < (b.displayName or b.name or "")
+			return (a.displayName or a.name or "") &lt; (b.displayName or b.name or "")
 		end
 		return a.available == true
 	end)
@@ -14275,7 +14303,7 @@ local function computeRaidTargetsSignature(data)
 end
 
 -- R3 audit #13: generation guard against poll-chain accumulation. A quick
--- close→reopen (<3s) let the OLD chain's pending task.delay see
+-- close→reopen (&lt;3s) let the OLD chain's pending task.delay see
 -- activePanel == raidPanel again and resume alongside the NEW chain — N
 -- quick cycles meant N concurrent 3s invoke loops forever. Each start bumps
 -- the generation; stale chains die at their next tick.
@@ -14458,6 +14486,9 @@ raidBanner.Name = "RaidBanner"
 raidBanner.AnchorPoint = IS_MOBILE and Vector2.new(1, 0) or Vector2.new(0.5, 0)
 raidBanner.Size = UDim2.new(0, IS_MOBILE and 180 or 340, 0, 36)
 raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+table.insert(safeTopConsumers, function()
+	raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+end)
 raidBanner.BackgroundColor3 = Theme.color.surface.primary
 raidBanner.BackgroundTransparency = 0.12
 raidBanner.Visible = false
@@ -14634,7 +14665,7 @@ if IS_MOBILE then
 		local idealScale = availH / fullH
 		
 		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
-		if idealScale < MIN_SCALE then
+		if idealScale &lt; MIN_SCALE then
 			local btnSize = MIN_TOUCH_TARGET
 			-- Pitch = button size + padding between buttons
 			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
@@ -14774,11 +14805,11 @@ else
 		viewportW = viewportW or (cam and cam.ViewportSize.X) or 1920
 		local btnW = BAR_BTN_W
 		local fullW = barWidthFor(BAR_BTN_W)
-		if viewportW < fullW + 2 * BAR_SIDE_MARGIN then
+		if viewportW &lt; fullW + 2 * BAR_SIDE_MARGIN then
 			btnW = math.floor((viewportW - 2 * BAR_SIDE_MARGIN - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
 			btnW = math.max(BAR_BTN_W_MIN, math.min(BAR_BTN_W, btnW))
 		end
-		local useShort = viewportW < BAR_SHORT_VIEWPORT
+		local useShort = viewportW &lt; BAR_SHORT_VIEWPORT
 		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)
 		local textSize = 12 + math.floor(2 * fontScale + 0.5)
 		bar.Size = UDim2.new(0, barWidthFor(btnW), 0, DESKTOP_BAR_H)
@@ -15303,7 +15334,7 @@ local function render()
 	-- complaint hvfh.2.3 fixed on the HUD), in the panel where players go to
 	-- understand income.
 	aquariumStats.Text = string.format(
-		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>%s</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
+		'&lt;font color="#EEF3FA">&lt;b>%d / %d fish&lt;/b>&lt;/font>  •  &lt;font color="#86EFAC">&lt;b>%s&lt;/b>&lt;/font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, formatIncomeRate(state.incomePerSec), rodName, baitName,
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
@@ -15344,7 +15375,7 @@ local function render()
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
-			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each</font>',
+			'&lt;font color="%s">●&lt;/font>  &lt;font color="%s">&lt;b>%s&lt;/b>&lt;/font>  ×%d   &lt;font color="#94A3B8">$%d each&lt;/font>',
 			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
 		))
 	end
@@ -15585,7 +15616,7 @@ local minigameZoneHalfWidth = 0.15
 -- Animate the marker sweeping back and forth
 local function runMinigame(windowSeconds)
 	if minigameActive then return end
-	if type(windowSeconds) ~= "number" or windowSeconds <= 0 then
+	if type(windowSeconds) ~= "number" or windowSeconds &lt;= 0 then
 		showNotification("Fishing sync hiccup — try casting again.", Theme.color.status.warn)
 		return
 	end
@@ -15642,7 +15673,7 @@ local function runMinigame(windowSeconds)
 			-- Ping-pong sweep: 0 -> 1 -> 0
 			local t = (elapsed % sweepDuration) / sweepDuration
 			local pos
-			if t < 0.5 then
+			if t &lt; 0.5 then
 				pos = t * 2 -- 0 -> 1
 			else
 				pos = 2 - t * 2 -- 1 -> 0
@@ -15902,7 +15933,7 @@ local function onMinigameTap()
 	-- against the rod's zone size in SubmitCatchInput); this just aligns
 	-- the client's pre-validation with the visual the player saw.
 	local halfWidth = minigameZoneHalfWidth or 0.15
-	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
+	local hit = markerPos >= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
 	minigameActive = false
 	releaseOverlay("bite")
 	minigameFrame.Visible = false
@@ -16065,7 +16096,7 @@ actionButtons.raid.Activated:Connect(toggleRaidPanel)
 local lastRaidRefreshAt = 0
 raidRefreshButton.Activated:Connect(function()
 	local now = os.clock()
-	if now - lastRaidRefreshAt < 1.5 then
+	if now - lastRaidRefreshAt &lt; 1.5 then
 		return
 	end
 	lastRaidRefreshAt = now
@@ -16134,7 +16165,7 @@ sellButton.Activated:Connect(function()
 		Remotes.RequestSellFish:InvokeServer()
 	else
 		local payout = computeSellPayout()
-		if payout <= 0 then
+		if payout &lt;= 0 then
 			local locked = (state.lockedUntil or 0) > 0
 			if locked and (state.liveWellCount or 0) > 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
@@ -16238,7 +16269,7 @@ local function trySpawnBoat()
 		return
 	end
 	local now = os.clock()
-	if now - lastBoatSpawnAt < 1 then
+	if now - lastBoatSpawnAt &lt; 1 then
 		return
 	end
 	lastBoatSpawnAt = now
@@ -16319,7 +16350,7 @@ local SHORTCUT_ROWS = {
 	{ key = "I",     desc = "Fish Bag (alias of G)" },
 	{ key = "C",     desc = "Collection Book" },
 	{ key = "T",     desc = "My Aquarium (Tank)" },
-	{ key = "S",     desc = "Bait & Tackle (Shop)" },
+	{ key = "S",     desc = "Bait &amp; Tackle (Shop)" },
 	{ key = "Q",     desc = "Quests" },
 	{ key = "R",     desc = "Raid Waters" },
 	{ key = "B",     desc = "Spawn Boat" },
@@ -16408,7 +16439,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			render() -- R3 audit #20: aquarium block is push-gated; render on open
 		end
 	elseif input.KeyCode == Enum.KeyCode.S then
-		-- harborheist-i74e: open the Bait & Tackle shop panel.
+		-- harborheist-i74e: open the Bait &amp; Tackle shop panel.
 		if not overlayBlocksPanels() then
 			showPanel(shopPanel)
 			refreshShop()
@@ -16700,7 +16731,7 @@ end)
 
 -- ============================================================
 -- TASK 23.1 (hvfh.3.1): the ONE UserInputService.InputBegan router.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
 -- assignment (cast at stopCastOverlay, raid in startRaidMinigame, bite in
 -- the bite-minigame section), because Lua locals are lexically scoped and
 -- those handlers don't exist until their sections run. Every event checks
@@ -16789,7 +16820,7 @@ setmetatable(toastHistory, {__mode = "k"})
 -- overlays — without it overlayInputHandlers.cast/.bite/.raid are
 -- registered but never invoked and the minigames cannot receive clicks.
 -- It was silently overwritten at HEAD by 6f1a0c8's toast-history append.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
 -- assignment (lexical scope: handlers don't exist until their sections run;
 -- every event re-reads the CURRENT activeOverlay so late registration is
 -- picked up even if an overlay opened before its handler section executed).
@@ -16798,8 +16829,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if handler then
 		handler(input, gameProcessed)
 	end
-end)
-]]></string>
+end)</string>
         </Properties>
         <Item class="ModuleScript" referent="35">
           <Properties>

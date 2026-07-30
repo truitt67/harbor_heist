@@ -408,8 +408,20 @@ local function calculateSafeTop()
 	return safeTop
 end
 
+-- Mutable: harborheist-vr21 — recalculated on viewport/orientation change by
+-- refreshSafeTop() below (HUD consumers reposition via safeTopConsumers).
 local SAFE_TOP = calculateSafeTop()
 
+-- Registry of SAFE_TOP consumers: each entry re-reads SAFE_TOP and
+-- repositions one UI element. Populated where each element is created
+-- (closures keep the element references alive).
+local safeTopConsumers = {}
+local function refreshSafeTop()
+	SAFE_TOP = calculateSafeTop()
+	for _, fn in ipairs(safeTopConsumers) do
+		task.spawn(fn)
+	end
+end
 -- ============================================================
 -- Primitive helpers
 -- ============================================================
@@ -1526,6 +1538,9 @@ local hud = Instance.new("Frame")
 hud.Name = "HUD"
 hud.Size = IS_MOBILE and UDim2.new(0, 178, 0, 64) or UDim2.new(0, 224, 0, 78)
 hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
+table.insert(safeTopConsumers, function()
+	hud.Position = UDim2.new(0, 14, 0, SAFE_TOP + 6)
+end)
 hud.BackgroundColor3 = Theme.color.surface.primary
 hud.BackgroundTransparency = 0.18
 hud.Parent = screenGui
@@ -1723,6 +1738,9 @@ end
 local carryPill = Instance.new("Frame")
 carryPill.Size = IS_MOBILE and UDim2.new(0, 178, 0, 30) or UDim2.new(0, 224, 0, 34)
 carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
+table.insert(safeTopConsumers, function()
+	carryPill.Position = UDim2.new(0, 14, 0, SAFE_TOP + (IS_MOBILE and 76 or 90))
+end)
 carryPill.BackgroundColor3 = Theme.color.surface.primary
 carryPill.BackgroundTransparency = 0.25
 carryPill.Parent = screenGui
@@ -1790,6 +1808,9 @@ toastHost.Name = "Toasts"
 toastHost.AnchorPoint = Vector2.new(0.5, 0)
 toastHost.Size = UDim2.new(0, IS_MOBILE and 320 or 400, 0, TOAST_HOST_HEIGHT)
 toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
+table.insert(safeTopConsumers, function()
+	toastHost.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + TOAST_HOST_TOP_OFFSET)
+end)
 toastHost.BackgroundTransparency = 1
 toastHost.ZIndex = 55
 toastHost.Parent = screenGui
@@ -2169,6 +2190,9 @@ sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
 -- stack (3 toasts ~= 152px from SAFE_TOP+8) so first-catch toasts no
 -- longer render on top of this prompt (toast ZIndex 51 > 16).
 sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
+table.insert(safeTopConsumers, function()
+	sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
+end)
 sellStorePrompt.Size = UDim2.new(IS_MOBILE and 1 or 0, IS_MOBILE and -24 or 360, 0, IS_MOBILE and 126 or 116)
 sellStorePrompt.BackgroundColor3 = Theme.color.surface.secondary
 sellStorePrompt.BackgroundTransparency = 0.08
@@ -2454,6 +2478,10 @@ local function bindViewportWidth(cam)
 	local viewportConn
 
 	local function updateLayoutMode()
+		-- harborheist-vr21: any viewport change can flip the orientation
+		-- branch (or, on mobile, the top inset) — recompute SAFE_TOP and
+		-- reposition its consumers even when the layout MODE is unchanged.
+		task.spawn(refreshSafeTop)
 		local newMode = getLayoutMode(cam.ViewportSize.X)
 		if newMode ~= currentLayoutMode then
 			currentLayoutMode = newMode
@@ -4747,6 +4775,9 @@ raidBanner.Name = "RaidBanner"
 raidBanner.AnchorPoint = IS_MOBILE and Vector2.new(1, 0) or Vector2.new(0.5, 0)
 raidBanner.Size = UDim2.new(0, IS_MOBILE and 180 or 340, 0, 36)
 raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+table.insert(safeTopConsumers, function()
+	raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+end)
 raidBanner.BackgroundColor3 = Theme.color.surface.primary
 raidBanner.BackgroundTransparency = 0.12
 raidBanner.Visible = false
