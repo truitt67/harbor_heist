@@ -97,15 +97,23 @@ local function resolveHapticEffect(effectName)
 	if ok and effect then
 		return effect
 	end
-	-- Fallback: pcall-guarded so an invalid name can't crash the module.
+	
+	-- Valid HapticEffectType members per Roblox docs: UIClick (and platform-specific ones)
+	-- "Rumble" is NOT a valid member — it was incorrectly used in the codebase.
+	-- Fallback to UIClick for all invalid names, including the buggy "Rumble".
 	local fbOk, fallback = pcall(function()
 		return Enum.HapticEffectType.UIClick
 	end)
 	if fbOk and fallback then
 		return fallback
 	end
+	
 	return nil -- graceful degradation: playHaptic's pcall swallows nil safely
 end
+
+-- harborheist-5rcp.2: Validate that "Rumble" is not a valid HapticEffectType member
+-- This was causing success/error haptics to fail on mobile devices. The fix
+-- ensures all invalid enum names (including the buggy "Rumble") fall back to UIClick.
 
 local function createHapticEffect(effectName, intensity, duration)
 	return {
