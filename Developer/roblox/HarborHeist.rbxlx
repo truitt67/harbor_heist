@@ -9709,7 +9709,7 @@ return WorldBuilder
       <Item class="LocalScript" referent="34">
         <Properties>
           <string name="Name">HarborHeistClient</string>
-          <string name="Source">local Players = game:GetService("Players")
+          <string name="Source"><![CDATA[local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
@@ -9755,7 +9755,7 @@ local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.Keyboar
 
 -- Viewport width thresholds for layout modes
 local LAYOUT_THRESHOLDS = {
-	compact = 1200,   -- &lt; 1200px: single column, compact UI
+	compact = 1200,   -- < 1200px: single column, compact UI
 	standard = 1600,  -- 1200-1600px: standard desktop layout
 	wide = 1920,      -- > 1600px: wide screen with side panels
 }
@@ -9766,9 +9766,9 @@ local function getLayoutMode(viewportW)
 	
 	viewportW = math.floor(viewportW)
 	
-	if viewportW &lt; LAYOUT_THRESHOLDS.compact then
+	if viewportW < LAYOUT_THRESHOLDS.compact then
 		return "compact"
-	elseif viewportW &lt; LAYOUT_THRESHOLDS.standard then
+	elseif viewportW < LAYOUT_THRESHOLDS.standard then
 		return "standard"
 	else
 		return "wide"
@@ -9993,7 +9993,7 @@ local coachShownIdleCast = false
 -- Model: initiation gating, NOT preemption (see bead; preemption eats
 -- in-flight catches or races the server raid deadline). The single
 -- UserInputService.InputBegan router connection is wired at the BOTTOM of
--- this file (after every overlayInputHandlers.&lt;name> assignment), because
+-- this file (after every overlayInputHandlers.<name> assignment), because
 -- Lua locals are lexically scoped and the handlers don't exist yet here.
 local activeOverlay = nil -- nil | "cast" | "bite" | "raid"
 local overlayInputHandlers = {} -- name -> handler(input, gameProcessed)
@@ -10091,12 +10091,6 @@ screenGui.Parent = playerGui
 
 -- Safe area handling (harborheist-fxfx): proper inset detection for all devices
 local inset = GuiService:GetGuiInset()
-
--- Detect notch height on iOS devices (accounts for under-display area)
-local function getNotchHeight()
-	-- Use Roblox's built-in safe area detection via GuiInset
-	return inset.Y or 0
-end
 
 -- Calculate safe top offset based on device type and orientation
 local function calculateSafeTop()
@@ -10528,8 +10522,8 @@ function ContextMenu.new(items, props)
 				local pos = input.Position
 				local framePos = menuFrame.AbsolutePosition
 				local frameSize = menuFrame.AbsoluteSize
-				if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
-					or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
+				if pos.X < framePos.X or pos.X > framePos.X + frameSize.X
+					or pos.Y < framePos.Y or pos.Y > framePos.Y + frameSize.Y then
 					self:hide()
 				end
 			end)
@@ -10819,7 +10813,7 @@ end
 -- Returns: bars table (for caller reference; destroying any bar triggers
 -- self-termination).
 -- ============================================================
--- EPIC 31: Loading States &amp; Empty States for async data panels (shop, raid, inventory)
+-- EPIC 31: Loading States & Empty States for async data panels (shop, raid, inventory)
 -- Universal skeleton loader factory with loading spinner support
 local function createSkeletonRows(parent, config)
 	-- Clear existing skeletons if any (only destroy skeletons, not other content)
@@ -11331,9 +11325,9 @@ local CLAIM_GREEN_HEX = "32A050"
 -- HUD card does not jump when the format flips threshold.
 local function formatIncomeRate(ratePerSec)
 	ratePerSec = ratePerSec or 0
-	if ratePerSec &lt; 0.1 then
+	if ratePerSec < 0.1 then
 		return string.format("+$%.1f/min", ratePerSec * 60)
-	elseif ratePerSec &lt;= 10 then
+	elseif ratePerSec <= 10 then
 		return string.format("+$%.2f/sec", ratePerSec)
 	else
 		return string.format("+$%.1f/sec", ratePerSec)
@@ -11348,7 +11342,7 @@ local function updateIncomeLine(readyTransparency)
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
 		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = string.format(
-			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
+			'%s  •  <font color="#%s" transparency="%.2f"><b>$%s ready</b></font>',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
@@ -11681,7 +11675,7 @@ end
 
 -- Assign to the forward-declared local
 drainToastQueue = function()
-	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue > 0 do
+	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
 	end
@@ -11707,7 +11701,7 @@ local function showNotification(message, color, category, actions)
 	end
 	-- Add to history for toastHistory feature
 	addToHistory(message, color, category, actions)
-	if activeToastCount &lt; MAX_VISIBLE_TOASTS then
+	if activeToastCount < MAX_VISIBLE_TOASTS then
 		showToastDirect(message, color, category, actions)
 	else
 		local entry = { message = message, color = color, category = category }
@@ -12121,7 +12115,7 @@ local function desktopPanelFitScale(panel)
 	-- clear the Roblox top bar (inset) plus the aesthetic margin.
 	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
 	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
-	-- Floor: on absurdly small windows (&lt;~120px tall) availW/availH go
+	-- Floor: on absurdly small windows (<~120px tall) availW/availH go
 	-- negative — never hand UIScale a non-positive scale (blanks the panel).
 	return math.max(0.1, math.min(1, availW / panel.Size.X.Offset, availH / panel.Size.Y.Offset))
 end
@@ -12692,7 +12686,7 @@ local function sortCarriedForDisplay(carried)
 		if va ~= vb then
 			return va > vb
 		end
-		return a.idx &lt; b.idx
+		return a.idx < b.idx
 	end)
 	local sorted = {}
 	for i, entry in ipairs(wrapped) do
@@ -12710,6 +12704,21 @@ local function fishDisplayName(fish)
 	end
 	local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
 	return (ok and def and def.DisplayName) or fish.SpeciesId or "Fish"
+end
+
+-- harborheist-vasr: is this fish still in the carried bag right now?
+-- Context-menu actions re-check before invoking the server so a stale row
+-- (bag changed while the menu is open) doesn't fire a dead InstanceId.
+local function fishStillCarried(instanceId)
+	if not state or not state.carriedFish then
+		return false
+	end
+	for _, fish in ipairs(state.carriedFish) do
+		if fish and fish.InstanceId == instanceId then
+			return true
+		end
+	end
+	return false
 end
 
 local function clearInventoryList()
@@ -12938,6 +12947,13 @@ local function createInventoryContextMenu(fish, x, y)
 			id = "sell",
 			text = "Sell for $" .. formatCash(fish.BaseSellValue or 0),
 			action = function()
+				-- Re-check the fish is still in the bag — a right-click on a
+				-- stale row after STORE ALL would otherwise carry a dead
+				-- InstanceId to the server (rejected, but a wasted round-trip).
+				if not fishStillCarried(fish.InstanceId) then
+					showNotification("Fish is no longer in your bag", Theme.color.status.warn)
+					return
+				end
 				-- pcall-guarded: a network drop must not error the handler
 				local ok, result = pcall(function()
 					return Remotes.SellFish:InvokeServer(fish.InstanceId)
@@ -12951,6 +12967,10 @@ local function createInventoryContextMenu(fish, x, y)
 			id = "store",
 			text = "Store in aquarium",
 			action = function()
+				if not fishStillCarried(fish.InstanceId) then
+					showNotification("Fish is no longer in your bag", Theme.color.status.warn)
+					return
+				end
 				local ok, result = pcall(function()
 					return Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
 				end)
@@ -13443,7 +13463,7 @@ end
 -- ============================================================
 -- Shop panel
 -- ============================================================
-local shopPanel, shopContent, shopClose = makePanel("BAIT &amp; TACKLE", Theme.color.status.warn, UDim2.new(0, 420, 0, 520))
+local shopPanel, shopContent, shopClose = makePanel("BAIT & TACKLE", Theme.color.status.warn, UDim2.new(0, 420, 0, 520))
 
 local shopList = Instance.new("ScrollingFrame")
 shopList.Size = UDim2.new(1, 0, 1, 0)
@@ -13484,7 +13504,7 @@ addCatalog("alarm", GameConfig.Upgrades.Alarm, 40)
 -- kind string the server dispatches on. Order base 50 so dock rows sort last.
 addCatalog("dock", GameConfig.DockUpgradeTiers, 50)
 table.sort(SHOP_CATALOG, function(a, b)
-	return a.order &lt; b.order
+	return a.order < b.order
 end)
 
 local KIND_META = {
@@ -13651,7 +13671,7 @@ function refreshShop()
 			-- snapshot's dockLevel field (1-4, 1-indexed like the catalog).
 			currentLevel = state.dockLevel or 1
 		end
-		if entry.level &lt;= currentLevel then
+		if entry.level <= currentLevel then
 			entry.buyButton.Text = "OWNED"
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.elevated
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
@@ -13983,7 +14003,7 @@ local function renderRaidTargets(data)
 	end
 	table.sort(sortedTargets, function(a, b)
 		if a.available == b.available then
-			return (a.displayName or a.name or "") &lt; (b.displayName or b.name or "")
+			return (a.displayName or a.name or "") < (b.displayName or b.name or "")
 		end
 		return a.available == true
 	end)
@@ -14253,7 +14273,7 @@ local function computeRaidTargetsSignature(data)
 end
 
 -- R3 audit #13: generation guard against poll-chain accumulation. A quick
--- close→reopen (&lt;3s) let the OLD chain's pending task.delay see
+-- close→reopen (<3s) let the OLD chain's pending task.delay see
 -- activePanel == raidPanel again and resume alongside the NEW chain — N
 -- quick cycles meant N concurrent 3s invoke loops forever. Each start bumps
 -- the generation; stale chains die at their next tick.
@@ -14612,7 +14632,7 @@ if IS_MOBILE then
 		local idealScale = availH / fullH
 		
 		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
-		if idealScale &lt; MIN_SCALE then
+		if idealScale < MIN_SCALE then
 			local btnSize = MIN_TOUCH_TARGET
 			-- Pitch = button size + padding between buttons
 			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
@@ -14752,11 +14772,11 @@ else
 		viewportW = viewportW or (cam and cam.ViewportSize.X) or 1920
 		local btnW = BAR_BTN_W
 		local fullW = barWidthFor(BAR_BTN_W)
-		if viewportW &lt; fullW + 2 * BAR_SIDE_MARGIN then
+		if viewportW < fullW + 2 * BAR_SIDE_MARGIN then
 			btnW = math.floor((viewportW - 2 * BAR_SIDE_MARGIN - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
 			btnW = math.max(BAR_BTN_W_MIN, math.min(BAR_BTN_W, btnW))
 		end
-		local useShort = viewportW &lt; BAR_SHORT_VIEWPORT
+		local useShort = viewportW < BAR_SHORT_VIEWPORT
 		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)
 		local textSize = 12 + math.floor(2 * fontScale + 0.5)
 		bar.Size = UDim2.new(0, barWidthFor(btnW), 0, DESKTOP_BAR_H)
@@ -15281,7 +15301,7 @@ local function render()
 	-- complaint hvfh.2.3 fixed on the HUD), in the panel where players go to
 	-- understand income.
 	aquariumStats.Text = string.format(
-		'&lt;font color="#EEF3FA">&lt;b>%d / %d fish&lt;/b>&lt;/font>  •  &lt;font color="#86EFAC">&lt;b>%s&lt;/b>&lt;/font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
+		'<font color="#EEF3FA"><b>%d / %d fish</b></font>  •  <font color="#86EFAC"><b>%s</b></font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, formatIncomeRate(state.incomePerSec), rodName, baitName,
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
@@ -15322,7 +15342,7 @@ local function render()
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
-			'&lt;font color="%s">●&lt;/font>  &lt;font color="%s">&lt;b>%s&lt;/b>&lt;/font>  ×%d   &lt;font color="#94A3B8">$%d each&lt;/font>',
+			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each</font>',
 			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
 		))
 	end
@@ -15563,7 +15583,7 @@ local minigameZoneHalfWidth = 0.15
 -- Animate the marker sweeping back and forth
 local function runMinigame(windowSeconds)
 	if minigameActive then return end
-	if type(windowSeconds) ~= "number" or windowSeconds &lt;= 0 then
+	if type(windowSeconds) ~= "number" or windowSeconds <= 0 then
 		showNotification("Fishing sync hiccup — try casting again.", Theme.color.status.warn)
 		return
 	end
@@ -15620,7 +15640,7 @@ local function runMinigame(windowSeconds)
 			-- Ping-pong sweep: 0 -> 1 -> 0
 			local t = (elapsed % sweepDuration) / sweepDuration
 			local pos
-			if t &lt; 0.5 then
+			if t < 0.5 then
 				pos = t * 2 -- 0 -> 1
 			else
 				pos = 2 - t * 2 -- 1 -> 0
@@ -15880,7 +15900,7 @@ local function onMinigameTap()
 	-- against the rod's zone size in SubmitCatchInput); this just aligns
 	-- the client's pre-validation with the visual the player saw.
 	local halfWidth = minigameZoneHalfWidth or 0.15
-	local hit = markerPos >= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
+	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
 	minigameActive = false
 	releaseOverlay("bite")
 	minigameFrame.Visible = false
@@ -16043,7 +16063,7 @@ actionButtons.raid.Activated:Connect(toggleRaidPanel)
 local lastRaidRefreshAt = 0
 raidRefreshButton.Activated:Connect(function()
 	local now = os.clock()
-	if now - lastRaidRefreshAt &lt; 1.5 then
+	if now - lastRaidRefreshAt < 1.5 then
 		return
 	end
 	lastRaidRefreshAt = now
@@ -16112,7 +16132,7 @@ sellButton.Activated:Connect(function()
 		Remotes.RequestSellFish:InvokeServer()
 	else
 		local payout = computeSellPayout()
-		if payout &lt;= 0 then
+		if payout <= 0 then
 			local locked = (state.lockedUntil or 0) > 0
 			if locked and (state.liveWellCount or 0) > 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
@@ -16216,7 +16236,7 @@ local function trySpawnBoat()
 		return
 	end
 	local now = os.clock()
-	if now - lastBoatSpawnAt &lt; 1 then
+	if now - lastBoatSpawnAt < 1 then
 		return
 	end
 	lastBoatSpawnAt = now
@@ -16297,7 +16317,7 @@ local SHORTCUT_ROWS = {
 	{ key = "I",     desc = "Fish Bag (alias of G)" },
 	{ key = "C",     desc = "Collection Book" },
 	{ key = "T",     desc = "My Aquarium (Tank)" },
-	{ key = "S",     desc = "Bait &amp; Tackle (Shop)" },
+	{ key = "S",     desc = "Bait & Tackle (Shop)" },
 	{ key = "Q",     desc = "Quests" },
 	{ key = "R",     desc = "Raid Waters" },
 	{ key = "B",     desc = "Spawn Boat" },
@@ -16386,7 +16406,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			render() -- R3 audit #20: aquarium block is push-gated; render on open
 		end
 	elseif input.KeyCode == Enum.KeyCode.S then
-		-- harborheist-i74e: open the Bait &amp; Tackle shop panel.
+		-- harborheist-i74e: open the Bait & Tackle shop panel.
 		if not overlayBlocksPanels() then
 			showPanel(shopPanel)
 			refreshShop()
@@ -16678,7 +16698,7 @@ end)
 
 -- ============================================================
 -- TASK 23.1 (hvfh.3.1): the ONE UserInputService.InputBegan router.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
 -- assignment (cast at stopCastOverlay, raid in startRaidMinigame, bite in
 -- the bite-minigame section), because Lua locals are lexically scoped and
 -- those handlers don't exist until their sections run. Every event checks
@@ -16759,7 +16779,25 @@ local function clearHistory()
 end
 
 -- Expose to global scope for other modules if needed
-setmetatable(toastHistory, {__mode = "k"})</string>
+setmetatable(toastHistory, {__mode = "k"})
+
+
+-- harborheist-3xlw: restore the TASK 23.1 (hvfh.3.1) overlay input router.
+-- This connection is the ONLY dispatcher for the three timed minigame
+-- overlays — without it overlayInputHandlers.cast/.bite/.raid are
+-- registered but never invoked and the minigames cannot receive clicks.
+-- It was silently overwritten at HEAD by 6f1a0c8's toast-history append.
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
+-- assignment (lexical scope: handlers don't exist until their sections run;
+-- every event re-reads the CURRENT activeOverlay so late registration is
+-- picked up even if an overlay opened before its handler section executed).
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	local handler = activeOverlay and overlayInputHandlers[activeOverlay] or nil
+	if handler then
+		handler(input, gameProcessed)
+	end
+end)
+]]></string>
         </Properties>
         <Item class="ModuleScript" referent="35">
           <Properties>

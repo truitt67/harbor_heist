@@ -381,12 +381,6 @@ screenGui.Parent = playerGui
 -- Safe area handling (harborheist-fxfx): proper inset detection for all devices
 local inset = GuiService:GetGuiInset()
 
--- Detect notch height on iOS devices (accounts for under-display area)
-local function getNotchHeight()
-	-- Use Roblox's built-in safe area detection via GuiInset
-	return inset.Y or 0
-end
-
 -- Calculate safe top offset based on device type and orientation
 local function calculateSafeTop()
 	-- Get current viewport dimensions to detect landscape (Camera is not a
@@ -3001,6 +2995,21 @@ local function fishDisplayName(fish)
 	return (ok and def and def.DisplayName) or fish.SpeciesId or "Fish"
 end
 
+-- harborheist-vasr: is this fish still in the carried bag right now?
+-- Context-menu actions re-check before invoking the server so a stale row
+-- (bag changed while the menu is open) doesn't fire a dead InstanceId.
+local function fishStillCarried(instanceId)
+	if not state or not state.carriedFish then
+		return false
+	end
+	for _, fish in ipairs(state.carriedFish) do
+		if fish and fish.InstanceId == instanceId then
+			return true
+		end
+	end
+	return false
+end
+
 local function clearInventoryList()
 	for _, child in ipairs(inventoryList:GetChildren()) do
 		if child:IsA("GuiObject") then
@@ -3227,6 +3236,13 @@ local function createInventoryContextMenu(fish, x, y)
 			id = "sell",
 			text = "Sell for $" .. formatCash(fish.BaseSellValue or 0),
 			action = function()
+				-- Re-check the fish is still in the bag — a right-click on a
+				-- stale row after STORE ALL would otherwise carry a dead
+				-- InstanceId to the server (rejected, but a wasted round-trip).
+				if not fishStillCarried(fish.InstanceId) then
+					showNotification("Fish is no longer in your bag", Theme.color.status.warn)
+					return
+				end
 				-- pcall-guarded: a network drop must not error the handler
 				local ok, result = pcall(function()
 					return Remotes.SellFish:InvokeServer(fish.InstanceId)
@@ -3240,6 +3256,10 @@ local function createInventoryContextMenu(fish, x, y)
 			id = "store",
 			text = "Store in aquarium",
 			action = function()
+				if not fishStillCarried(fish.InstanceId) then
+					showNotification("Fish is no longer in your bag", Theme.color.status.warn)
+					return
+				end
 				local ok, result = pcall(function()
 					return Remotes.StoreSingleFish:InvokeServer(fish.InstanceId)
 				end)
@@ -7049,3 +7069,20 @@ end
 
 -- Expose to global scope for other modules if needed
 setmetatable(toastHistory, {__mode = "k"})
+
+
+-- harborheist-3xlw: restore the TASK 23.1 (hvfh.3.1) overlay input router.
+-- This connection is the ONLY dispatcher for the three timed minigame
+-- overlays — without it overlayInputHandlers.cast/.bite/.raid are
+-- registered but never invoked and the minigames cannot receive clicks.
+-- It was silently overwritten at HEAD by 6f1a0c8's toast-history append.
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.<name>
+-- assignment (lexical scope: handlers don't exist until their sections run;
+-- every event re-reads the CURRENT activeOverlay so late registration is
+-- picked up even if an overlay opened before its handler section executed).
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	local handler = activeOverlay and overlayInputHandlers[activeOverlay] or nil
+	if handler then
+		handler(input, gameProcessed)
+	end
+end)
