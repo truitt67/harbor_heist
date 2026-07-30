@@ -19,40 +19,47 @@
 --   The presets are static tables — no per-frame allocation.
 --
 -- MAINTENANCE:
---   The UI table (lines 28-43) mirrors init.client.lua's palette. If that palette
---   changes, update both files. Presets use tuned RGB variants for visual polish;
---   these aren't in the base UI table but are documented in the preset comments.
+-- Base colors are sourced from the shared UIPalette module
+-- (ReplicatedStorage.Shared.UIPalette). Gradient presets use tuned RGB
+-- variants for visual polish; these aren't base palette colors but are
+-- documented in each preset's comment.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-nk22 (EPIC 36): Source base colors from the shared UIPalette
+-- module instead of duplicating them here. Eliminates the silent drift risk
+-- where this file's copy fell out of sync with init.client.lua's palette.
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local Gradients = {}
 
 -- ============================================================================
--- Color references (must match init.client.lua UI table)
+-- Color references (sourced from shared UIPalette — single source of truth)
 -- ============================================================================
--- These are duplicated here because modules can't access init.client.lua's
--- locals. If the UI palette changes, update both files.
 local UI = {
-	bg = Color3.fromRGB(13, 20, 31),
-	surface = Color3.fromRGB(20, 30, 46),
-	surfaceHi = Color3.fromRGB(30, 43, 63),
-	accent = Color3.fromRGB(56, 152, 255),
-	accentSoft = Color3.fromRGB(120, 190, 255),
-	good = Color3.fromRGB(52, 199, 123),
-	bad = Color3.fromRGB(255, 92, 92),
-	warn = Color3.fromRGB(255, 184, 64),
-	quest = Color3.fromRGB(255, 205, 92),
-	boat = Color3.fromRGB(94, 200, 235),
-	purple = Color3.fromRGB(167, 139, 250),
-	text = Color3.fromRGB(238, 243, 250),
-	textDim = Color3.fromRGB(148, 163, 184),
-	ink = Color3.fromRGB(10, 16, 26),
+	bg = UIPalette.color("bg"),
+	surface = UIPalette.color("surface"),
+	surfaceHi = UIPalette.color("surfaceHi"),
+	accent = UIPalette.color("accent"),
+	accentSoft = UIPalette.color("accentSoft"),
+	good = UIPalette.color("good"),
+	bad = UIPalette.color("bad"),
+	warn = UIPalette.color("warn"),
+	quest = UIPalette.color("quest"),
+	boat = UIPalette.color("boat"),
+	purple = UIPalette.color("purple"),
+	text = UIPalette.color("text"),
+	textDim = UIPalette.color("textDim"),
+	ink = UIPalette.color("ink"),
 }
 
 -- ============================================================================
 -- Gradient presets
 -- ============================================================================
--- Presets reference the UI table for base colors, with some tuned variants
--- for visual polish (e.g., 26,38,57 is a surface highlight between UI.surface
--- and UI.surfaceHi). These tuned values are documented inline.
+-- Presets reference the UI table (sourced from UIPalette) for base colors,
+-- with some tuned variants for visual polish (e.g. 26,38,57 is a surface
+-- highlight between UI.surface and UI.surfaceHi). These tuned values are
+-- documented inline.
 local PRESETS = {
 	-- Surface gradients: subtle background variations for panels/containers
 	-- "default" is the workhorse — used by overlays, panels, HUD, reveal cards

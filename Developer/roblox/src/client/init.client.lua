@@ -24,6 +24,10 @@ local Gradients = require(script:WaitForChild("GradientLibrary"))
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
+-- harborheist-nk22 (EPIC 36): canonical base color palette — single source of
+-- truth shared with GradientLibrary. The local `UI` table below sources from
+-- this so palette edits live in one place (src/shared/UIPalette.lua).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 
 local Remotes = {}
@@ -161,32 +165,36 @@ end
 -- Migrated from hardcoded Color3 values to Theme tokens
 -- ============================================================
 
+-- harborheist-nk22 (EPIC 36): base colors sourced from the shared UIPalette
+-- module (single source of truth, shared with GradientLibrary). The `Theme`
+-- token table below aliases these same values into semantic groups — new UI
+-- code reads Theme.color.surface.secondary etc., not this flat table.
 local UI = {
-	bg = Color3.fromRGB(13, 20, 31),
-	surface = Color3.fromRGB(20, 30, 46),
-	surfaceHi = Color3.fromRGB(30, 43, 63),
-	stroke = Color3.fromRGB(255, 255, 255),
-	accent = Color3.fromRGB(56, 152, 255),
-	accentSoft = Color3.fromRGB(120, 190, 255),
-	good = Color3.fromRGB(52, 199, 123),
-	bad = Color3.fromRGB(255, 92, 92),
-	warn = Color3.fromRGB(255, 184, 64),
-	quest = Color3.fromRGB(255, 205, 92),
-	boat = Color3.fromRGB(94, 200, 235),
-	purple = Color3.fromRGB(167, 139, 250),
-	text = Color3.fromRGB(238, 243, 250),
-	textDim = Color3.fromRGB(148, 163, 184),
-	textFaint = Color3.fromRGB(138, 154, 177),
-	ink = Color3.fromRGB(10, 16, 26),
+	bg = UIPalette.color("bg"),
+	surface = UIPalette.color("surface"),
+	surfaceHi = UIPalette.color("surfaceHi"),
+	stroke = UIPalette.color("stroke"),
+	accent = UIPalette.color("accent"),
+	accentSoft = UIPalette.color("accentSoft"),
+	good = UIPalette.color("good"),
+	bad = UIPalette.color("bad"),
+	warn = UIPalette.color("warn"),
+	quest = UIPalette.color("quest"),
+	boat = UIPalette.color("boat"),
+	purple = UIPalette.color("purple"),
+	text = UIPalette.color("text"),
+	textDim = UIPalette.color("textDim"),
+	textFaint = UIPalette.color("textFaint"),
+	ink = UIPalette.color("ink"),
 	-- Additional palette colors for semantic tokens
-	money = Color3.fromRGB(134, 239, 172),
-	undiscovered = Color3.fromRGB(16, 24, 36),
-	claimReady = Color3.fromRGB(50, 160, 80),
-	claimReadyHi = Color3.fromRGB(74, 198, 114),
-	disabled = Color3.fromRGB(100, 60, 60),
-	neutral = Color3.fromRGB(60, 70, 80),
-	alert = Color3.fromRGB(255, 170, 80),
-	raidAlert = Color3.fromRGB(255, 120, 120),
+	money = UIPalette.color("money"),
+	undiscovered = UIPalette.color("undiscovered"),
+	claimReady = UIPalette.color("claimReady"),
+	claimReadyHi = UIPalette.color("claimReadyHi"),
+	disabled = UIPalette.color("disabled"),
+	neutral = UIPalette.color("neutral"),
+	alert = UIPalette.color("alert"),
+	raidAlert = UIPalette.color("raidAlert"),
 }
 
 local FONT_HEAD = Enum.Font.GothamBlack

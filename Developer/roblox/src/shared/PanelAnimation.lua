@@ -34,11 +34,19 @@ local PanelAnimation = {}
 local TweenService = game:GetService("TweenService")
 
 -- Default configuration
+-- harborheist-pj19: Use consistent easings from init.client.lua (EASE_OUT for open, EASE_IN for close)
 local DEFAULT_CONFIG = {
   duration = 0.25,
   scaleStart = 0.8,
-  easingStyle = Enum.EasingStyle.Back,
+  easingStyle = Enum.EasingStyle.Quint,  -- EASE_OUT equivalent for smooth deceleration on open
   easingDirection = Enum.EasingDirection.Out,
+}
+
+-- Close animation defaults (EASE_IN for acceleration effect)
+local DEFAULT_CLOSE_CONFIG = {
+  duration = 0.25,
+  easingStyle = Enum.EasingStyle.Quad,   -- EASE_IN equivalent for smooth acceleration on close
+  easingDirection = Enum.EasingDirection.In,
 }
 
 -- Track active animations for cleanup (weak keys prevent memory leaks
