@@ -783,7 +783,9 @@ function ContextMenu.new(items, props)
 		local posX = x + 8
 		local posY = y
 		if posX + menuWidth > viewportW then
-			posX = math.max(0, x - menuWidth - 8)
+			-- Flip left of the cursor, but never push the menu's RIGHT edge
+			-- off-screen on viewports narrower than the menu itself.
+			posX = math.max(0, math.min(viewportW - menuWidth, x - menuWidth - 8))
 		end
 		if posY + menuHeight > viewportH then
 			posY = math.max(0, viewportH - menuHeight - 8)
