@@ -68,6 +68,22 @@ if [[ "${REMOTE_ARITY_GATE:-1}" == "1" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# harborheist-m5fb: Overlay input-router contract gate (static; all buckets).
+# Fails fast if minigame overlay input handlers (cast/bite/raid) are
+# registered but no UserInputService.InputBegan router dispatches to them —
+# the exact failure that made the minigames unclickable in harborheist-3xlw.
+# No game instance required. Bypass with OVERLAY_ROUTER_GATE=0.
+# ---------------------------------------------------------------------------
+if [[ "${OVERLAY_ROUTER_GATE:-1}" == "1" ]]; then
+	echo "=== Overlay input-router contract check (harborheist-m5fb) ==="
+	if ! python3 "$PROJECT_ROOT/scripts/overlay_router_check.py"; then
+		echo "Overlay input-router contract gate FAILED — see output above." >&2
+		exit 1
+	fi
+	echo ""
+fi
+
+# ---------------------------------------------------------------------------
 # --pure bucket: lune
 # ---------------------------------------------------------------------------
 if [[ "$BUCKET" == "pure" ]]; then
