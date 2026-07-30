@@ -82,8 +82,14 @@ local currentLayoutMode = getLayoutMode(workspace.CurrentCamera and workspace.Cu
 -- touch devices; everywhere else it is a silent no-op. Deliberately NOT wired to
 -- every UI moment — haptics everywhere is haptics nowhere.
 
--- Resolve an Enum.HapticEffectType member by name, falling back to UI_Click when
+-- Resolve an Enum.HapticEffectType member by name, falling back to UIClick when
 -- the member does not exist on this platform (graceful degradation).
+-- harborheist-5rcp: the fallback was Enum.HapticEffectType.UI_Click (dot-access
+-- on a nonexistent member — the valid name is UIClick, no underscore). Dot-access
+-- on an invalid Enum member ERRORS at runtime; since HAPTIC_CATEGORIES is built
+-- at module load, this would have crashed init.client.lua before the UI could
+-- render. The fallback is now pcall-guarded so a stale name degrades to nil
+-- (silently no-op via the playHaptic pcall) instead of crashing.
 local function resolveHapticEffect(effectName)
 	local ok, effect = pcall(function()
 		return Enum.HapticEffectType[effectName]
@@ -91,7 +97,14 @@ local function resolveHapticEffect(effectName)
 	if ok and effect then
 		return effect
 	end
-	return Enum.HapticEffectType.UI_Click
+	-- Fallback: pcall-guarded so an invalid name can't crash the module.
+	local fbOk, fallback = pcall(function()
+		return Enum.HapticEffectType.UIClick
+	end)
+	if fbOk and fallback then
+		return fallback
+	end
+	return nil -- graceful degradation: playHaptic's pcall swallows nil safely
 end
 
 local function createHapticEffect(effectName, intensity, duration)
@@ -105,8 +118,8 @@ end
 -- Haptic feedback categories with tuned parameters (string keys — harborheist-l0rb)
 local HAPTIC_CATEGORIES = {
 	-- Basic interactions
-	PressStart = createHapticEffect("UI_Click", 0.3, 0.08), -- Light tap on press
-	PressEnd = createHapticEffect("UI_Click", 0.4, 0.12), -- Slightly stronger release
+	PressStart = createHapticEffect("UIClick", 0.3, 0.08), -- Light tap on press
+	PressEnd = createHapticEffect("UIClick", 0.4, 0.12), -- Slightly stronger release
 
 	-- Success states (use Rumble for success feedback)
 	SuccessSmall = createHapticEffect("Rumble", 0.35, 0.15), -- Quick success tick
@@ -209,6 +222,9 @@ local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirectio
 -- (Quad) or EASE_IN (Quad) — those control press compression, hover glows,
 -- fades, and exit acceleration where Spring overshoot would cause flicker
 -- or feel wrong.
+-- selene: allow(incorrect_standard_library_use) — Spring is a valid
+-- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+-- 0.31's roblox std is stale.
 local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out)
 local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 -- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
@@ -6053,6 +6069,7 @@ local function showRevealCard(speciesId, rarity, value)
 	cardScale.Parent = card
 	-- harborheist-2wuo.1: Legendary reveal also uses Spring (was Back) for
 	-- physics-based overshoot — the most dramatic catch gets the bounciest pop.
+	-- selene: allow(incorrect_standard_library_use) — Spring is valid (see EASE_POP note).
 	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Spring, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
 
 	-- Epic+: stroke breathes while the card is up. Stored so dismiss() and

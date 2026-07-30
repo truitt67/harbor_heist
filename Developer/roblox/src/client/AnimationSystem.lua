@@ -289,6 +289,9 @@ function MicroInteraction:addPress(button, soundId, volume)
   button.MouseButton1Up:Connect(function()
     local scale = interaction.scaleInstance
     if scale and scale.Parent then
+      -- selene: allow(incorrect_standard_library_use) — Spring is a valid
+      -- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+      -- 0.31's roblox std is stale.
       TweenService:Create(scale, TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out),
                          { Scale = interaction.scaleUp }):Play()
     end
