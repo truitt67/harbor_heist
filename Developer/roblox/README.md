@@ -130,9 +130,13 @@ scripts/run_e2e.sh                 # E2E scenarios — needs Studio
 
 All balance numbers live in `src/shared/GameConfig.lua`:
 
-- Rarities (weights, values, income/sec) and 5 rod / bait tiers.
-- Aquarium: base capacity 20, upgrades to 30/45/60; lock 60s base + Lock I–III
-  (up to 150s lock / 30s recharge); Alarm I–III (stun 3–8s).
+- 5 rarities (Common→Legendary: weights, values, income/sec), 3 rods
+  (Basic/Steel/Golden) and 3 baits (Basic/Shrimp/Magic) with luck bonuses.
+- Aquarium Tank track: Starter/Expanded/Large/Mega (capacity 20 → 35/50/75,
+  income multiplier 1.0→1.5). Separate shop Capacity I–III upgrades add +30/45/60.
+- Defense: lock 60s base / 120s recharge + Lock I–III (up to 150s lock / 30s
+  recharge); Alarm I–III (stun 3–8s, always notifies).
+- Dock cosmetic/income track: Basic/Lamp-Lit/Garden/Golden Harbor (income 1.0→1.6).
 - Raids: window every 20–30 min, 5 min duration, 1 fish per raid, 6 min raider
   cooldown, 30 min per-victim cooldown, max 2 losses per window.
 - Misc: max 5 carried fish, 8 docks, 3 free lock uses.
