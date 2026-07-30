@@ -32,6 +32,37 @@ scripts/run_tests.sh --datamodel
   derives its exit code from the TestEZ summary line (run-in-roblox itself
   always exits 0 when the plugin script completes).
 
+### Running on Windows (Studio present)
+
+On a Windows PC with Studio installed this bucket CAN run (the Linux agents
+mark it "NOT-verified-on-Linux"). Toolchain needed: `rojo`, `run-in-roblox`,
+`lune` (rokit), and a signed-in Studio. Three gotchas cost real time:
+
+- **Use real Git Bash, not the WSL shim.** `C:\Users\<you>\AppData\Local\
+  Microsoft\WindowsApps\bash.exe` is a WSL launcher that fails any redirected
+  run with `ERROR: Input redirection is not supported`. Use
+  `C:\Program Files\Git\bin\bash.exe` instead.
+- **The script has CRLF line endings; bash needs LF.** Run a normalized copy
+  or bash dies with `$'\r': command not found` / `set: pipefail\r: invalid
+  option name`.
+- **Run the copy in place.** `run_tests.sh` derives `PROJECT_ROOT` from its
+  own path, so a copy in `/tmp` can't find `scripts/*.py`. Put the normalized
+  copy next to the real script.
+
+Verified one-liner (Git Bash, from `Developer/roblox/`):
+
+```bash
+"C:\Program Files\Git\bin\bash.exe" -c \
+  "sed 's/\r$//' scripts/run_tests.sh > scripts/.rt_lf.sh && \
+   bash scripts/.rt_lf.sh --datamodel; rm -f scripts/.rt_lf.sh"
+```
+
+Notes: Studio may run an install/update on first launch — wait for
+`RobloxStudioBeta.exe` to appear, then the suite runs headless. Read the
+result from the log's `Harbor Heist tests: N passed, M failed` line, not the
+shell's exit code (wrapper artifacts can make it non-zero even on a green
+run). Last verified: 410 passed, 0 failed.
+
 ## 3. E2E suite — needs Studio
 
 ```bash

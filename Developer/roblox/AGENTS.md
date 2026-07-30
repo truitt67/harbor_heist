@@ -216,7 +216,7 @@ Follow routing in `/home/ubuntu/SKILLS/AGENTS.md`. Read root `SKILLS.md` if pres
 - Source layout: `src/server/`, `src/client/`, `src/shared/`, mapped by `default.project.json` (Rojo).
 - Rebuild the place file after script edits: `rojo build -o HarborHeist.rbxlx` (or `rojo serve` + the Studio plugin for live sync).
 - Pure-Luau specs (headless, Linux-safe): `scripts/run_tests.sh --pure` — runs `pure_specs/` under lune with an integrated coverage gate. All-pass is required before committing.
-- TestEZ specs in `specs/` need Roblox Studio (unavailable on this Linux box); record them as NOT-verified-on-Linux rather than claiming a run.
+- TestEZ specs in `specs/` need Roblox Studio. On the Linux box Studio is unavailable — record them as NOT-verified-on-Linux rather than claiming a run. On a Windows PC with Studio they DO run: see the "Running on Windows (Studio present)" section in `docs/TESTING.md` for the Git-Bash/CRLF gotchas.
 - Static checks: `luau-analyze` / `selene` — compare error counts before vs after your edit; never add NEW errors (a known set pre-exists on the client).
 - UBS has no Lua scanner, so it is N/A for `.lua`-only changes; the pure-spec suite + coverage gate is the quality bar here.
 
