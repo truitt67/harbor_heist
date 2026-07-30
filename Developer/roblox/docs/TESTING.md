@@ -79,20 +79,34 @@ scripts/run_e2e.sh
   economy (19.4), shop purchases (19.5), persistence + v1→v2 migration
   (19.6), lock/defense (19.7), raids (19.8), abuse/anti-exploit (19.9).
 
-### Second, scenario-based harness (not wired to a runner yet)
+### Second, scenario-based harness (drives the REAL Studio player)
 
 There is a **separate, newer** e2e harness alongside `runner.server.lua`:
 `tests/e2e/bootstrap.server.lua` + `tests/e2e/scenarios/*.lua` (currently just
 `Lifecycle.lua`). It is mounted in `test.project.json` as
 `ServerScriptService.RunE2E` (+ `E2ETests`), requires `tests/e2e/TestLogger.lua`,
-and drives the **real** joining Studio Player (vs. the runner's table-fake
-players). Its header says to invoke it via `scripts/run_e2e.sh
-ServerScriptService.RunE2E`, but `run_e2e.sh` currently ignores that arg and
-boots `e2e.project.json` / `runner.server.lua` instead. So today this scenario
-harness has no automated entry point — treat it as scaffolding for the next e2e
-pass, not part of the green suite. It does NOT run during `--datamodel` (the
-datamodel log shows zero `[E2E]` output). If you intend to run it, wire
-`run_e2e.sh` to accept the target and build/run `test.project.json` accordingly.
+and drives the **real** joining Studio Player through the production
+`onPlayerAdded` path (vs. the runner's table-fake players). It does NOT run
+during `--datamodel` (the datamodel log shows zero `[E2E]` output).
+
+Run it with:
+
+```bash
+scripts/run_e2e_scenarios.sh
+```
+
+That builds `HarborHeist_scenarios.rbxlx` from `test.project.json` and boots it
+via `tests/e2e_stub.lua` (plugin context → `RunService:Run()`), the same
+mechanism as `run_e2e.sh`. Verdict comes from the bootstrap's
+`[E2E] complete: P/T scenarios passed, A asserts, F failures` line (plus a
+crash check); exit 0 pass / 1 fail-or-crash / 2 environment error. Logs land in
+`testlogs/scenarios-<id>.log`.
+
+Requires the same Studio + run-in-roblox environment as `run_e2e.sh` — see the
+caveats below. Note: run-in-roblox can fail to start with a Winsock/listener
+error (`WSAStartup failed` / `error binding to 127.0.0.1:<port>`); that is a
+transient local sockets state, not a test failure — relaunch Studio once
+interactively (or reboot) and retry.
 
 ### E2E environment caveats
 
