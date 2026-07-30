@@ -1,0 +1,13 @@
+std = "roblox+luau"
+
+[lints]
+# Stylistic rewrites only — no correctness value; ~178 pre-existing hits
+# (UDim2.new vs UDim2.fromOffset). Silenced so REAL issues stay visible.
+roblox_manual_fromscale_or_fromoffset = "allow"
+# Pre-existing idioms in this codebase (e.g. intentional empty if-branch
+# with a comment at init.client.lua:5718). Not correctness bugs.
+empty_if = "allow"
+# One-line guard idioms (e.g. `if conn then conn:Disconnect() end`) are
+# used throughout by project convention; splitting them adds churn, not
+# correctness.
+multiple_statements = "allow"
