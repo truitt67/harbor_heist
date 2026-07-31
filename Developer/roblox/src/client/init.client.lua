@@ -1671,6 +1671,78 @@ local function staggerFadeIn(root, index)
 	end)
 end
 
+-- harborheist-53q2 (EPIC 38): Rich empty-state card. Replaces the bare
+-- "No data" TextLabels with a centered icon + title + description + action
+-- card, faded in via the stagger helper. Lives AFTER staggerFadeIn because
+-- Luau binds locals lexically at the definition site (same trap as the
+-- makeOverlayFrame P0 at :508). cfg = { icon, title, description, action,
+-- order = <LayoutOrder>, accent = <Color3> }. Icon uses a Unicode glyph;
+-- every color is a Theme token and all exceed 4.5:1 contrast on the panel
+-- surface (text.primary ~16:1, text.secondary ~7:1, brand accents ~7-12:1).
+local function renderEmptyState(parent, cfg)
+	local cardH = IS_MOBILE and 220 or 200
+	local card = Instance.new("Frame")
+	card.Name = "EmptyState"
+	card.Size = UDim2.new(1, 0, 0, cardH)
+	card.BackgroundColor3 = Theme.color.surface.secondary
+	card.BackgroundTransparency = 0.94
+	card.LayoutOrder = cfg.order or 1
+	card.ZIndex = 26
+	card.Parent = parent
+	corner(card, Theme.corners.lg)
+
+	local stack = Instance.new("UIListLayout")
+	stack.FillDirection = Enum.FillDirection.Vertical
+	stack.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	stack.VerticalAlignment = Enum.VerticalAlignment.Center
+	stack.Padding = UDim.new(0, Theme.spacing.sm)
+	stack.SortOrder = Enum.SortOrder.LayoutOrder
+	stack.Parent = card
+
+	local accent = cfg.accent or Theme.color.accent.base
+
+	makeLabel(card, {
+		Size = UDim2.new(0, 64, 0, 64),
+		Text = cfg.icon or "○",
+		Font = Theme.type.fonts.body,
+		TextSize = 64,
+		TextColor3 = accent,
+		LayoutOrder = 1,
+		ZIndex = 27,
+	})
+	makeLabel(card, {
+		Size = UDim2.new(1, -Theme.spacing.xxl * 2, 0, 26),
+		Text = cfg.title,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.md,
+		TextColor3 = Theme.color.text.primary,
+		LayoutOrder = 2,
+		ZIndex = 27,
+	})
+	makeLabel(card, {
+		Size = UDim2.new(1, -Theme.spacing.xxl * 2, 0, IS_MOBILE and 40 or 34),
+		Text = cfg.description,
+		Font = Theme.type.fonts.body,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.text.secondary,
+		TextWrapped = true,
+		LayoutOrder = 3,
+		ZIndex = 27,
+	})
+	makeLabel(card, {
+		Size = UDim2.new(1, -Theme.spacing.xxl * 2, 0, 20),
+		Text = cfg.action,
+		Font = Theme.type.fonts.med,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = accent,
+		LayoutOrder = 4,
+		ZIndex = 27,
+	})
+
+	staggerFadeIn(card, 1)
+	return card
+end
+
 local function formatCash(n)
 	local s = tostring(math.floor(n + 0.5))
 	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
@@ -3258,14 +3330,13 @@ local function renderInventory()
 	inventoryStats.Text = string.format("%d / %d fish  •  total value $%s", state.carried or 0, state.maxCarried or 0, formatCash(totalValue))
 
 	if #carried == 0 then
-		makeLabel(inventoryList, {
-			Size = UDim2.new(1, 0, 0, 44),
-			Text = "No fish on the line — go catch some!",
-			Font = Theme.type.fonts.body,
-			TextSize = Theme.type.sizes.sm,
-			TextColor3 = Theme.color.text.tertiary,
-			LayoutOrder = 1,
-			ZIndex = 26,
+		renderEmptyState(inventoryList, {
+			icon = "🎣",
+			title = "No fish yet",
+			description = "Your hold is empty — catch fish to start earning coins.",
+			action = "Cast your line to get started",
+			order = 1,
+			accent = Theme.color.brand.boat,
 		})
 		return
 	end
@@ -3805,7 +3876,14 @@ renderCollection = function()
 	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
 
 	if not book.ordered or #book.ordered == 0 then
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No species catalogued yet.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = 1, ZIndex = 26 })
+		renderEmptyState(collectionList, {
+			icon = "📖",
+			title = "No discoveries yet",
+			description = "You haven't catalogued any species. Each new catch adds to your collection.",
+			action = "Catch a fish to begin your catalogue",
+			order = 1,
+			accent = Theme.color.brand.purple,
+		})
 		return
 	end
 
@@ -4281,16 +4359,13 @@ local function renderQuestPanel(data)
 	end
 	-- harborheist-7h69.6: empty-state message when no daily quests.
 	if not data or not data.dailyQuests or #data.dailyQuests == 0 then
-		makeLabel(questList, {
-			Size = UDim2.new(1, -12, 0, 40),
-			Text = "No daily quests available right now. New quests refresh daily at midnight!",
-			Font = Theme.type.fonts.body,
-			TextSize = Theme.type.sizes.sm,
-			TextColor3 = Theme.color.text.tertiary,
-			TextWrapped = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			LayoutOrder = 2,
-			ZIndex = 26,
+		renderEmptyState(questList, {
+			icon = "📜",
+			title = "No daily quests",
+			description = "New daily quests refresh at midnight.",
+			action = "Check back tomorrow for fresh challenges",
+			order = 2,
+			accent = Theme.color.brand.quest,
 		})
 	end
 
@@ -4309,16 +4384,13 @@ local function renderQuestPanel(data)
 	end
 	-- harborheist-7h69.6: empty-state message when no weekly quests.
 	if not data or not data.weeklyQuests or #data.weeklyQuests == 0 then
-		makeLabel(questList, {
-			Size = UDim2.new(1, -12, 0, 40),
-			Text = "No weekly quests available. Check back for new challenges!",
-			Font = Theme.type.fonts.body,
-			TextSize = Theme.type.sizes.sm,
-			TextColor3 = Theme.color.text.tertiary,
-			TextWrapped = true,
-			TextXAlignment = Enum.TextXAlignment.Left,
-			LayoutOrder = 101,
-			ZIndex = 26,
+		renderEmptyState(questList, {
+			icon = "📜",
+			title = "No weekly quests",
+			description = "Weekly challenges are on a rotation.",
+			action = "Check back soon for new challenges",
+			order = 101,
+			accent = Theme.color.brand.quest,
 		})
 	end
 end
