@@ -928,7 +928,15 @@ local function makeButton(parent, props)
 		corner(hoverGlow, resolveRadius)
 	end
 	
-	-- harborheist-ks2m: Wire AnimationSystem press feedback if available
+	-- harborheist-ks2m: Wire AnimationSystem press feedback if available.
+	-- NOTE (harborheist-5rcp.4): AnimationSystem:addPress handles the VISUAL
+	-- scale feedback + optional sound. It does NOT fire haptics. The haptic
+	-- calls below must therefore run on EVERY button regardless of whether
+	-- Anim:press succeeded — the previous code gated ALL of setupPressFeedback
+	-- (including the haptic MouseButton1Down/Up handlers) behind
+	-- `if hasAnimPress then return end`, which meant haptics only fired in the
+	-- rare fallback path where AnimationSystem was unavailable. With
+	-- AnimationSystem always loaded, the button-press haptic was a dead path.
 	local hasAnimPress = false
 	if Anim and type(Anim.press) == "function" then
 		local ok = pcall(function()
@@ -937,10 +945,43 @@ local function makeButton(parent, props)
 		hasAnimPress = ok
 	end
 	
-	-- Press feedback with proper easing (fallback if AnimationSystem unavailable)
+	-- Haptic + press feedback wiring. Haptics run unconditionally (mobile only);
+	-- the visual scale/cancel/hover logic only runs when AnimationSystem did
+	-- NOT take over (hasAnimPress gates the duplicate scale path only).
 	-- harborheist-g9z2: Enhanced with hover effects, animation cancellation, and disabled button guards
 	local function setupPressFeedback()
-		if hasAnimPress then return end  -- AnimationSystem handles this
+		-- harborheist-5rcp.4: Haptic wiring runs BEFORE the hasAnimPress gate
+		-- so press/release/success/error haptics fire on EVERY button. The
+		-- visual scale feedback below is the only thing gated by hasAnimPress.
+		if IS_MOBILE then
+			button.MouseButton1Down:Connect(function()
+				if not button.Active then return end
+				hapticPressStart()
+			end)
+			button.MouseButton1Up:Connect(function()
+				if not button.Active then return end
+				hapticPressEnd()
+			end)
+		end
+
+		-- Success/error haptics wire on Click (fires once per successful tap,
+		-- distinct from Down/Up which fire on raw press/release). These must
+		-- also be unconditional — previously they lived below the hasAnimPress
+		-- return and were dead code on every Anim-backed button.
+		if props and props.onSuccess then
+			button.MouseButton1Click:Connect(function()
+				hapticSuccess()
+				props.onSuccess()
+			end)
+		end
+		if props and props.onError then
+			button.MouseButton1Click:Connect(function()
+				hapticError()
+				props.onError(button)
+			end)
+		end
+
+		if hasAnimPress then return end  -- AnimationSystem handles the visual scale
 		if pressTween then return end
 		
 		pressTween = EASE_FAST
@@ -990,29 +1031,7 @@ local function makeButton(parent, props)
 			-- Press state - scale down slightly for tactile feedback
 			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
 			activeTweens.scale:Play()
-
-			-- Haptic feedback on mobile devices (R4 polish #2)
-			if IS_MOBILE then
-				hapticPressStart()
-			end
 		end)
-		
-		-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
-		-- harborheist-qrj9: connect ONCE at setup time. These used to live inside the
-		-- MouseButton1Down handler, so every press added another pair of click
-		-- connections — handlers fired N times after N presses and connections leaked.
-		if props and props.onSuccess then
-			button.MouseButton1Click:Connect(function()
-				hapticSuccess()
-				props.onSuccess()
-			end)
-		end
-		if props and props.onError then
-			button.MouseButton1Click:Connect(function()
-				hapticError()
-				props.onError(button)
-			end)
-		end
 		
 		button.MouseButton1Up:Connect(function()
 			-- harborheist-g9z2: Guard against disabled buttons
@@ -1025,11 +1044,6 @@ local function makeButton(parent, props)
 			-- Release state - bounce back with spring physics
 			activeTweens.scale = TweenService:Create(button, EASE_POP, { Scale = 1 })
 			activeTweens.scale:Play()
-
-			-- Haptic feedback on mobile devices (R4 polish #2)
-			if IS_MOBILE then
-				hapticPressEnd()
-			end
 		end)
 		
 		-- harborheist-g9z2: Desktop hover effects
