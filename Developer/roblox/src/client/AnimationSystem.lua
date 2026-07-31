@@ -170,9 +170,15 @@ function Spring:update(dt)
     return true
   end
 
-  -- Spring physics: F = -kx - cv (Hooke's law + damping)
+  -- Spring physics: F = kx - cv (Hooke's restoring law + damping). The
+  -- restoring term must point TOWARD the target (displacement = target -
+  -- current, so +k*displacement); the previous negated form was an
+  -- anti-restoring force that diverged from the target and never settled
+  -- (dead code today — no Spring consumers — but a landmine for any
+  -- future caller, since unsettled springs accumulate in activeSprings
+  -- and get ticked every Heartbeat forever).
   local displacement = self.targetValue - self.currentValue
-  local force = -(self.stiffness * displacement) - (self.damping * self.velocity)
+  local force = (self.stiffness * displacement) - (self.damping * self.velocity)
 
   self.velocity = self.velocity + (force * dt)
   self.currentValue = self.currentValue + (self.velocity * dt)
