@@ -11326,6 +11326,10 @@ hud.Parent = screenGui
 corner(hud, Theme.corners.lg)
 stroke(hud, 0.85)
 Gradients.apply(hud, "surface.hud")
+-- harborheist-n9x9: subtle HUD lift. hud has no UIListLayout / no clip, so
+-- the low-elevation shadow layers (ZIndex 0 = hud default 1 - 1) render
+-- behind the cash card against the screen background.
+applyElevation(hud, "low")
 
 makeLabel(hud, {
 	Size = UDim2.new(0, 76, 0, 12),
@@ -11525,6 +11529,8 @@ carryPill.BackgroundTransparency = 0.25
 carryPill.Parent = screenGui
 corner(carryPill, Theme.corners.pill)
 stroke(carryPill, 0.88)
+-- harborheist-n9x9: carry pill low-elevation lift (card tier).
+applyElevation(carryPill, "low")
 
 local carryLabel = makeLabel(carryPill, {
 	Size = UDim2.new(1, -20, 1, 0),
@@ -11612,15 +11618,34 @@ local dismissToast
 local function showToastDirect(message, color, category, actions)
 	toastOrder += 1
 	activeToastCount += 1
+	-- harborheist-n9x9: wrap each toast in a plain (no-clip, no-layout) frame
+	-- so applyElevation's shadow layers render OUTSIDE the toast —
+	-- toast.ClipsDescendants (set below) would clip a directly-parented shadow
+	-- to the toast bounds, hiding it. wrap has NO AutomaticSize: a relative-
+	-- sized shadow layer (Size scale 1) under an AutomaticSize parent
+	-- feedback-loops (wrap grows to fit the shadow, whose scale-1 height grows
+	-- with wrap, ...), so wrap's height is tracked to the toast's AbsoluteSize
+	-- instead. Floors at MIN_TOAST_H; worst case is a 1-frame shadow lag.
+	local wrap = Instance.new("Frame")
+	wrap.Name = "ToastWrap"
+	wrap.Size = UDim2.new(1, 0, 0, MIN_TOAST_H)
+	wrap.BackgroundTransparency = 1
+	wrap.LayoutOrder = toastOrder
+	wrap.ZIndex = 55
+	wrap.Parent = toastHost
+	applyElevation(wrap, "medium")
+
 	local toast = Instance.new("Frame")
 	toast.Size = UDim2.new(1, 0, 0, MIN_TOAST_H)
 	toast.AutomaticSize = Enum.AutomaticSize.Y
 	toast.BackgroundColor3 = Theme.color.surface.primary
 	toast.BackgroundTransparency = 1
-	toast.LayoutOrder = toastOrder
 	toast.ZIndex = 56
-	toast.Parent = toastHost
+	toast.Parent = wrap
 	corner(toast, Theme.corners.md)
+	toast:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+		wrap.Size = UDim2.new(1, 0, 0, math.max(MIN_TOAST_H, toast.AbsoluteSize.Y))
+	end)
 	local tStroke = stroke(toast, 1)
 	-- hvfh.4.3 review fixup: enforce the bead's min height — AutomaticSize
 	-- alone would shrink a degenerate (empty/short) toast below 40/2px.
@@ -11720,10 +11745,15 @@ local function showToastDirect(message, color, category, actions)
 	end
 	-- Shared dismiss logic (fade out + destroy + counter + queue drain).
 	-- Used by both the auto-dismiss timer (non-persistent) and the close
-	-- button (persistent). Runs the count decrement unconditionally so
-	-- external destruction doesn't leak activeToastCount (fresh-eyes fix
-	-- preserved from the original implementation).
+	-- button (persistent). The dismissed guard prevents a double-dismiss
+	-- race: if the auto-dismiss timer fires while an action-button click
+	-- is mid-fade (yielding on t.Completed:Wait()), the second call would
+	-- decrement activeToastCount again — driving it negative and letting
+	-- more than MAX_VISIBLE_TOASTS appear on screen over time.
+	local dismissed = false
 	dismissToast = function()
+		if dismissed then return end
+		dismissed = true
 		if toast.Parent then
 			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
@@ -11733,7 +11763,7 @@ local function showToastDirect(message, color, category, actions)
 			local t = TweenService:Create(text, fade, { TextTransparency = 1 })
 			t:Play()
 			t.Completed:Wait()
-			toast:Destroy()
+			wrap:Destroy()
 		end
 		activeToastCount -= 1
 		drainToastQueue()
@@ -12393,6 +12423,13 @@ local function makePanel(title, titleColor, desktopSize)
 	if not IS_MOBILE and desktopSize then
 		registerLayoutPanel(panel, desktopSize.X.Offset, desktopSize.Y.Offset)
 	end
+
+	-- harborheist-n9x9: modal depth. The panel frame has no UIListLayout and
+	-- no ClipsDescendants, so applyElevation's shadow layers (ZIndex 24 =
+	-- panel 25 - 1) safely render behind the panel, above the backdrop (20),
+	-- extending past the panel bounds. Duplicate-safe; shows/hides + animates
+	-- with the panel (shadows are children).
+	applyElevation(panel, "medium")
 
 	return panel, content, close
 end

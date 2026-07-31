@@ -7,8 +7,9 @@
 -- text > textDim > textFaint luminance hierarchy must hold. If someone
 -- darkens a palette color below AA, this spec fails and flags it.
 --
--- The RGB triplets below MUST be kept in sync with the `UI` table in
--- src/client/init.client.lua (and the Theme.color.* tokens that alias it).
+-- Palette colors are read directly from UIPalette via rgbTriple (below),
+-- the single source of truth — no hardcoded RGB mirror to drift from
+-- the `UI` table in src/client/init.client.lua / Theme.color.* tokens.
 local UIPalette = require("../../src/shared/UIPalette")
 
 -- harborheist-3aug: comprehensive WCAG audit reads the canonical palette
