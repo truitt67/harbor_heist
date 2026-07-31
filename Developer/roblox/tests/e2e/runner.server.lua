@@ -1208,70 +1208,75 @@ if abuS then
 	end
 
 	-- ===== 3. FORGERY: fishing submit-catch =====
-	-- harborheist-sfb4: safe access prevents crash when _G.HARBORHEIST_TEST is nil
+	-- harborheist-sfb4: nil-guarded — safe access prevents indexing crash,
+	-- conditional wrapper prevents call/use crash when seams are absent
 	local ht = _G.HARBORHEIST_TEST
 	local submitCatch99 = ht and ht.submitCatch
 	local activeBites99 = ht and ht.activeBites
 	local setFishingRng99 = ht and ht.setFishingRng
-	assertTrue("19.9 fishing test seams available",
-		submitCatch99 ~= nil and activeBites99 ~= nil and setFishingRng99 ~= nil)
+	if submitCatch99 and activeBites99 and setFishingRng99 then
+		assertTrue("19.9 fishing test seams available", true)
 
-	-- Submit with no active bite (clean table return)
-	local f1 = submitCatch99(abuser, { hit = true })
-	assertEq("19.9 fish: submit with no active bite", "no_active_bite", f1 and f1.reason)
+		-- Submit with no active bite (clean table return)
+		local f1 = submitCatch99(abuser, { hit = true })
+		assertEq("19.9 fish: submit with no active bite", "no_active_bite", f1 and f1.reason)
 
-	-- Garbage payload type with a fresh injected bite (clean return; the
-	-- bite must NOT be consumed — the player may still legitimately submit)
-	activeBites99[abuser] = {
-		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
-		biteTime = os.clock(), luckBonus = 0,
-	}
-	local f2 = submitCatch99(abuser, "garbage")
-	assertEq("19.9 fish: garbage timingResult rejected", "bad_input", f2 and f2.reason)
-	assertTrue("19.9 fish: bad_input does not consume the bite", activeBites99[abuser] ~= nil)
+		-- Garbage payload type with a fresh injected bite (clean return; the
+		-- bite must NOT be consumed — the player may still legitimately submit)
+		activeBites99[abuser] = {
+			zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+			biteTime = os.clock(), luckBonus = 0,
+		}
+		local f2 = submitCatch99(abuser, "garbage")
+		assertEq("19.9 fish: garbage timingResult rejected", "bad_input", f2 and f2.reason)
+		assertTrue("19.9 fish: bad_input does not consume the bite", activeBites99[abuser] ~= nil)
 
-	-- Stale bite (submitted long after the window) — notify throws on fakes
-	-- after clearing; the observable is the consumed bite
-	activeBites99[abuser].biteTime = os.clock() - 999
-	pcall(submitCatch99, abuser, { hit = true })
-	assertTrue("19.9 fish: stale bite consumed (too_slow)", activeBites99[abuser] == nil)
+		-- Stale bite (submitted long after the window) — notify throws on fakes
+		-- after clearing; the observable is the consumed bite
+		activeBites99[abuser].biteTime = os.clock() - 999
+		pcall(submitCatch99, abuser, { hit = true })
+		assertTrue("19.9 fish: stale bite consumed (too_slow)", activeBites99[abuser] == nil)
 
-	-- Always-hit exploiter: the client hit claim is only a REQUEST — the
-	-- server re-rolls against effectiveZone (rod-1 base 0.30 with no cast
-	-- luck). Seed the fishing rng above the zone -> miss, no fish granted.
-	local rod1Zone = (GameConfig.RodDefinitions[1] and GameConfig.RodDefinitions[1].minigameZoneSize) or 0.30
-	local function seedFishingRng99(wantMiss)
-		for seed = 1, 200 do
-			local probe = Random.new(seed)
-			local roll = probe:NextNumber() -- call 1: the server re-roll
-			if (wantMiss and roll > rod1Zone) or (not wantMiss and roll <= rod1Zone) then
-				setFishingRng99(Random.new(seed))
-				return true
+		-- Always-hit exploiter: the client hit claim is only a REQUEST — the
+		-- server re-rolls against effectiveZone (rod-1 base 0.30 with no cast
+		-- luck). Seed the fishing rng above the zone -> miss, no fish granted.
+		local rod1Zone = (GameConfig.RodDefinitions[1] and GameConfig.RodDefinitions[1].minigameZoneSize) or 0.30
+		local function seedFishingRng99(wantMiss)
+			for seed = 1, 200 do
+				local probe = Random.new(seed)
+				local roll = probe:NextNumber() -- call 1: the server re-roll
+				if (wantMiss and roll > rod1Zone) or (not wantMiss and roll <= rod1Zone) then
+					setFishingRng99(Random.new(seed))
+					return true
+				end
 			end
+			return false
 		end
-		return false
-	end
-	assertTrue("19.9 fishing rng seeded for miss", seedFishingRng99(true))
-	activeBites99[abuser] = {
-		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
-		biteTime = os.clock(), luckBonus = 0,
-	}
-	pcall(submitCatch99, abuser, { hit = true }) -- exploiter claims a hit
-	assertEq("19.9 fish: always-hit exploiter gains nothing on missed re-roll", 0, #abuS.carried)
+		assertTrue("19.9 fishing rng seeded for miss", seedFishingRng99(true))
+		activeBites99[abuser] = {
+			zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+			biteTime = os.clock(), luckBonus = 0,
+		}
+		pcall(submitCatch99, abuser, { hit = true }) -- exploiter claims a hit
+		assertEq("19.9 fish: always-hit exploiter gains nothing on missed re-roll", 0, #abuS.carried)
 
-	-- Contrast: same claim with a roll inside the zone lands a SERVER-ROLLED
-	-- fish (species/rarity/value are never client-controlled)
-	assertTrue("19.9 fishing rng seeded for catch", seedFishingRng99(false))
-	activeBites99[abuser] = {
-		zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
-		biteTime = os.clock(), luckBonus = 0,
-	}
-	pcall(submitCatch99, abuser, { hit = true })
-	assertEq("19.9 fish: successful re-roll lands one carried fish", 1, #abuS.carried)
-	if #abuS.carried == 1 then
-		local caught = abuS.carried[1]
-		assertTrue("19.9 fish: caught fish is server-constructed",
-			caught.SpeciesId ~= nil and caught.BaseSellValue ~= nil and caught.BaseSellValue > 0)
+		-- Contrast: same claim with a roll inside the zone lands a SERVER-ROLLED
+		-- fish (species/rarity/value are never client-controlled)
+		assertTrue("19.9 fishing rng seeded for catch", seedFishingRng99(false))
+		activeBites99[abuser] = {
+			zoneId = "StarterPier", rodLevel = 1, baitLevel = 1,
+			biteTime = os.clock(), luckBonus = 0,
+		}
+		pcall(submitCatch99, abuser, { hit = true })
+		assertEq("19.9 fish: successful re-roll lands one carried fish", 1, #abuS.carried)
+		if #abuS.carried == 1 then
+			local caught = abuS.carried[1]
+			assertTrue("19.9 fish: caught fish is server-constructed",
+				caught.SpeciesId ~= nil and caught.BaseSellValue ~= nil and caught.BaseSellValue > 0)
+		end
+	else
+		report("19.9 fishing test seams available", false,
+			"seam is nil — _G.HARBORHEIST_TEST not exposed by server init")
 	end
 end
 DataManager.remove(abuser)

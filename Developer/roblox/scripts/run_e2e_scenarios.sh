@@ -49,10 +49,12 @@ to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -w "$1" || printf '%
 
 # --- Build the scenario place (e2e_scenarios.project.json) --------------------
 # harborheist-vyv1: use a dedicated project file that EXCLUDES the TestEZ specs
-# (test/specs/) and their bootstrap (test/bootstrap.server.lua). When both
-# bootstraps mapped in test.project.json run in server context via
-# run-in-roblox, the TestEZ specs fail (387/7) because they require plugin
-# context — polluting the E2E scenario log with false failures.
+# (test/specs/) and their bootstrap (test/bootstrap.server.lua), which polluted
+# the E2E scenario log with 387/7 false failures (TestEZ specs fail in server
+# context — they require plugin context). Also maps E2ETests as only
+# TestLogger + scenarios instead of the whole tests/e2e/ directory, preventing
+# bootstrap.server.lua from running twice (once as E2ETests.bootstrap, once as
+# RunE2E) and runner.server.lua from running without _G.HARBORHEIST_TEST.
 TEST_PLACE="$PROJECT_ROOT/HarborHeist_scenarios.rbxlx"
 
 echo "=== Building scenario e2e place (e2e_scenarios.project.json) ===" | tee "$LOG_FILE"

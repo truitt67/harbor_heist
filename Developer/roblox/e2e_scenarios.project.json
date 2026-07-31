@@ -7,9 +7,6 @@
       "Shared": {
         "$path": "src/shared"
       },
-      "TestEZ": {
-        "$path": "Packages/TestEZ"
-      },
       "TestFlag": {
         "$path": "test/TestFlag.lua"
       }
@@ -20,7 +17,13 @@
         "$path": "src/server"
       },
       "E2ETests": {
-        "$path": "tests/e2e"
+        "$className": "Folder",
+        "TestLogger": {
+          "$path": "tests/e2e/TestLogger.lua"
+        },
+        "scenarios": {
+          "$path": "tests/e2e/scenarios"
+        }
       },
       "RunE2E": {
         "$path": "tests/e2e/bootstrap.server.lua"
