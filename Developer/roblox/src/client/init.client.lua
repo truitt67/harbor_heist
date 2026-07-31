@@ -144,11 +144,12 @@ local function playHaptic(category)
 		local effect = Instance.new("HapticEffect")
 		effect.Type = effectType
 		effect.Parent = workspace
-		effect:Play()
-		-- Auto-clean: preset effects are one-shots. 3s covers the longest
-		-- tail (GameplayExplosion lingers per docs); Debris collects the
-		-- instance safely even if :Stop isn't called.
+		-- Schedule cleanup BEFORE :Play() — if Play() errors (pcall swallows
+		-- it), the instance would otherwise leak into workspace permanently,
+		-- accumulating one dead HapticEffect per failed call for the session.
+		-- 3s covers the longest preset tail (GameplayExplosion lingers).
 		Debris:AddItem(effect, 3)
+		effect:Play()
 	end)
 end
 
