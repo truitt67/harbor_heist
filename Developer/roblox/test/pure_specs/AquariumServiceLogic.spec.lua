@@ -43,7 +43,7 @@ local ECONOMY = {
 }
 
 local INCOME_TICK_SECONDS = 1
-local MAX_COINS = 100000000 -- PlayerProfile.MAX_COINS
+local MAX_COINS = 999999999 -- PlayerProfile.MAX_COINS
 
 -- ──────────────────────────────────────────────────────────────────────
 -- Logic mirrors (verbatim from AquariumService.lua production code)
@@ -187,9 +187,15 @@ local function computeIncomeAccrual(incomePerSec, unclaimed, tickSeconds)
 	return math.min(unclaimed + income, ECONOMY.MaxUnclaimedIncome), true
 end
 
--- Coin clamping (mirrors PlayerProfile.clampCoins).
+-- Coin clamping (mirrors PlayerProfile.clampCoins — type guard, NaN guard, floor).
 local function clampCoins(amount)
-	return math.clamp(amount, 0, MAX_COINS)
+	if type(amount) ~= "number" then
+		return 0
+	end
+	if amount ~= amount then -- NaN guard (NaN is the only number not equal to itself)
+		return 0
+	end
+	return math.floor(math.max(0, math.min(MAX_COINS, amount)))
 end
 
 -- ──────────────────────────────────────────────────────────────────────
@@ -198,6 +204,7 @@ end
 
 local aqSource = fs.readFile("src/server/AquariumService.lua")
 local gameConfigSource = fs.readFile("src/shared/GameConfig.lua")
+local profileSource = fs.readFile("src/shared/PlayerProfile.lua")
 
 -- ──────────────────────────────────────────────────────────────────────
 -- Session factory
@@ -648,6 +655,26 @@ return function(describe, it, expect)
 			local unclaimed = 100
 			expect(clampCoins(coins + unclaimed)).to.equal(MAX_COINS)
 		end)
+
+		it("non-number input returns 0", function()
+			expect(clampCoins(nil)).to.equal(0)
+			expect(clampCoins("foo")).to.equal(0)
+			expect(clampCoins(true)).to.equal(0)
+		end)
+
+		it("NaN input returns 0 (anti-exploit)", function()
+			local nan = 0/0
+			expect(clampCoins(nan)).to.equal(0)
+		end)
+
+		it("negative input clamped to 0", function()
+			expect(clampCoins(-50)).to.equal(0)
+		end)
+
+		it("fractional input is floored", function()
+			expect(clampCoins(500.7)).to.equal(500)
+			expect(clampCoins(0.9)).to.equal(0)
+		end)
 	end)
 
 	-- ════════════════════════════════════════════════════════════════════
@@ -736,6 +763,22 @@ return function(describe, it, expect)
 
 		it("uses PlayerProfile.clampCoins for coin writes", function()
 			expect(aqSource:find("PlayerProfile.clampCoins", 1, true)).to.be.a("number")
+		end)
+
+		it("PlayerProfile.MAX_COINS is 999999999", function()
+			expect(profileSource:find("MAX_COINS = 999999999", 1, true)).to.be.a("number")
+		end)
+
+		it("PlayerProfile.clampCoins has type guard", function()
+			expect(profileSource:find('type(value) ~= "number"', 1, true)).to.be.a("number")
+		end)
+
+		it("PlayerProfile.clampCoins has NaN guard", function()
+			expect(profileSource:find("value ~= value", 1, true)).to.be.a("number")
+		end)
+
+		it("PlayerProfile.clampCoins floors the result", function()
+			expect(profileSource:find("math.floor", 1, true)).to.be.a("number")
 		end)
 
 		it("GameConfig.Raid.unlockTotalCatches is 10", function()
