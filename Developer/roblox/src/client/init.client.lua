@@ -2165,6 +2165,40 @@ local function showToastDirect(message, color, category, actions)
 	local vConf = vName and TOAST_VARIANTS[vName]
 	local lifetime = (vConf and vConf.duration > 0) and vConf.duration or TOAST_LIFETIME
 	local persistent = vConf and vConf.persistent
+	-- Shared dismiss logic (fade out + destroy + counter + queue drain).
+	-- harborheist-lkd3: defined BEFORE the action buttons as a per-call local
+	-- so every consumer (timer, close button, action buttons) captures THIS
+	-- toast's dismiss. Previously the action-button closure dereferenced the
+	-- shared dismissToast upvalue at click time — and every later toast
+	-- reassigns that upvalue, so clicking an older toast's action dismissed
+	-- the NEWEST toast while the clicked one leaked on screen (and its
+	-- activeToastCount decrement never ran, starving the queue).
+	-- The dismissed guard prevents a double-dismiss race: if the auto-dismiss
+	-- timer fires while an action-button click is mid-fade (yielding on
+	-- t.Completed:Wait()), the second call would decrement activeToastCount
+	-- again — driving it negative and letting more than MAX_VISIBLE_TOASTS
+	-- appear on screen over time.
+	local dismissed = false
+	local function dismiss()
+		if dismissed then return end
+		dismissed = true
+		if toast.Parent then
+			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
+			TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
+			local t = TweenService:Create(text, fade, { TextTransparency = 1 })
+			t:Play()
+			t.Completed:Wait()
+			wrap:Destroy()
+		end
+		activeToastCount -= 1
+		drainToastQueue()
+	end
+	-- Upvalue alias kept for the forward declaration at the top of the toast
+	-- section; all internal consumers below use the per-call local.
+	dismissToast = dismiss
 	-- Render action buttons if provided (max 2 per toast, right-aligned)
 	if actions then
 		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
@@ -2190,37 +2224,12 @@ local function showToastDirect(message, color, category, actions)
 				if action.callback then
 					action.callback()
 				end
-				dismissToast()
+				dismiss()
 			end)
 		end
 	end
-	-- Shared dismiss logic (fade out + destroy + counter + queue drain).
-	-- Used by both the auto-dismiss timer (non-persistent) and the close
-	-- button (persistent). The dismissed guard prevents a double-dismiss
-	-- race: if the auto-dismiss timer fires while an action-button click
-	-- is mid-fade (yielding on t.Completed:Wait()), the second call would
-	-- decrement activeToastCount again — driving it negative and letting
-	-- more than MAX_VISIBLE_TOASTS appear on screen over time.
-	local dismissed = false
-	dismissToast = function()
-		if dismissed then return end
-		dismissed = true
-		if toast.Parent then
-			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
-			TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
-			TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
-			TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
-			local t = TweenService:Create(text, fade, { TextTransparency = 1 })
-			t:Play()
-			t.Completed:Wait()
-			wrap:Destroy()
-		end
-		activeToastCount -= 1
-		drainToastQueue()
-	end
 	if not persistent then
-		task.delay(lifetime, dismissToast)
+		task.delay(lifetime, dismiss)
 	else
 		-- Persistent toasts require manual dismissal via a close button.
 		-- harborheist-rk2h: the ✕ was 20x20 — far below the 44px mobile
@@ -2241,7 +2250,7 @@ local function showToastDirect(message, color, category, actions)
 			CornerRadius = Theme.corners.pill,
 			ZIndex = 59,
 		})
-		closeBtn.Activated:Connect(dismissToast)
+		closeBtn.Activated:Connect(dismiss)
 	end
 end
 
