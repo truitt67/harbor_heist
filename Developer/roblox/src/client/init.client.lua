@@ -3,7 +3,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
-local HapticService = game:GetService("HapticService")
+-- harborheist-5rcp.3: HapticService removed — the haptic system now uses
+-- HapticEffect instances (modern API) instead of the deprecated HapticService.
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 
@@ -77,70 +78,57 @@ local currentLayoutMode = getLayoutMode(workspace.CurrentCamera and workspace.Cu
 -- own resize handlers; the layout-mode tracker only refreshes panel sizing).
 
 -- R4 polish #2 (mobile): context-aware haptic feedback system for touch interactions.
--- Implements variable intensity, duration control, and context-aware effects.
--- Fully pcall-guarded — HapticService.Play only does anything on haptic-capable
--- touch devices; everywhere else it is a silent no-op. Deliberately NOT wired to
--- every UI moment — haptics everywhere is haptics nowhere.
+--
+-- ARCHITECTURE NOTE (harborheist-5rcp.3, ultrathink review):
+-- The ORIGINAL implementation (5rcp) had TWO compounding bugs that together made
+-- the ENTIRE haptic system a silent no-op since the feature was first written:
+--
+--   Bug A: HapticService:Play(effectType, intensity, duration) does NOT exist.
+--          Per Roblox creator docs, HapticService only exposes GetMotor /
+--          IsMotorSupported / IsVibrationSupported / SetMotor — and the service
+--          itself is DEPRECATED. The method "Play" was hallucinated. The pcall
+--          around the call silently swallowed the "attempt to call a nil value"
+--          error, so every haptic in the game did nothing.
+--
+--   Bug B: HAPTIC_CATEGORIES used the string "Rumble" for every success/error/
+--          rarity effect. "Rumble" is NOT a valid HapticEffectType member. The
+--          valid members are: Custom, UIHover, UIClick, UINotification,
+--          GameplayExplosion, GameplayCollision. The 5rcp.2 fix papered over the
+--          crash by falling back to UIClick, but that destroyed all semantic
+--          differentiation — a legendary catch felt identical to a button press.
+--
+-- FIX: Rewritten to use the modern HapticEffect INSTANCE API (the documented
+-- successor to the deprecated HapticService:Play):
+--   1. Create a HapticEffect instance, set .Type to a VALID HapticEffectType.
+--   2. Parent to workspace (required for the effect to be emitted).
+--   3. Call :Play(). Auto-clean via Debris after the plausible max tail.
+-- Intensity/duration are no longer direct API params (HapticEffect:Play takes
+-- none); instead the effect TYPE carries the semantic weight, and for Custom
+-- effects the waveform keys define amplitude over time. For the preset types
+-- used here (UIClick, UINotification, GameplayCollision, GameplayExplosion),
+-- the engine selects the appropriate waveform per device.
+--
+-- Fully pcall-guarded — on devices without haptic hardware, HapticEffect:Play
+-- is a silent no-op. Deliberately NOT wired to every UI moment — haptics
+-- everywhere is haptics nowhere.
 
--- Resolve an Enum.HapticEffectType member by name, falling back to UIClick when
--- the member does not exist on this platform (graceful degradation).
--- harborheist-5rcp: the fallback was Enum.HapticEffectType.UI_Click (dot-access
--- on a nonexistent member — the valid name is UIClick, no underscore). Dot-access
--- on an invalid Enum member ERRORS at runtime; since HAPTIC_CATEGORIES is built
--- at module load, this would have crashed init.client.lua before the UI could
--- render. The fallback is now pcall-guarded so a stale name degrades to nil
--- (silently no-op via the playHaptic pcall) instead of crashing.
-local function resolveHapticEffect(effectName)
-	local ok, effect = pcall(function()
-		return Enum.HapticEffectType[effectName]
-	end)
-	if ok and effect then
-		return effect
-	end
-	
-	-- Valid HapticEffectType members per Roblox docs: UIClick (and platform-specific ones)
-	-- "Rumble" is NOT a valid member — it was incorrectly used in the codebase.
-	-- Fallback to UIClick for all invalid names, including the buggy "Rumble".
-	local fbOk, fallback = pcall(function()
-		return Enum.HapticEffectType.UIClick
-	end)
-	if fbOk and fallback then
-		return fallback
-	end
-	
-	return nil -- graceful degradation: playHaptic's pcall swallows nil safely
-end
-
--- harborheist-5rcp.2: Validate that "Rumble" is not a valid HapticEffectType member
--- This was causing success/error haptics to fail on mobile devices. The fix
--- ensures all invalid enum names (including the buggy "Rumble") fall back to UIClick.
-
-local function createHapticEffect(effectName, intensity, duration)
-	return {
-		type = resolveHapticEffect(effectName),
-		intensity = intensity or 0.5,
-		duration = duration or 0.1,
-	}
-end
-
--- Haptic feedback categories with tuned parameters (string keys — harborheist-l0rb)
-local HAPTIC_CATEGORIES = {
-	-- Basic interactions
-	PressStart = createHapticEffect("UIClick", 0.3, 0.08), -- Light tap on press
-	PressEnd = createHapticEffect("UIClick", 0.4, 0.12), -- Slightly stronger release
-
-	-- Success states (use Rumble for success feedback)
-	SuccessSmall = createHapticEffect("Rumble", 0.35, 0.15), -- Quick success tick
-	SuccessLarge = createHapticEffect("Rumble", 0.45, 0.25), -- Celebratory success
-
-	-- Error states (use Rumble for error feedback)
-	ErrorSmall = createHapticEffect("Rumble", 0.3, 0.18), -- Short error buzz
-	ErrorLarge = createHapticEffect("Rumble", 0.4, 0.25), -- More pronounced error
-
-	-- Special events (use Rumble for significant events)
-	RarityReveal = createHapticEffect("Rumble", 0.6, 0.35), -- Legendary/epic catch
-	QuestComplete = createHapticEffect("Rumble", 0.5, 0.4), -- Quest milestone
-	MilestoneClaim = createHapticEffect("Rumble", 0.55, 0.45), -- Major achievement
+-- Map internal category names to VALID Enum.HapticEffectType members.
+-- harborheist-5rcp.3: replaced the invalid "Rumble" string with real members.
+-- Semantic mapping rationale (per Roblox docs descriptions):
+--   UI clicks / presses           -> UIClick       (crisp, immediate)
+--   Success / milestone / reveal  -> UINotification (draws attention)
+--   Error                         -> GameplayCollision (sharp, dies quickly)
+--   Major celebration             -> GameplayExplosion (high intensity, lingers)
+local HAPTIC_TYPES = {
+	PressStart     = Enum.HapticEffectType.UIClick,
+	PressEnd       = Enum.HapticEffectType.UIClick,
+	SuccessSmall   = Enum.HapticEffectType.UINotification,
+	SuccessLarge   = Enum.HapticEffectType.GameplayExplosion,
+	ErrorSmall     = Enum.HapticEffectType.GameplayCollision,
+	ErrorLarge     = Enum.HapticEffectType.GameplayCollision,
+	RarityReveal   = Enum.HapticEffectType.GameplayExplosion,
+	QuestComplete  = Enum.HapticEffectType.UINotification,
+	MilestoneClaim = Enum.HapticEffectType.GameplayExplosion,
 }
 
 -- Haptic feedback dispatcher (fallback to PressEnd if category not found).
@@ -149,10 +137,18 @@ local HAPTIC_CATEGORIES = {
 local function playHaptic(category)
 	if not IS_MOBILE then return end
 
-	local effectConfig = HAPTIC_CATEGORIES[category] or HAPTIC_CATEGORIES.PressEnd
+	local effectType = HAPTIC_TYPES[category] or HAPTIC_TYPES.PressEnd
+	if effectType == nil then return end
 
 	pcall(function()
-		HapticService:Play(effectConfig.type, effectConfig.intensity, effectConfig.duration)
+		local effect = Instance.new("HapticEffect")
+		effect.Type = effectType
+		effect.Parent = workspace
+		effect:Play()
+		-- Auto-clean: preset effects are one-shots. 3s covers the longest
+		-- tail (GameplayExplosion lingers per docs); Debris collects the
+		-- instance safely even if :Stop isn't called.
+		Debris:AddItem(effect, 3)
 	end)
 end
 
@@ -1458,34 +1454,73 @@ end
 
 -- Pulse: create a pulsing animation that oscillates between two values.
 -- Returns the tween object for cancellation if needed.
+-- harborheist-5rcp.3 (ultrathink): the original implementation was broken —
+-- it tweened ONCE to the midpoint and the Completed handler called :Cancel()
+-- (a no-op on an already-completed tween). No oscillation ever happened. The
+-- proper pattern uses TweenInfo's repeatCount=-1 + reverses=true to bounce
+-- the property back and forth indefinitely until cancelled.
 function Transitions.pulse(element, property, minVal, maxVal, duration, easing)
 	-- harborheist-2wuo.3: nil safety - validate parameters before use
 	if not element or not property then
 		warn("Transitions.pulse: missing element or property")
 		return nil
 	end
-	
-	local tweenObj = TweenService:Create(element, TweenInfo.new(duration or 1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-		[property] = (minVal + maxVal) / 2
+
+	-- Seed the start value so the first half-cycle begins from minVal.
+	element[property] = minVal
+
+	local ti = resolveTweenInfo(duration or 1, easing or "sine")
+	-- Override to an infinite reversing bounce regardless of the preset's
+	-- own repeatCount/reverses defaults.
+	ti = TweenInfo.new(ti.Time, ti.EasingStyle, ti.EasingDirection, -1, true, 0)
+
+	local tweenObj = TweenService:Create(element, ti, {
+		[property] = maxVal,
 	})
-	
-	tweenObj.Completed:Connect(function()
-		tweenObj:Cancel()
-	end)
-	
+
 	tweenObj:Play()
 	return tweenObj
 end
 
 -- Stagger: create a staggered animation for multiple elements.
 -- Returns a table of tweens that can be cancelled together.
+-- harborheist-5rcp.3 (ultrathink): THREE bugs in the original:
+--   1. `delay` param was accepted but never used — all tweens started at once.
+--   2. `easing` param was accepted but never used — hardcoded Quad/Out.
+--   3. `props` was passed straight to TweenService:Create INCLUDING the
+--      `duration` key, which is not a tweenable property (silently ignored
+--      on most instances, but invalid). Now split: duration is extracted for
+--      the TweenInfo, the rest are the target props.
+--   4. Completed handler removed tweens[1] (always the first) instead of the
+--      finished tween — wrong element removed if completion order differed.
 function Transitions.stagger(elements, props, delay, easing)
+	local duration = (type(props) == "table" and props.duration) or 0.22
+	-- Build the clean target-properties table (strip the `duration` meta key).
+	local targetProps = {}
+	if type(props) == "table" then
+		for k, v in pairs(props) do
+			if k ~= "duration" then
+				targetProps[k] = v
+			end
+		end
+	end
+
+	local ti = resolveTweenInfo(duration, easing or "out")
+	local staggerDelay = delay or 0.05
 	local tweens = {}
+
 	for i, element in ipairs(elements) do
-		-- harborheist-2wuo.3: Fix - use props directly, not props.props
-		local tween = TweenService:Create(element, TweenInfo.new(props.duration or 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+		-- Rebuild TweenInfo per element so each gets its own Delay offset.
+		local elementTi = TweenInfo.new(ti.Time, ti.EasingStyle, ti.EasingDirection, 0, false, staggerDelay * (i - 1))
+		local tween = TweenService:Create(element, elementTi, targetProps)
+		-- Remove THIS tween (not tweens[1]) when it completes.
 		tween.Completed:Connect(function()
-			table.remove(tweens, 1)
+			for idx, t in ipairs(tweens) do
+				if t == tween then
+					table.remove(tweens, idx)
+					break
+				end
+			end
 		end)
 		tween:Play()
 		table.insert(tweens, tween)
