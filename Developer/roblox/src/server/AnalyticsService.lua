@@ -41,7 +41,7 @@ local Players = game:GetService("Players")
 -- game:GetService on EVERY event fire (~20+/min/player). Now resolved once.
 local _engineService = nil
 local _engineServiceResolved = false
-local function getEngineService()
+local function getEngineService(): any
 	if _engineServiceResolved then
 		return _engineService
 	end
@@ -97,25 +97,37 @@ local EVENTS = {
 	raid_targets_requested = true,
 }
 
+-- Per-player session record. The first*At stamps hold the event's age
+-- (seconds since sessionStart), filled on first occurrence; nil = not yet.
+-- The explicit type matters: without it --!strict infers the nil-literal
+-- fields as type nil, hiding bad assignments from the analyzer.
+type FunnelSession = {
+	sessionStart: number,
+	firstCastAt: number?,
+	firstCatchAt: number?,
+	firstStoreAt: number?,
+	firstSaleAt: number?,
+	firstUpgradeAt: number?,
+}
+
 -- Per-player session state: first-session start time + funnel progress flags.
 -- Keyed by UserId (stable across rejoins, unlike Player instances).
-local sessions = {}
+local sessions: { [number]: FunnelSession } = {}
 
 -- Internal: get or create the per-player session record.
-local function getSession(userId)
+local function getSession(userId): FunnelSession
 	local s = sessions[userId]
 	if not s then
-		s = {
+		-- Funnel stamp fields start absent (nil = milestone not reached).
+		-- They are documented on the FunnelSession type. The local
+		-- annotation contextually types the literal (missing optional
+		-- fields are fine); an unannotated literal would trip Luau's
+		-- mutable-field invariance at the sessions[] write.
+		local fresh: FunnelSession = {
 			sessionStart = os.time(),
-			-- Funnel progress flags — set once, never overwritten. Lets the
-			-- dashboard compute time-to-first-X by subtracting sessionStart.
-			firstCastAt = nil,
-			firstCatchAt = nil,
-			firstStoreAt = nil,
-			firstSaleAt = nil,
-			firstUpgradeAt = nil,
 		}
-		sessions[userId] = s
+		sessions[userId] = fresh
+		return fresh
 	end
 	return s
 end
@@ -149,6 +161,13 @@ function AnalyticsService.track(player, eventName, fields)
 
 	-- Enrich with funnel metadata so the dashboard doesn't need joins.
 	local s = getSession(userId)
+	-- Session age computed ONCE and shared by the enriched payload and the
+	-- first_* stamps below. CORRECTED (review): the stamps previously read
+	-- `s.session_age_s` — a field that only ever existed on `enriched`, not
+	-- on the session record — so every stamp assigned nil, isFirst() gating
+	-- never engaged, first_* events fired on EVERY occurrence, and the
+	-- time_to_first_* fields never reached the dashboard.
+	local sessionAge = os.time() - s.sessionStart
 	local enriched = {
 		event = eventName,
 		-- userId inside customFields so the dashboard can filter/group by
@@ -158,7 +177,7 @@ function AnalyticsService.track(player, eventName, fields)
 		-- ISO-ish epoch seconds; dashboard converts as needed.
 		ts = os.time(),
 		session_start = s.sessionStart,
-		session_age_s = os.time() - s.sessionStart,
+		session_age_s = sessionAge,
 	}
 	-- Merge caller-provided fields (shallow). Caller fields win on collision
 	-- so gameplay code can override the defaults if it ever needs to.
@@ -176,20 +195,20 @@ function AnalyticsService.track(player, eventName, fields)
 	-- only the first `fish_caught` carried time_to_first_catch_s; now the
 	-- dedicated `first_catch` event carries it, which matches its semantic.
 	if eventName == "first_cast" and not s.firstCastAt then
-		s.firstCastAt = s.session_age_s
-		enriched.time_to_first_cast_s = s.firstCastAt
+		s.firstCastAt = sessionAge
+		enriched.time_to_first_cast_s = sessionAge
 	elseif eventName == "first_catch" and not s.firstCatchAt then
-		s.firstCatchAt = s.session_age_s
-		enriched.time_to_first_catch_s = s.firstCatchAt
+		s.firstCatchAt = sessionAge
+		enriched.time_to_first_catch_s = sessionAge
 	elseif eventName == "first_store" and not s.firstStoreAt then
-		s.firstStoreAt = s.session_age_s
-		enriched.time_to_first_store_s = s.firstStoreAt
+		s.firstStoreAt = sessionAge
+		enriched.time_to_first_store_s = sessionAge
 	elseif eventName == "first_sale" and not s.firstSaleAt then
-		s.firstSaleAt = s.session_age_s
-		enriched.time_to_first_sale_s = s.firstSaleAt
+		s.firstSaleAt = sessionAge
+		enriched.time_to_first_sale_s = sessionAge
 	elseif eventName == "first_upgrade" and not s.firstUpgradeAt then
-		s.firstUpgradeAt = s.session_age_s
-		enriched.time_to_first_upgrade_s = s.firstUpgradeAt
+		s.firstUpgradeAt = sessionAge
+		enriched.time_to_first_upgrade_s = sessionAge
 	end
 
 	-- Fire-and-forget. pcall so a transient analytics backend failure never
