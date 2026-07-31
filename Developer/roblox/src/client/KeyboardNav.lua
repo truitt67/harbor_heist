@@ -35,20 +35,20 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 	@param tabOrder number - Tab order (lower = earlier in tab cycle)
 	@return nil
 ]]
-function KeyboardNav:Register(element, tabOrder)
+function KeyboardNav:Register(element, tabOrder, onActivate)
 	if isMobile then return end
 	if not element or not element:IsA("GuiButton") then
 		warn("[KeyboardNav] Cannot register non-GuiButton element")
 		return
 	end
-	
+
 	-- Check if already registered
 	for _, entry in ipairs(focusableElements) do
 		if entry.element == element then
 			return -- Already registered
 		end
 	end
-	
+
 	-- Create focus indicator (UIStroke)
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 0
@@ -56,11 +56,15 @@ function KeyboardNav:Register(element, tabOrder)
 	stroke.Transparency = 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = element
-	
+
 	table.insert(focusableElements, {
 		element = element,
 		tabOrder = tabOrder or #focusableElements + 1,
 		stroke = stroke,
+		-- Engine signals (Activated etc.) cannot be fired from scripts, so
+		-- Enter/Space activation needs an explicit callback (see
+		-- ActivateFocused). Optional until all call sites are wired.
+		onActivate = type(onActivate) == "function" and onActivate or nil,
 	})
 	
 	-- Sort by tab order
@@ -146,9 +150,19 @@ function KeyboardNav:ActivateFocused()
 	end
 	
 	local entry = focusableElements[currentFocusIndex]
-	if entry and entry.element and entry.element.Active then
-		-- Fire the Activated event
-		entry.element.Activated:Fire()
+	if not (entry and entry.element and entry.element.Active) then
+		return
+	end
+
+	if entry.onActivate then
+		entry.onActivate()
+	elseif not entry.warnedNoCallback then
+		-- RBXScriptSignal has no script-accessible :Fire() and
+		-- VirtualInputManager is RobloxScriptSecurity-locked, so a button
+		-- without a registered onActivate callback cannot be activated.
+		-- Warn once per element instead of erroring on every keypress.
+		entry.warnedNoCallback = true
+		warn("[KeyboardNav] No onActivate callback registered for", entry.element.Name)
 	end
 end
 
@@ -182,10 +196,20 @@ function KeyboardNav:ApplyFocus()
 		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 			Thickness = FOCUS_INDICATOR_THICKNESS
 		}):Play()
-		
-		-- Ensure element is visible (scroll into view if needed)
-		if entry.element.Parent and entry.element:IsA("ScrollingFrame") then
-			-- TODO: Implement scroll-into-view for ScrollingFrame children
+
+		-- Ensure the focused element is visible inside any ancestor
+		-- ScrollingFrame (vertical lists).
+		local scrollFrame = entry.element:FindFirstAncestorOfClass("ScrollingFrame")
+		if scrollFrame then
+			local canvasY = scrollFrame.CanvasPosition.Y
+			local viewHeight = scrollFrame.AbsoluteWindowSize.Y
+			local elementTop = entry.element.AbsolutePosition.Y - scrollFrame.AbsolutePosition.Y + canvasY
+			local elementBottom = elementTop + entry.element.AbsoluteSize.Y
+			if elementTop < canvasY then
+				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementTop)
+			elseif elementBottom > canvasY + viewHeight then
+				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementBottom - viewHeight)
+			end
 		end
 	end
 end
