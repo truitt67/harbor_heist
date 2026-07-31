@@ -1,0 +1,44 @@
+{
+  "name": "HarborHeist E2E Scenarios",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Shared": {
+        "$path": "src/shared"
+      },
+      "TestEZ": {
+        "$path": "Packages/TestEZ"
+      },
+      "TestFlag": {
+        "$path": "test/TestFlag.lua"
+      }
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "HarborHeist": {
+        "$path": "src/server"
+      },
+      "E2ETests": {
+        "$path": "tests/e2e"
+      },
+      "RunE2E": {
+        "$path": "tests/e2e/bootstrap.server.lua"
+      }
+    },
+    "ServerStorage": {
+      "$className": "ServerStorage"
+    },
+    "Lighting": {
+      "$className": "Lighting",
+      "$properties": {
+        "Brightness": 2,
+        "ClockTime": 14.5,
+        "GeographicLatitude": 0
+      }
+    },
+    "Workspace": {
+      "$className": "Workspace"
+    }
+  }
+}

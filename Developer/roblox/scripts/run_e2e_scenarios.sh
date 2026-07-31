@@ -47,12 +47,17 @@ fi
 # resolve MSYS-style absolute paths; convert (no-op on real Linux/macOS).
 to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -w "$1" || printf '%s' "$1"; }
 
-# --- Build the scenario place (test.project.json) -----------------------------
+# --- Build the scenario place (e2e_scenarios.project.json) --------------------
+# harborheist-vyv1: use a dedicated project file that EXCLUDES the TestEZ specs
+# (test/specs/) and their bootstrap (test/bootstrap.server.lua). When both
+# bootstraps mapped in test.project.json run in server context via
+# run-in-roblox, the TestEZ specs fail (387/7) because they require plugin
+# context — polluting the E2E scenario log with false failures.
 TEST_PLACE="$PROJECT_ROOT/HarborHeist_scenarios.rbxlx"
 
-echo "=== Building scenario e2e place (test.project.json) ===" | tee "$LOG_FILE"
+echo "=== Building scenario e2e place (e2e_scenarios.project.json) ===" | tee "$LOG_FILE"
 cd "$PROJECT_ROOT"
-if ! rojo build test.project.json -o "$(to_native "$TEST_PLACE")" 2>&1 | tee -a "$LOG_FILE"; then
+if ! rojo build e2e_scenarios.project.json -o "$(to_native "$TEST_PLACE")" 2>&1 | tee -a "$LOG_FILE"; then
 	echo "ERROR: rojo build failed. See $LOG_FILE." | tee -a "$LOG_FILE"
 	exit 2
 fi
