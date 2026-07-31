@@ -42,13 +42,18 @@ return function(describe, it, expect)
 		end
 	end
 
-	-- Palette RGB triplets (mirror src/client/init.client.lua UI table).
-	local bg = { 13, 20, 31 }
-	local surface = { 20, 30, 46 }
-	local surfaceHi = { 30, 43, 63 }
-	local text = { 238, 243, 250 }
-	local textDim = { 148, 163, 184 }
-	local textFaint = { 138, 154, 177 }
+	-- Palette colors read directly from UIPalette via rgbTriple (single source
+	-- of truth, harborheist-dfpz). Previously these were hardcoded RGB triplets
+	-- duplicated from UIPalette — a drift hazard where a palette change would
+	-- silently bypass these checks while the comprehensive audit block below
+	-- caught it. rgbTriple returns {r,g,b} with integer keys 1/2/3, the same
+	-- shape the contrast() and luminance() helpers expect.
+	local bg = rgbTriple("bg")
+	local surface = rgbTriple("surface")
+	local surfaceHi = rgbTriple("surfaceHi")
+	local text = rgbTriple("text")
+	local textDim = rgbTriple("textDim")
+	local textFaint = rgbTriple("textFaint")
 
 	describe("WCAG AA text contrast (harborheist-bpem.3)", function()
 		it("primary text meets AA-normal (4.5:1) on every dark surface", function()
