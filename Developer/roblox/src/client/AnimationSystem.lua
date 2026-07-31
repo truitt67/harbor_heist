@@ -637,6 +637,14 @@ function Transition.new(config)
   return self
 end
 
+-- TextTransparency exists only on text-bearing classes. Including it in a
+-- tween goal for a plain Frame/ImageLabel makes TweenService:Create raise
+-- "TextTransparency is not a valid member of <Class>" and abort the caller
+-- (init.client.lua's desktop showPanel passed a Frame here).
+local function supportsTextTransparency(element)
+  return element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox")
+end
+
 function Transition:fade(element, visible, duration)
   if not element then
     return false
@@ -646,19 +654,14 @@ function Transition:fade(element, visible, duration)
   local easing = self.defaultEasing or Enum.EasingStyle.Quad
   local tweenInfo = TweenInfo.new(dur, easing, Enum.EasingDirection.Out)
 
-  if visible then
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 0,
-      TextTransparency = 0
-    }):Play()
-    return true
-  else
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 1,
-      TextTransparency = 1
-    }):Play()
-    return false
+  local target = visible and 0 or 1
+  local props = { BackgroundTransparency = target }
+  if supportsTextTransparency(element) then
+    props.TextTransparency = target
   end
+
+  TweenService:Create(element, tweenInfo, props):Play()
+  return visible and true or false
 end
 
 function Transition:slide(element, direction, duration)
@@ -745,21 +748,17 @@ function Transition:fadeSlide(element, visible, direction, duration)
   local dur = duration or self.defaultDuration or 0.3
   local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-  if visible then
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 0,
-      TextTransparency = 0,
-      Position = UDim2.new(0.5, 0, 0.5, 0)  -- center position
-    }):Play()
-    return true
-  else
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 1,
-      TextTransparency = 1,
-      Position = offset
-    }):Play()
-    return false
+  local target = visible and 0 or 1
+  local props = {
+    BackgroundTransparency = target,
+    Position = visible and UDim2.new(0.5, 0, 0.5, 0) or offset,  -- center when showing
+  }
+  if supportsTextTransparency(element) then
+    props.TextTransparency = target
   end
+
+  TweenService:Create(element, tweenInfo, props):Play()
+  return visible and true or false
 end
 
 --[[
