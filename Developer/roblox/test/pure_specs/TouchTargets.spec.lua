@@ -51,4 +51,34 @@ return function(describe, it, expect)
 			expect(true).to.equal(true)
 		end)
 	end)
+
+	-- harborheist-3aug: comprehensive touch-target audit beyond toasts. Pins
+	-- the 44px (WCAG 2.1 / Apple HIG) mobile minimum for the other major
+	-- interactive buttons: panel close / square icon buttons, action bar,
+	-- full-width primary buttons, and shop buy / raid buttons. Mirrors the
+	-- rk2h pin style; if a button's mobile branch is shrunk below 44px the
+	-- matching assertion fails and names the offender.
+	describe("Interactive button touch targets >= 44px mobile (harborheist-3aug)", function()
+		it("panel close / square icon buttons keep a 44px mobile size", function()
+			has("Size = UDim2.new(0, IS_MOBILE and 44 or 24, 0, IS_MOBILE and 44 or 24)", "square icon button 44px")
+			has("Size = UDim2.new(0, IS_MOBILE and 44 or 32, 0, IS_MOBILE and 44 or 32)", "square close button 44px")
+		end)
+
+		it("action bar buttons keep a 44px mobile height", function()
+			has("Size = UDim2.new(0.48, -6, 0, IS_MOBILE and 44 or 36)", "action bar button height")
+			has("local actionH = IS_MOBILE and 44 or 38", "actionH height var")
+		end)
+
+		it("full-width primary buttons keep a 44px mobile height", function()
+			has("Size = UDim2.new(1, -16, 0, IS_MOBILE and 44 or 34)", "full-width primary button")
+			has("Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 32)", "full-width button (32 desktop)")
+			has("Size = UDim2.new(1, 0, 0, IS_MOBILE and 44 or 36)", "full-width button (36 desktop)")
+		end)
+
+		it("shop buy / raid wide buttons keep a 44px mobile height", function()
+			has("Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 44 or 28)", "shop/raid wide button height")
+			has("Size = UDim2.new(0, IS_MOBILE and 96 or 80, 0, IS_MOBILE and 44 or 32)", "wide button height 44px")
+			has("local buyH = IS_MOBILE and 44 or 38", "buyH height var")
+		end)
+	end)
 end

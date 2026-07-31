@@ -9,6 +9,17 @@
 --
 -- The RGB triplets below MUST be kept in sync with the `UI` table in
 -- src/client/init.client.lua (and the Theme.color.* tokens that alias it).
+local UIPalette = require("../../src/shared/UIPalette")
+
+-- harborheist-3aug: comprehensive WCAG audit reads the canonical palette
+-- directly. UIPalette.colors are pure RGB triples (Color3 is only used inside
+-- the lazy UIPalette.color() fn, never at module top level), so this require
+-- is lune-safe with no Roblox shim and cannot drift from the source of truth.
+local function rgbTriple(name)
+	local c = UIPalette.colors[name]
+	return { c.r, c.g, c.b }
+end
+
 return function(describe, it, expect)
 	local function lin(c)
 		local s = c / 255
@@ -62,6 +73,44 @@ return function(describe, it, expect)
 					"hierarchy broken: text=%.3f textDim=%.3f textFaint=%.3f", lt, ld, lf))
 			end
 			expect(true).to.equal(true)
+		end)
+	end)
+
+	-- harborheist-3aug: comprehensive WCAG audit across the FULL canonical
+	-- palette (reads UIPalette.colors directly so it cannot drift from the
+	-- source of truth). Body-text colors must meet AA-normal (4.5:1); the
+	-- status/accent colors used for large labels, icons, and UI components
+	-- must meet the AA large-text / non-text-contrast floor (3:1, WCAG 1.4.11).
+	-- Findings recorded on harborheist-3aug: every pair passes; the only
+	-- borderline is claimReady on surfaceHi (~4.26:1 — passes 3:1 for large
+	-- text/UI, below 4.5:1 for normal body text; avoid it for small body text).
+	describe("Comprehensive palette audit (harborheist-3aug)", function()
+		local surfaces = { "bg", "surface", "surfaceHi", "undiscovered" }
+		local textColors = { "text", "textDim", "textFaint" }
+		local statusColors = { "accent", "accentSoft", "good", "bad", "warn", "quest", "boat", "purple", "money", "claimReady", "claimReadyHi", "alert", "raidAlert" }
+
+		it("every text color meets AA-normal (4.5:1) on every dark surface", function()
+			for _, fg in ipairs(textColors) do
+				for _, s in ipairs(surfaces) do
+					ge(contrast(rgbTriple(fg), rgbTriple(s)), 4.5, fg .. " on " .. s)
+				end
+			end
+			expect(true).to.equal(true)
+		end)
+
+		it("every status/accent color meets AA large/UI (3:1) on every dark surface", function()
+			for _, fg in ipairs(statusColors) do
+				for _, s in ipairs(surfaces) do
+					ge(contrast(rgbTriple(fg), rgbTriple(s)), 3.0, fg .. " on " .. s)
+				end
+			end
+			expect(true).to.equal(true)
+		end)
+
+		it("UIPalette canonical palette resolves the audited colors", function()
+			expect(UIPalette.colors.bg).to.be.a("table")
+			expect(UIPalette.colors.text).to.be.a("table")
+			expect(UIPalette.colors.surfaceHi).to.be.a("table")
 		end)
 	end)
 end
