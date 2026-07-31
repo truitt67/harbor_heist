@@ -1151,11 +1151,19 @@ local PanelAnimation = {}
 local TweenService = game:GetService("TweenService")
 
 -- Default configuration
+-- harborheist-pj19: Use consistent easings from init.client.lua (EASE_OUT for open, EASE_IN for close)
 local DEFAULT_CONFIG = {
   duration = 0.25,
   scaleStart = 0.8,
-  easingStyle = Enum.EasingStyle.Back,
+  easingStyle = Enum.EasingStyle.Quint,  -- EASE_OUT equivalent for smooth deceleration on open
   easingDirection = Enum.EasingDirection.Out,
+}
+
+-- Close animation defaults (EASE_IN for acceleration effect)
+local DEFAULT_CLOSE_CONFIG = {
+  duration = 0.25,
+  easingStyle = Enum.EasingStyle.Quad,   -- EASE_IN equivalent for smooth acceleration on close
+  easingDirection = Enum.EasingDirection.In,
 }
 
 -- Track active animations for cleanup (weak keys prevent memory leaks
@@ -1568,284 +1576,6 @@ return PanelAnimation
       </Item>
       <Item class="ModuleScript" referent="8">
         <Properties>
-          <string name="Name">PanelAnimationDemo</string>
-          <string name="Source"><![CDATA[--[[
-=============================================================================
-EPIC 34: Animation & Motion Design — Panel Animation Demo Script
-=============================================================================
-
-This script demonstrates the PanelAnimation module with various panel types.
-
-RUN IN ROBLOX STUDIO:
-1. Place this script in StarterPlayerScripts
-2. Run the game to see demo panels opening/closing with animations
-
---]]
-
-local PanelAnimation = require(script.Parent.PanelAnimation)
-
-print("=== Panel Animation Demo ===")
-print("Creating demo panels...")
-
--- Track all created panels for cleanup
-local demoPanels = {}
-local toastCount = 0
-
--- Create a modal panel
-local function createModalPanel(title, width, height)
-  local modal = Instance.new("Frame")
-  modal.Name = title .. " Modal"
-  modal.Size = UDim2.new(0, width, 0, height)
-  modal.Position = UDim2.new(0.5, -width/2, 0.5, -height/2)
-  modal.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-  modal.BackgroundTransparency = 1
-  modal.ZIndex = 1000
-
-  local corner = Instance.new("UICorner")
-  corner.CornerRadius = UDim.new(0, 12)
-  corner.Parent = modal
-
-  -- Title bar
-  local titleBar = Instance.new("Frame")
-  titleBar.Size = UDim2.new(1, -16, 0, 32)
-  titleBar.Position = UDim2.new(0, 8, 0, 0)
-  titleBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-  titleBar.Parent = modal
-
-  local titleLabel = Instance.new("TextLabel")
-  titleLabel.Size = UDim2.new(1, -16, 1, -8)
-  titleLabel.Position = UDim2.new(0, 8, 0, 4)
-  titleLabel.Text = title
-  titleLabel.Font = Enum.Font.GothamBold
-  titleLabel.TextSize = 16
-  titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-  titleLabel.BackgroundTransparency = 1
-  titleLabel.Parent = titleBar
-
-  -- Close button
-  local closeButton = Instance.new("TextButton")
-  closeButton.Size = UDim2.new(0, 32, 0, 32)
-  closeButton.Position = UDim2.new(1, -40, 0.5, -16)
-  closeButton.Text = "✕"
-  closeButton.Font = Enum.Font.GothamBold
-  closeButton.TextSize = 20
-  closeButton.TextColor3 = Color3.fromRGB(255, 100, 100)
-  closeButton.BackgroundTransparency = 1
-  closeButton.Parent = modal
-
-  closeButton.MouseButton1Click:Connect(function()
-    PanelAnimation:close(modal, {
-      destroyOnComplete = true,
-      onComplete = function()
-        print("   Modal panel closed and destroyed")
-      end
-    })
-  end)
-
-  return modal
-end
-
--- Create a settings panel
-local function createSettingsPanel(width, height)
-  local panel = Instance.new("Frame")
-  panel.Name = "Settings Panel"
-  panel.Size = UDim2.new(0, width, 0, height)
-  panel.Position = UDim2.new(0.5, -width/2, 0.5, -height/2)
-  panel.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-  panel.BackgroundTransparency = 1
-  panel.ZIndex = 900
-  
-  local corner = Instance.new("UICorner")
-  corner.CornerRadius = UDim.new(0, 12)
-  corner.Parent = panel
-  
-  -- Header
-  local header = Instance.new("Frame")
-  header.Size = UDim2.new(1, -16, 0, 48)
-  header.Position = UDim2.new(0, 8, 0, 0)
-  header.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-  header.Parent = panel
-  
-  local headerLabel = Instance.new("TextLabel")
-  headerLabel.Size = UDim2.new(1, -16, 1, -8)
-  headerLabel.Position = UDim2.new(0, 8, 0, 4)
-  headerLabel.Text = "⚙️ Settings"
-  headerLabel.Font = Enum.Font.GothamBold
-  headerLabel.TextSize = 18
-  headerLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-  headerLabel.BackgroundTransparency = 1
-  headerLabel.Parent = header
-  
-  -- Content area
-  local content = Instance.new("Frame")
-  content.Size = UDim2.new(1, -16, 1, -64)
-  content.Position = UDim2.new(0, 8, 0, 56)
-  content.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-  content.BackgroundTransparency = 1
-  content.Parent = panel
-  
-  local contentLabel = Instance.new("TextLabel")
-  contentLabel.Size = UDim2.new(1, -16, 1, -8)
-  contentLabel.Position = UDim2.new(0, 8, 0, 4)
-  contentLabel.Text = "Settings content here..."
-  contentLabel.Font = Enum.Font.GothamRegular
-  contentLabel.TextSize = 14
-  contentLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-  contentLabel.BackgroundTransparency = 1
-  contentLabel.Parent = content
-  
-  -- Close button
-  local closeButton = Instance.new("TextButton")
-  closeButton.Size = UDim2.new(0, 48, 0, 48)
-  closeButton.Position = UDim2.new(1, -56, 0.5, -24)
-  closeButton.Text = "Close"
-  closeButton.Font = Enum.Font.GothamRegular
-  closeButton.TextSize = 14
-  closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-  closeButton.BackgroundTransparency = 1
-  closeButton.Parent = panel
-  
-  closeButton.MouseButton1Click:Connect(function()
-    PanelAnimation:close(panel, {
-      destroyOnComplete = true,
-      onComplete = function()
-        print("   Settings panel closed and destroyed")
-      end
-    })
-  end)
-  
-  return panel
-end
-
--- Create a toast notification
-local function createToast(message, duration, toastType)
-  local toast = Instance.new("Frame")
-  toast.Name = "Toast Notification"
-  toast.Size = UDim2.new(0, 350, 0, 64)
-  -- Stack toasts vertically with offset
-  toast.Position = UDim2.new(0.5, -175, 0.8, -32 - (toastCount * 70))
-  toast.BackgroundColor3 = toastType == "error" and Color3.fromRGB(255, 92, 92) or
-                          toastType == "success" and Color3.fromRGB(52, 199, 123) or
-                          Color3.fromRGB(40, 40, 40)
-  toast.BackgroundTransparency = 1
-  toast.ZIndex = 2000
-  
-  local corner = Instance.new("UICorner")
-  corner.CornerRadius = UDim.new(0, 8)
-  corner.Parent = toast
-  
-  local messageLabel = Instance.new("TextLabel")
-  messageLabel.Size = UDim2.new(1, -32, 1, -8)
-  messageLabel.Position = UDim2.new(0, 16, 0, 4)
-  messageLabel.Text = message or "Notification"
-  messageLabel.Font = Enum.Font.GothamRegular
-  messageLabel.TextSize = 14
-  messageLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-  messageLabel.BackgroundTransparency = 1
-  messageLabel.Parent = toast
-  
-  -- Track for cleanup
-  toastCount = toastCount + 1
-  demoPanels[toast] = true
-  
-  -- Auto-close after duration
-  task.delay(duration, function()
-    if toast.Parent then
-      PanelAnimation:close(toast, {destroyOnComplete = true})
-      demoPanels[toast] = nil
-      toastCount = math.max(0, toastCount - 1)
-    end
-  end)
-  
-  return toast
-end
-
--- Demo sequence
-print("\n=== Running Demo Sequence ===\n")
-
--- Get PlayerGui
-local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-
--- Open modal panel
-print("1. Opening Modal Panel...")
-local modalPanel = createModalPanel("Welcome", 400, 300)
-modalPanel.Parent = playerGui
-PanelAnimation:open(modalPanel, {
-  duration = 0.3,
-  scaleStart = 0.8,
-  onComplete = function()
-    print("   Modal panel opened")
-  end
-})
-demoPanels[modalPanel] = true
-
-task.delay(2.0, function()
-  print("   Closing Modal Panel...")
-  PanelAnimation:close(modalPanel, {
-    destroyOnComplete = true,
-    onComplete = function()
-      print("   Modal panel closed and destroyed")
-    end
-  })
-  demoPanels[modalPanel] = nil
-end)
-
--- Open settings panel
-print("\n2. Opening Settings Panel...")
-local settingsPanel = createSettingsPanel(500, 400)
-settingsPanel.Parent = playerGui
-PanelAnimation:open(settingsPanel, {
-  duration = 0.35,
-  scaleStart = 0.85,
-  onComplete = function()
-    print("   Settings panel opened")
-  end
-})
-demoPanels[settingsPanel] = true
-
-task.delay(3.0, function()
-  print("   Closing Settings Panel...")
-  PanelAnimation:close(settingsPanel, {
-    destroyOnComplete = true,
-    onComplete = function()
-      print("   Settings panel closed and destroyed")
-    end
-  })
-  demoPanels[settingsPanel] = nil
-end)
-
--- Open toast notifications
-print("\n3. Opening Toast Notifications...")
-local toast1 = createToast("Settings saved successfully!", 2.0, "success")
-toast1.Parent = playerGui
-PanelAnimation:open(toast1, {duration = 0.25, scaleStart = 0.9})
-
-local toast2 = createToast("An error occurred!", 2.0, "error")
-toast2.Parent = playerGui
-PanelAnimation:open(toast2, {duration = 0.25, scaleStart = 0.9})
-
-local toast3 = createToast("Regular notification", 2.0)
-toast3.Parent = playerGui
-PanelAnimation:open(toast3, {duration = 0.25, scaleStart = 0.9})
-
--- Cleanup on game shutdown
-game:BindToClose(function()
-  print("\n4. Demo complete! Cleaning up...")
-  for panel in pairs(demoPanels) do
-    if panel.Parent then
-      PanelAnimation:cancel(panel)
-      panel:Destroy()
-    end
-  end
-  print("   All panels destroyed.")
-end)
-
-print("\n=== Demo Started ===\n")
-]]></string>
-        </Properties>
-      </Item>
-      <Item class="ModuleScript" referent="9">
-        <Properties>
           <string name="Name">PlayerProfile</string>
           <string name="Source"><![CDATA[--[[
 	PlayerProfile.lua — Structured profile schema for Harbor Heist V1.
@@ -1986,6 +1716,94 @@ function PlayerProfile.clampCoins(value)
 end
 
 return PlayerProfile
+]]></string>
+        </Properties>
+      </Item>
+      <Item class="ModuleScript" referent="9">
+        <Properties>
+          <string name="Name">UIPalette</string>
+          <string name="Source"><![CDATA[--[[
+=============================================================================
+EPIC 36 (harborheist-nk22): Canonical UI Color Palette
+=============================================================================
+
+SINGLE SOURCE OF TRUTH for the game's base color palette.
+
+History: the base UI colors were originally hardcoded inline in
+init.client.lua's `UI` table (24 colors) and DUPLICATED in
+GradientLibrary.lua's `UI` table (14-color subset). If one changed and
+the other didn't, gradients would drift from the actual UI — a silent
+visual-consistency bug. This module eliminates that duplication: both
+consumers now require UIPalette and read `UIPalette.colors.<name>`.
+
+DESIGN NOTES:
+- These are the BASE (flat) palette values. Semantic token groupings
+  (surface.primary, status.good, text.primary, ...) are built ON TOP of
+  these in init.client.lua's `Theme` local — that alias layer is where
+  new code should read from, NOT these flat values directly:
+      Theme.color.surface.secondary   instead of  UIPalette.colors.surface
+      Theme.color.text.primary        instead of  UIPalette.colors.text
+- Tuned gradient variants (e.g. the mid-surface #1A2639 used by
+  GradientLibrary's "surface.default" preset) live in GradientLibrary,
+  not here — they are visual-polish interpolations between base colors,
+  documented inline at each preset.
+- Colors are stored as RGB integer triples (not Color3) so this module
+  has zero Roblox-instance dependencies and can be required by any
+  context (pure-Luau specs included). Consumers call UIPalette.color(name)
+  to get a Color3.
+
+USAGE:
+  local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
+  local bg = UIPalette.color("bg")            -- Color3
+  local rgb = UIPalette.colors.bg              -- {r=13, g=20, b=31}
+=============================================================================
+--]]
+
+local UIPalette = {}
+
+-- Base palette: name -> {r, g, b} (0-255 integers)
+-- Values MUST stay in sync with the visual design. Changing a value here
+-- updates every consumer (init.client.lua UI table, GradientLibrary).
+UIPalette.colors = {
+	bg = { r = 13, g = 20, b = 31 },
+	surface = { r = 20, g = 30, b = 46 },
+	surfaceHi = { r = 30, g = 43, b = 63 },
+	stroke = { r = 255, g = 255, b = 255 },
+	accent = { r = 56, g = 152, b = 255 },
+	accentSoft = { r = 120, g = 190, b = 255 },
+	good = { r = 52, g = 199, b = 123 },
+	bad = { r = 255, g = 92, b = 92 },
+	warn = { r = 255, g = 184, b = 64 },
+	quest = { r = 255, g = 205, b = 92 },
+	boat = { r = 94, g = 200, b = 235 },
+	purple = { r = 167, g = 139, b = 250 },
+	text = { r = 238, g = 243, b = 250 },
+	textDim = { r = 148, g = 163, b = 184 },
+	textFaint = { r = 138, g = 154, b = 177 },
+	ink = { r = 10, g = 16, b = 26 },
+	-- Additional semantic palette colors
+	money = { r = 134, g = 239, b = 172 },
+	undiscovered = { r = 16, g = 24, b = 36 },
+	claimReady = { r = 50, g = 160, b = 80 },
+	claimReadyHi = { r = 74, g = 198, b = 114 },
+	disabled = { r = 100, g = 60, b = 60 },
+	neutral = { r = 60, g = 70, b = 80 },
+	alert = { r = 255, g = 170, b = 80 },
+	raidAlert = { r = 255, g = 120, b = 120 },
+}
+
+--- Look up a base color by name and return a Color3.
+-- @param name string - Palette key (e.g. "bg", "surface", "accent")
+-- @return Color3 - The color, or nil if the name is unknown
+function UIPalette.color(name)
+	local c = UIPalette.colors[name]
+	if not c then
+		return nil
+	end
+	return Color3.fromRGB(c.r, c.g, c.b)
+end
+
+return UIPalette
 ]]></string>
         </Properties>
       </Item>
@@ -2319,9 +2137,9 @@ local function onPlayerRemoving(player)
 	--     Running it synchronously here -- before any rejoin can register --
 	--     closes that window. The deferred save+remove are object-keyed, so a
 	--     rejoin touches a different sessions[] key and is unaffected.
-	-- Order preserved: funnel events (above) -&gt; release/boat/rod (their churn
-	-- events still have an analytics session) -&gt; clearSession -&gt; [spawn] save
-	-- -&gt; remove. BindToClose is the authoritative shutdown save (isShutdown).
+	-- Order preserved: funnel events (above) -> release/boat/rod (their churn
+	-- events still have an analytics session) -> clearSession -> [spawn] save
+	-- -> remove. BindToClose is the authoritative shutdown save (isShutdown).
 	DockManager.release(player)
 	BoatService.onPlayerRemoving(player)
 	RodService.onPlayerRemoving(player)
@@ -4330,7 +4148,7 @@ local DataManager = {}
 -- migration can't permanently corrupt the only copy of a player's data.
 --
 -- Migration flow (DataManager.load): read v2 first. If empty, read v1,
--- sanitize() (which handles the flat-&gt;structured conversion, TASK 1.3), then
+-- sanitize() (which handles the flat->structured conversion, TASK 1.3), then
 -- write the migrated profile to v2 and mark it migrated. v1 is left intact
 -- for one grace period as a rollback anchor; a future task can delete it once
 -- the closed test confirms migration stability.
@@ -4367,7 +4185,7 @@ end
 local function recordFailure()
 	consecutiveFailures += 1
 	lastFailureTime = os.time()
-	if consecutiveFailures &gt;= MAX_FAILURES_BEFORE_DISABLE then
+	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
 		isDataStoreHealthy = false
 		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
 	end
@@ -4423,8 +4241,8 @@ local function sanitizeStoredFish(list)
 	for _, item in ipairs(list) do
 		if type(item) == "table" and FishInstance.validate(item) then
 			table.insert(clean, item)
-		elseif type(item) == "number" and item &gt;= 1 and item &lt;= #GameConfig.Rarities then
-			-- Legacy rarity index -&gt; convert to FishInstance
+		elseif type(item) == "number" and item >= 1 and item &lt;= #GameConfig.Rarities then
+			-- Legacy rarity index -> convert to FishInstance
 			local fish = FishInstance.fromRarityIndex(item)
 			table.insert(clean, fish)
 		end
@@ -4442,8 +4260,8 @@ local function sanitizeQuestList(list)
 	for _, q in ipairs(list) do
 		if type(q) == "table"
 			and type(q.type) == "string"
-			and type(q.target) == "number" and q.target &gt; 0
-			and type(q.reward) == "number" and q.reward &gt;= 0
+			and type(q.target) == "number" and q.target > 0
+			and type(q.reward) == "number" and q.reward >= 0
 		then
 			table.insert(clean, {
 				id = type(q.id) == "string" and q.id or "",
@@ -4466,7 +4284,7 @@ local function sanitize(data)
 		return clean
 	end
 	-- Version
-	if type(data.Version) == "number" and data.Version &gt;= 1 then
+	if type(data.Version) == "number" and data.Version >= 1 then
 		clean.Version = data.Version
 	end
 
@@ -4480,13 +4298,13 @@ local function sanitize(data)
 	if type(data.baitLevel) == "number" and GameConfig.Baits[data.baitLevel] then
 		clean.Equipment.EquippedBaitLevel = data.baitLevel
 	end
-	if type(data.capacityLevel) == "number" and data.capacityLevel &gt;= 0 and data.capacityLevel &lt;= #GameConfig.Upgrades.Capacity then
+	if type(data.capacityLevel) == "number" and data.capacityLevel >= 0 and data.capacityLevel &lt;= #GameConfig.Upgrades.Capacity then
 		clean.Aquarium.UpgradeLevel = math.floor(data.capacityLevel) + 1
 	end
-	if type(data.lockLevel) == "number" and data.lockLevel &gt;= 0 and data.lockLevel &lt;= #GameConfig.Upgrades.Lock then
+	if type(data.lockLevel) == "number" and data.lockLevel >= 0 and data.lockLevel &lt;= #GameConfig.Upgrades.Lock then
 		clean.Aquarium.LockLevel = math.floor(data.lockLevel)
 	end
-	if type(data.alarmLevel) == "number" and data.alarmLevel &gt;= 0 and data.alarmLevel &lt;= #GameConfig.Upgrades.Alarm then
+	if type(data.alarmLevel) == "number" and data.alarmLevel >= 0 and data.alarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 		clean.Aquarium.AlarmLevel = math.floor(data.alarmLevel)
 	end
 	if type(data.liveWell) == "table" then
@@ -4523,10 +4341,10 @@ local function sanitize(data)
 	-- Aquarium
 	if type(data.Aquarium) == "table" then
 		local aq = data.Aquarium
-		if type(aq.Capacity) == "number" and aq.Capacity &gt;= 1 then
+		if type(aq.Capacity) == "number" and aq.Capacity >= 1 then
 			clean.Aquarium.Capacity = math.floor(aq.Capacity)
 		end
-		if type(aq.UpgradeLevel) == "number" and aq.UpgradeLevel &gt;= 1 then
+		if type(aq.UpgradeLevel) == "number" and aq.UpgradeLevel >= 1 then
 			clean.Aquarium.UpgradeLevel = math.floor(aq.UpgradeLevel)
 		end
 		-- N3 (CRITICAL): only migrate v2 StoredFish when it actually exists.
@@ -4556,10 +4374,10 @@ local function sanitize(data)
 			clean.Aquarium.RaidOptIn = aq.RaidOptIn
 		end
 		-- N5: persist defense upgrade levels from the v2 schema location.
-		if type(aq.LockLevel) == "number" and aq.LockLevel &gt;= 0 and aq.LockLevel &lt;= #GameConfig.Upgrades.Lock then
+		if type(aq.LockLevel) == "number" and aq.LockLevel >= 0 and aq.LockLevel &lt;= #GameConfig.Upgrades.Lock then
 			clean.Aquarium.LockLevel = math.floor(aq.LockLevel)
 		end
-		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel &gt;= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
+		if type(aq.AlarmLevel) == "number" and aq.AlarmLevel >= 0 and aq.AlarmLevel &lt;= #GameConfig.Upgrades.Alarm then
 			clean.Aquarium.AlarmLevel = math.floor(aq.AlarmLevel)
 		end
 	end
@@ -4575,7 +4393,7 @@ local function sanitize(data)
 	-- hold on EVERY path, not just v2 payloads.
 	local AquariumUpgradeTiers = GameConfig.AquariumUpgradeTiers
 	local upLevel = clean.Aquarium.UpgradeLevel or 1
-	if AquariumUpgradeTiers and #AquariumUpgradeTiers &gt; 0 then
+	if AquariumUpgradeTiers and #AquariumUpgradeTiers > 0 then
 		upLevel = math.max(1, math.min(upLevel, #AquariumUpgradeTiers))
 		clean.Aquarium.UpgradeLevel = upLevel
 		clean.Aquarium.Capacity = AquariumUpgradeTiers[upLevel].capacity
@@ -4583,7 +4401,7 @@ local function sanitize(data)
 
 	-- Dock
 	if type(data.Dock) == "table" then
-		if type(data.Dock.UpgradeLevel) == "number" and data.Dock.UpgradeLevel &gt;= 1 then
+		if type(data.Dock.UpgradeLevel) == "number" and data.Dock.UpgradeLevel >= 1 then
 			clean.Dock.UpgradeLevel = math.floor(data.Dock.UpgradeLevel)
 		end
 		-- N17 (TASK 17.6): clamp Dock.UpgradeLevel against the authoritative
@@ -4592,7 +4410,7 @@ local function sanitize(data)
 		-- DockUpgradeTiers[999] lookups to return nil downstream.
 		local DockUpgradeTiers = GameConfig.DockUpgradeTiers
 		local dockLevel = clean.Dock.UpgradeLevel or 1
-		if DockUpgradeTiers and #DockUpgradeTiers &gt; 0 then
+		if DockUpgradeTiers and #DockUpgradeTiers > 0 then
 			dockLevel = math.max(1, math.min(dockLevel, #DockUpgradeTiers))
 			clean.Dock.UpgradeLevel = dockLevel
 		end
@@ -4633,7 +4451,7 @@ local function sanitize(data)
 					-- Map form: { [milestoneId] = true }
 					clean.Collection.MilestonesClaimed[key] = true
 				elseif type(key) == "number" and type(val) == "string" then
-					-- Legacy array form: { "milestoneId", ... } -&gt; convert to set
+					-- Legacy array form: { "milestoneId", ... } -> convert to set
 					clean.Collection.MilestonesClaimed[val] = true
 				end
 			end
@@ -4664,7 +4482,7 @@ local function sanitize(data)
 			local window = GameConfig.Raid.perVictimCooldownSeconds
 			for uidKey, ts in pairs(data.PvP.RecentTargetTimestamps) do
 				local uid = tonumber(uidKey)
-				if uid and type(ts) == "number" and ts &gt; 0 and (now - ts) &lt; window then
+				if uid and type(ts) == "number" and ts > 0 and (now - ts) &lt; window then
 					clean.PvP.RecentTargetTimestamps[uid] = ts
 				end
 			end
@@ -4790,8 +4608,8 @@ function DataManager.load(player)
 		end
 	end
 
-	-- TASK 1.6: v1-&gt;v2 migration. If v2 has no data but the legacy v1 store
-	-- does, load v1 (sanitize() converts flat-&gt;structured), then write the
+	-- TASK 1.6: v1->v2 migration. If v2 has no data but the legacy v1 store
+	-- does, load v1 (sanitize() converts flat->structured), then write the
 	-- migrated profile to v2 so subsequent loads hit v2 directly. The v1 key
 	-- is left intact as a rollback anchor for the closed-test grace period.
 	local migratedFromV1 = false
@@ -4807,7 +4625,7 @@ function DataManager.load(player)
 
 	local profile = sanitize(saved)
 
-	-- R1.6 (egf.6): log the result of the v1-&gt;v2 migration so support can
+	-- R1.6 (egf.6): log the result of the v1->v2 migration so support can
 	-- reconstruct what happened if a player reports missing fish/coins.
 	-- print (not warn): this is a routine, expected one-time-per-player
 	-- migration, not an error. warn() would spam the console and
@@ -4831,7 +4649,7 @@ function DataManager.load(player)
 			return table.concat(parts, ", ")
 		end
 
-		print(("[HarborHeist] MIGRATION v1-&gt;v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s} | result{%s}"):format(
+		print(("[HarborHeist] MIGRATION v1->v2: user=%s(%d) | source v1{cash=%s rodLevel=%s baitLevel=%s liveWell=%s} | result{%s}"):format(
 			player.Name, player.UserId,
 			tostring(saved.cash), tostring(saved.rodLevel), tostring(saved.baitLevel),
 			type(saved.liveWell) == "table" and (#saved.liveWell .. " fish") or tostring(saved.liveWell),
@@ -4903,7 +4721,7 @@ function DataManager.load(player)
 		if remaining &lt;= 0 then
 			return 0
 		end
-		if remaining &gt; MAX_REHYDRATE_SECONDS then
+		if remaining > MAX_REHYDRATE_SECONDS then
 			warn(string.format("[HarborHeist] Timer rehydration clamped: %s had %ds remaining (max %ds) — possible data corruption or clock skew",
 				fieldName, math.floor(remaining), MAX_REHYDRATE_SECONDS))
 			remaining = MAX_REHYDRATE_SECONDS
@@ -4988,11 +4806,11 @@ function DataManager.save(player, isShutdown)
 	-- bug at the source instead of silently storing corruption.
 	local nowEpoch = os.time()
 	local nowClock = os.clock()
-	if session.lockedUntil &gt; nowClock then
+	if session.lockedUntil > nowClock then
 		local remaining = math.min(math.floor(session.lockedUntil - nowClock), 600)
 		profile.Aquarium.LockUntilTimestamp = nowEpoch + remaining
 	end
-	if session.lockCooldownUntil &gt; nowClock then
+	if session.lockCooldownUntil > nowClock then
 		local remaining = math.min(math.floor(session.lockCooldownUntil - nowClock), 600)
 		profile.Aquarium.LockCooldownUntilTimestamp = nowEpoch + remaining
 	end
@@ -5122,12 +4940,12 @@ function DataManager.bindToClose()
 			task.spawn(function()
 				-- RELIABILITY: pcall so an unexpected error can never leave the
 				-- `remaining` counter stuck and hang BindToClose for the full 30s.
-				-- TASK 14.20: isShutdown=true -&gt; fewer retries inside the budget.
+				-- TASK 14.20: isShutdown=true -> fewer retries inside the budget.
 				pcall(DataManager.save, player, true)
 				remaining -= 1
 			end)
 		end
-		while remaining &gt; 0 do
+		while remaining > 0 do
 			task.wait(0.1)
 		end
 	end)
@@ -5138,7 +4956,7 @@ function DataManager.isHealthy()
 end
 
 function DataManager.tryRecover()
-	if not isDataStoreHealthy and os.time() - lastFailureTime &gt; FAILURE_COOLDOWN then
+	if not isDataStoreHealthy and os.time() - lastFailureTime > FAILURE_COOLDOWN then
 		isDataStoreHealthy = true
 		consecutiveFailures = 0
 		print("[HarborHeist] DataStore attempting recovery after cooldown.")
@@ -9734,7 +9552,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
-local HapticService = game:GetService("HapticService")
+-- harborheist-5rcp.3: HapticService removed — the haptic system now uses
+-- HapticEffect instances (modern API) instead of the deprecated HapticService.
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 
@@ -9755,6 +9574,10 @@ local Gradients = require(script:WaitForChild("GradientLibrary"))
 local GameConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 -- TASK 4.4 (0cw.4 / wqw.18): species DisplayName lookup for the inventory panel
 local FishDefinitions = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("FishDefinitions"))
+-- harborheist-nk22 (EPIC 36): canonical base color palette — single source of
+-- truth shared with GradientLibrary. The local `UI` table below sources from
+-- this so palette edits live in one place (src/shared/UIPalette.lua).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes")
 
 local Remotes = {}
@@ -9777,7 +9600,7 @@ local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.Keyboar
 local LAYOUT_THRESHOLDS = {
 	compact = 1200,   -- &lt; 1200px: single column, compact UI
 	standard = 1600,  -- 1200-1600px: standard desktop layout
-	wide = 1920,      -- &gt; 1600px: wide screen with side panels
+	wide = 1920,      -- > 1600px: wide screen with side panels
 }
 
 -- Detect current layout mode based on viewport width
@@ -9804,49 +9627,57 @@ local currentLayoutMode = getLayoutMode(workspace.CurrentCamera and workspace.Cu
 -- own resize handlers; the layout-mode tracker only refreshes panel sizing).
 
 -- R4 polish #2 (mobile): context-aware haptic feedback system for touch interactions.
--- Implements variable intensity, duration control, and context-aware effects.
--- Fully pcall-guarded — HapticService.Play only does anything on haptic-capable
--- touch devices; everywhere else it is a silent no-op. Deliberately NOT wired to
--- every UI moment — haptics everywhere is haptics nowhere.
+--
+-- ARCHITECTURE NOTE (harborheist-5rcp.3, ultrathink review):
+-- The ORIGINAL implementation (5rcp) had TWO compounding bugs that together made
+-- the ENTIRE haptic system a silent no-op since the feature was first written:
+--
+--   Bug A: HapticService:Play(effectType, intensity, duration) does NOT exist.
+--          Per Roblox creator docs, HapticService only exposes GetMotor /
+--          IsMotorSupported / IsVibrationSupported / SetMotor — and the service
+--          itself is DEPRECATED. The method "Play" was hallucinated. The pcall
+--          around the call silently swallowed the "attempt to call a nil value"
+--          error, so every haptic in the game did nothing.
+--
+--   Bug B: HAPTIC_CATEGORIES used the string "Rumble" for every success/error/
+--          rarity effect. "Rumble" is NOT a valid HapticEffectType member. The
+--          valid members are: Custom, UIHover, UIClick, UINotification,
+--          GameplayExplosion, GameplayCollision. The 5rcp.2 fix papered over the
+--          crash by falling back to UIClick, but that destroyed all semantic
+--          differentiation — a legendary catch felt identical to a button press.
+--
+-- FIX: Rewritten to use the modern HapticEffect INSTANCE API (the documented
+-- successor to the deprecated HapticService:Play):
+--   1. Create a HapticEffect instance, set .Type to a VALID HapticEffectType.
+--   2. Parent to workspace (required for the effect to be emitted).
+--   3. Call :Play(). Auto-clean via Debris after the plausible max tail.
+-- Intensity/duration are no longer direct API params (HapticEffect:Play takes
+-- none); instead the effect TYPE carries the semantic weight, and for Custom
+-- effects the waveform keys define amplitude over time. For the preset types
+-- used here (UIClick, UINotification, GameplayCollision, GameplayExplosion),
+-- the engine selects the appropriate waveform per device.
+--
+-- Fully pcall-guarded — on devices without haptic hardware, HapticEffect:Play
+-- is a silent no-op. Deliberately NOT wired to every UI moment — haptics
+-- everywhere is haptics nowhere.
 
--- Resolve an Enum.HapticEffectType member by name, falling back to UI_Click when
--- the member does not exist on this platform (graceful degradation).
-local function resolveHapticEffect(effectName)
-	local ok, effect = pcall(function()
-		return Enum.HapticEffectType[effectName]
-	end)
-	if ok and effect then
-		return effect
-	end
-	return Enum.HapticEffectType.UI_Click
-end
-
-local function createHapticEffect(effectName, intensity, duration)
-	return {
-		type = resolveHapticEffect(effectName),
-		intensity = intensity or 0.5,
-		duration = duration or 0.1,
-	}
-end
-
--- Haptic feedback categories with tuned parameters (string keys — harborheist-l0rb)
-local HAPTIC_CATEGORIES = {
-	-- Basic interactions
-	PressStart = createHapticEffect("UI_Click", 0.3, 0.08), -- Light tap on press
-	PressEnd = createHapticEffect("UI_Click", 0.4, 0.12), -- Slightly stronger release
-
-	-- Success states (use Rumble for success feedback)
-	SuccessSmall = createHapticEffect("Rumble", 0.35, 0.15), -- Quick success tick
-	SuccessLarge = createHapticEffect("Rumble", 0.45, 0.25), -- Celebratory success
-
-	-- Error states (use Rumble for error feedback)
-	ErrorSmall = createHapticEffect("Rumble", 0.3, 0.18), -- Short error buzz
-	ErrorLarge = createHapticEffect("Rumble", 0.4, 0.25), -- More pronounced error
-
-	-- Special events (use Rumble for significant events)
-	RarityReveal = createHapticEffect("Rumble", 0.6, 0.35), -- Legendary/epic catch
-	QuestComplete = createHapticEffect("Rumble", 0.5, 0.4), -- Quest milestone
-	MilestoneClaim = createHapticEffect("Rumble", 0.55, 0.45), -- Major achievement
+-- Map internal category names to VALID Enum.HapticEffectType members.
+-- harborheist-5rcp.3: replaced the invalid "Rumble" string with real members.
+-- Semantic mapping rationale (per Roblox docs descriptions):
+--   UI clicks / presses           -> UIClick       (crisp, immediate)
+--   Success / milestone / reveal  -> UINotification (draws attention)
+--   Error                         -> GameplayCollision (sharp, dies quickly)
+--   Major celebration             -> GameplayExplosion (high intensity, lingers)
+local HAPTIC_TYPES = {
+	PressStart     = Enum.HapticEffectType.UIClick,
+	PressEnd       = Enum.HapticEffectType.UIClick,
+	SuccessSmall   = Enum.HapticEffectType.UINotification,
+	SuccessLarge   = Enum.HapticEffectType.GameplayExplosion,
+	ErrorSmall     = Enum.HapticEffectType.GameplayCollision,
+	ErrorLarge     = Enum.HapticEffectType.GameplayCollision,
+	RarityReveal   = Enum.HapticEffectType.GameplayExplosion,
+	QuestComplete  = Enum.HapticEffectType.UINotification,
+	MilestoneClaim = Enum.HapticEffectType.GameplayExplosion,
 }
 
 -- Haptic feedback dispatcher (fallback to PressEnd if category not found).
@@ -9855,10 +9686,19 @@ local HAPTIC_CATEGORIES = {
 local function playHaptic(category)
 	if not IS_MOBILE then return end
 
-	local effectConfig = HAPTIC_CATEGORIES[category] or HAPTIC_CATEGORIES.PressEnd
+	local effectType = HAPTIC_TYPES[category] or HAPTIC_TYPES.PressEnd
+	if effectType == nil then return end
 
 	pcall(function()
-		HapticService:Play(effectConfig.type, effectConfig.intensity, effectConfig.duration)
+		local effect = Instance.new("HapticEffect")
+		effect.Type = effectType
+		effect.Parent = workspace
+		-- Schedule cleanup BEFORE :Play() — if Play() errors (pcall swallows
+		-- it), the instance would otherwise leak into workspace permanently,
+		-- accumulating one dead HapticEffect per failed call for the session.
+		-- 3s covers the longest preset tail (GameplayExplosion lingers).
+		Debris:AddItem(effect, 3)
+		effect:Play()
 	end)
 end
 
@@ -9892,32 +9732,36 @@ end
 -- Migrated from hardcoded Color3 values to Theme tokens
 -- ============================================================
 
+-- harborheist-nk22 (EPIC 36): base colors sourced from the shared UIPalette
+-- module (single source of truth, shared with GradientLibrary). The `Theme`
+-- token table below aliases these same values into semantic groups — new UI
+-- code reads Theme.color.surface.secondary etc., not this flat table.
 local UI = {
-	bg = Color3.fromRGB(13, 20, 31),
-	surface = Color3.fromRGB(20, 30, 46),
-	surfaceHi = Color3.fromRGB(30, 43, 63),
-	stroke = Color3.fromRGB(255, 255, 255),
-	accent = Color3.fromRGB(56, 152, 255),
-	accentSoft = Color3.fromRGB(120, 190, 255),
-	good = Color3.fromRGB(52, 199, 123),
-	bad = Color3.fromRGB(255, 92, 92),
-	warn = Color3.fromRGB(255, 184, 64),
-	quest = Color3.fromRGB(255, 205, 92),
-	boat = Color3.fromRGB(94, 200, 235),
-	purple = Color3.fromRGB(167, 139, 250),
-	text = Color3.fromRGB(238, 243, 250),
-	textDim = Color3.fromRGB(148, 163, 184),
-	textFaint = Color3.fromRGB(138, 154, 177),
-	ink = Color3.fromRGB(10, 16, 26),
+	bg = UIPalette.color("bg"),
+	surface = UIPalette.color("surface"),
+	surfaceHi = UIPalette.color("surfaceHi"),
+	stroke = UIPalette.color("stroke"),
+	accent = UIPalette.color("accent"),
+	accentSoft = UIPalette.color("accentSoft"),
+	good = UIPalette.color("good"),
+	bad = UIPalette.color("bad"),
+	warn = UIPalette.color("warn"),
+	quest = UIPalette.color("quest"),
+	boat = UIPalette.color("boat"),
+	purple = UIPalette.color("purple"),
+	text = UIPalette.color("text"),
+	textDim = UIPalette.color("textDim"),
+	textFaint = UIPalette.color("textFaint"),
+	ink = UIPalette.color("ink"),
 	-- Additional palette colors for semantic tokens
-	money = Color3.fromRGB(134, 239, 172),
-	undiscovered = Color3.fromRGB(16, 24, 36),
-	claimReady = Color3.fromRGB(50, 160, 80),
-	claimReadyHi = Color3.fromRGB(74, 198, 114),
-	disabled = Color3.fromRGB(100, 60, 60),
-	neutral = Color3.fromRGB(60, 70, 80),
-	alert = Color3.fromRGB(255, 170, 80),
-	raidAlert = Color3.fromRGB(255, 120, 120),
+	money = UIPalette.color("money"),
+	undiscovered = UIPalette.color("undiscovered"),
+	claimReady = UIPalette.color("claimReady"),
+	claimReadyHi = UIPalette.color("claimReadyHi"),
+	disabled = UIPalette.color("disabled"),
+	neutral = UIPalette.color("neutral"),
+	alert = UIPalette.color("alert"),
+	raidAlert = UIPalette.color("raidAlert"),
 }
 
 local FONT_HEAD = Enum.Font.GothamBlack
@@ -9926,12 +9770,15 @@ local FONT_MED = Enum.Font.GothamMedium
 local FONT_BODY = Enum.Font.Gotham
 
 local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
--- harborheist-2wuo.1: Back -&gt; Spring for the "pop" easing (scale-in
+-- harborheist-2wuo.1: Back -> Spring for the "pop" easing (scale-in
 -- reveals, button bounce-back). Spring gives physics-based overshoot that
 -- feels more natural than Back's synthetic curve. NOT applied to EASE_FAST
 -- (Quad) or EASE_IN (Quad) — those control press compression, hover glows,
 -- fades, and exit acceleration where Spring overshoot would cause flicker
 -- or feel wrong.
+-- selene: allow(incorrect_standard_library_use) — Spring is a valid
+-- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+-- 0.31's roblox std is stale.
 local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out)
 local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 -- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
@@ -10013,10 +9860,10 @@ local coachShownIdleCast = false
 -- Model: initiation gating, NOT preemption (see bead; preemption eats
 -- in-flight catches or races the server raid deadline). The single
 -- UserInputService.InputBegan router connection is wired at the BOTTOM of
--- this file (after every overlayInputHandlers.&lt;name&gt; assignment), because
+-- this file (after every overlayInputHandlers.&lt;name> assignment), because
 -- Lua locals are lexically scoped and the handlers don't exist yet here.
 local activeOverlay = nil -- nil | "cast" | "bite" | "raid"
-local overlayInputHandlers = {} -- name -&gt; handler(input, gameProcessed)
+local overlayInputHandlers = {} -- name -> handler(input, gameProcessed)
 
 local function requestOverlay(name)
 	if activeOverlay ~= nil then
@@ -10119,8 +9966,8 @@ local function calculateSafeTop()
 	local cam = workspace.CurrentCamera
 	local viewportSize = cam and cam.ViewportSize or Vector2.new(1920, 1080)
 
-	-- Detect if in landscape mode (width &gt; height)
-	local isLandscape = viewportSize.X &gt; viewportSize.Y
+	-- Detect if in landscape mode (width > height)
+	local isLandscape = viewportSize.X > viewportSize.Y
 	
 	-- Base safe area values: accounts for notch, status bar, and system UI
 	local baseSafeArea = {
@@ -10132,7 +9979,7 @@ local function calculateSafeTop()
 	local safeTop = baseSafeArea[isLandscape and "landscape" or "portrait"][IS_MOBILE and "mobile" or "desktop"]
 	
 	-- Add notch compensation if detected (iOS devices have larger inset.Y)
-	if inset.Y and inset.Y &gt; 20 then
+	if inset.Y and inset.Y > 20 then
 		safeTop = math.max(safeTop, inset.Y + 4) -- Extra 4px for notch safety margin
 	end
 	
@@ -10411,7 +10258,7 @@ local function pressFeedback(button, hoverGlow)
 		-- without this the pointing-hand cursor sticks for the rest of the
 		-- session. Over-clears in the rare case another button is hovered
 		-- when this one dies; that self-heals on the next MouseEnter, which
-		-- is the better failure side (arrow &gt; phantom hand).
+		-- is the better failure side (arrow > phantom hand).
 		button.Destroying:Connect(function()
 			if playerMouse.Icon == "rbxasset://SystemCursors/PointingHand" then
 				playerMouse.Icon = ""
@@ -10525,12 +10372,12 @@ function ContextMenu.new(items, props)
 
 		local posX = x + 8
 		local posY = y
-		if posX + menuWidth &gt; viewportW then
+		if posX + menuWidth > viewportW then
 			-- Flip left of the cursor, but never push the menu's RIGHT edge
 			-- off-screen on viewports narrower than the menu itself.
 			posX = math.max(0, math.min(viewportW - menuWidth, x - menuWidth - 8))
 		end
-		if posY + menuHeight &gt; viewportH then
+		if posY + menuHeight > viewportH then
 			posY = math.max(0, viewportH - menuHeight - 8)
 		end
 
@@ -10556,8 +10403,8 @@ function ContextMenu.new(items, props)
 				local pos = input.Position
 				local framePos = menuFrame.AbsolutePosition
 				local frameSize = menuFrame.AbsoluteSize
-				if pos.X &lt; framePos.X or pos.X &gt; framePos.X + frameSize.X
-					or pos.Y &lt; framePos.Y or pos.Y &gt; framePos.Y + frameSize.Y then
+				if pos.X &lt; framePos.X or pos.X > framePos.X + frameSize.X
+					or pos.Y &lt; framePos.Y or pos.Y > framePos.Y + frameSize.Y then
 					self:hide()
 				end
 			end)
@@ -10631,7 +10478,15 @@ local function makeButton(parent, props)
 		corner(hoverGlow, resolveRadius)
 	end
 	
-	-- harborheist-ks2m: Wire AnimationSystem press feedback if available
+	-- harborheist-ks2m: Wire AnimationSystem press feedback if available.
+	-- NOTE (harborheist-5rcp.4): AnimationSystem:addPress handles the VISUAL
+	-- scale feedback + optional sound. It does NOT fire haptics. The haptic
+	-- calls below must therefore run on EVERY button regardless of whether
+	-- Anim:press succeeded — the previous code gated ALL of setupPressFeedback
+	-- (including the haptic MouseButton1Down/Up handlers) behind
+	-- `if hasAnimPress then return end`, which meant haptics only fired in the
+	-- rare fallback path where AnimationSystem was unavailable. With
+	-- AnimationSystem always loaded, the button-press haptic was a dead path.
 	local hasAnimPress = false
 	if Anim and type(Anim.press) == "function" then
 		local ok = pcall(function()
@@ -10640,10 +10495,43 @@ local function makeButton(parent, props)
 		hasAnimPress = ok
 	end
 	
-	-- Press feedback with proper easing (fallback if AnimationSystem unavailable)
+	-- Haptic + press feedback wiring. Haptics run unconditionally (mobile only);
+	-- the visual scale/cancel/hover logic only runs when AnimationSystem did
+	-- NOT take over (hasAnimPress gates the duplicate scale path only).
 	-- harborheist-g9z2: Enhanced with hover effects, animation cancellation, and disabled button guards
 	local function setupPressFeedback()
-		if hasAnimPress then return end  -- AnimationSystem handles this
+		-- harborheist-5rcp.4: Haptic wiring runs BEFORE the hasAnimPress gate
+		-- so press/release/success/error haptics fire on EVERY button. The
+		-- visual scale feedback below is the only thing gated by hasAnimPress.
+		if IS_MOBILE then
+			button.MouseButton1Down:Connect(function()
+				if not button.Active then return end
+				hapticPressStart()
+			end)
+			button.MouseButton1Up:Connect(function()
+				if not button.Active then return end
+				hapticPressEnd()
+			end)
+		end
+
+		-- Success/error haptics wire on Click (fires once per successful tap,
+		-- distinct from Down/Up which fire on raw press/release). These must
+		-- also be unconditional — previously they lived below the hasAnimPress
+		-- return and were dead code on every Anim-backed button.
+		if props and props.onSuccess then
+			button.MouseButton1Click:Connect(function()
+				hapticSuccess()
+				props.onSuccess()
+			end)
+		end
+		if props and props.onError then
+			button.MouseButton1Click:Connect(function()
+				hapticError()
+				props.onError(button)
+			end)
+		end
+
+		if hasAnimPress then return end  -- AnimationSystem handles the visual scale
 		if pressTween then return end
 		
 		pressTween = EASE_FAST
@@ -10693,29 +10581,7 @@ local function makeButton(parent, props)
 			-- Press state - scale down slightly for tactile feedback
 			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
 			activeTweens.scale:Play()
-
-			-- Haptic feedback on mobile devices (R4 polish #2)
-			if IS_MOBILE then
-				hapticPressStart()
-			end
 		end)
-		
-		-- Success/error states can be set via callbacks - harborheist-2wuo.3: nil safety
-		-- harborheist-qrj9: connect ONCE at setup time. These used to live inside the
-		-- MouseButton1Down handler, so every press added another pair of click
-		-- connections — handlers fired N times after N presses and connections leaked.
-		if props and props.onSuccess then
-			button.MouseButton1Click:Connect(function()
-				hapticSuccess()
-				props.onSuccess()
-			end)
-		end
-		if props and props.onError then
-			button.MouseButton1Click:Connect(function()
-				hapticError()
-				props.onError(button)
-			end)
-		end
 		
 		button.MouseButton1Up:Connect(function()
 			-- harborheist-g9z2: Guard against disabled buttons
@@ -10728,11 +10594,6 @@ local function makeButton(parent, props)
 			-- Release state - bounce back with spring physics
 			activeTweens.scale = TweenService:Create(button, EASE_POP, { Scale = 1 })
 			activeTweens.scale:Play()
-
-			-- Haptic feedback on mobile devices (R4 polish #2)
-			if IS_MOBILE then
-				hapticPressEnd()
-			end
 		end)
 		
 		-- harborheist-g9z2: Desktop hover effects
@@ -11016,7 +10877,7 @@ end
 --
 -- Shadow layers are parented to the element itself (ZIndex = element's
 -- ZIndex - 1) and auto-destroy when the element is destroyed. They
--- extend past the element bounds via Size &gt; 1 and negative Position.
+-- extend past the element bounds via Size > 1 and negative Position.
 -- IMPORTANT: apply to elements WITHOUT a UIListLayout on them (panels,
 -- toasts, prompts, cards) — a UIListLayout would override the shadow
 -- frames' explicit Position. For layout containers, wrap in a plain
@@ -11157,34 +11018,73 @@ end
 
 -- Pulse: create a pulsing animation that oscillates between two values.
 -- Returns the tween object for cancellation if needed.
+-- harborheist-5rcp.3 (ultrathink): the original implementation was broken —
+-- it tweened ONCE to the midpoint and the Completed handler called :Cancel()
+-- (a no-op on an already-completed tween). No oscillation ever happened. The
+-- proper pattern uses TweenInfo's repeatCount=-1 + reverses=true to bounce
+-- the property back and forth indefinitely until cancelled.
 function Transitions.pulse(element, property, minVal, maxVal, duration, easing)
 	-- harborheist-2wuo.3: nil safety - validate parameters before use
 	if not element or not property then
 		warn("Transitions.pulse: missing element or property")
 		return nil
 	end
-	
-	local tweenObj = TweenService:Create(element, TweenInfo.new(duration or 1, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {
-		[property] = (minVal + maxVal) / 2
+
+	-- Seed the start value so the first half-cycle begins from minVal.
+	element[property] = minVal
+
+	local ti = resolveTweenInfo(duration or 1, easing or "sine")
+	-- Override to an infinite reversing bounce regardless of the preset's
+	-- own repeatCount/reverses defaults.
+	ti = TweenInfo.new(ti.Time, ti.EasingStyle, ti.EasingDirection, -1, true, 0)
+
+	local tweenObj = TweenService:Create(element, ti, {
+		[property] = maxVal,
 	})
-	
-	tweenObj.Completed:Connect(function()
-		tweenObj:Cancel()
-	end)
-	
+
 	tweenObj:Play()
 	return tweenObj
 end
 
 -- Stagger: create a staggered animation for multiple elements.
 -- Returns a table of tweens that can be cancelled together.
+-- harborheist-5rcp.3 (ultrathink): THREE bugs in the original:
+--   1. `delay` param was accepted but never used — all tweens started at once.
+--   2. `easing` param was accepted but never used — hardcoded Quad/Out.
+--   3. `props` was passed straight to TweenService:Create INCLUDING the
+--      `duration` key, which is not a tweenable property (silently ignored
+--      on most instances, but invalid). Now split: duration is extracted for
+--      the TweenInfo, the rest are the target props.
+--   4. Completed handler removed tweens[1] (always the first) instead of the
+--      finished tween — wrong element removed if completion order differed.
 function Transitions.stagger(elements, props, delay, easing)
+	local duration = (type(props) == "table" and props.duration) or 0.22
+	-- Build the clean target-properties table (strip the `duration` meta key).
+	local targetProps = {}
+	if type(props) == "table" then
+		for k, v in pairs(props) do
+			if k ~= "duration" then
+				targetProps[k] = v
+			end
+		end
+	end
+
+	local ti = resolveTweenInfo(duration, easing or "out")
+	local staggerDelay = delay or 0.05
 	local tweens = {}
+
 	for i, element in ipairs(elements) do
-		-- harborheist-2wuo.3: Fix - use props directly, not props.props
-		local tween = TweenService:Create(element, TweenInfo.new(props.duration or 0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+		-- Rebuild TweenInfo per element so each gets its own Delay offset.
+		local elementTi = TweenInfo.new(ti.Time, ti.EasingStyle, ti.EasingDirection, 0, false, staggerDelay * (i - 1))
+		local tween = TweenService:Create(element, elementTi, targetProps)
+		-- Remove THIS tween (not tweens[1]) when it completes.
 		tween.Completed:Connect(function()
-			table.remove(tweens, 1)
+			for idx, t in ipairs(tweens) do
+				if t == tween then
+					table.remove(tweens, idx)
+					break
+				end
+			end
 		end)
 		tween:Play()
 		table.insert(tweens, tween)
@@ -11357,7 +11257,7 @@ local CLAIM_GREEN_HEX = "32A050"
 -- authoritative snapshot value (state.incomePerSec) — NEVER re-derive income
 -- client-side (R2.2/dt9.2, see note near render()). Sub-0.1/sec rates (a
 -- starter tank of 1-2 Commons) render per-minute so early players see a
--- non-zero rate; 0.1-10/sec gets 2 decimals; &gt;10/sec keeps the legacy
+-- non-zero rate; 0.1-10/sec gets 2 decimals; >10/sec keeps the legacy
 -- 1-decimal per-sec form. "/min" and "/sec" suffixes are equal width, so the
 -- HUD card does not jump when the format flips threshold.
 local function formatIncomeRate(ratePerSec)
@@ -11373,13 +11273,13 @@ end
 
 local function updateIncomeLine(readyTransparency)
 	local ready = state and state.unclaimedIncome or 0
-	if ready &gt; 0 then
+	if ready > 0 then
 		-- One notch smaller on the 178px mobile card so rate + ready fit on
 		-- one line (the no-layout-shift path; 6+ digit ready values may still
 		-- clip on mobile — accepted tradeoff, recorded in the bead).
 		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
 		incomeLabel.Text = string.format(
-			'%s  •  &lt;font color="#%s" transparency="%.2f"&gt;&lt;b&gt;$%s ready&lt;/b&gt;&lt;/font&gt;',
+			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
 			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
 		)
 	else
@@ -11393,7 +11293,7 @@ end
 -- render() owns the plain-rate line whenever ready == 0.
 task.spawn(function()
 	while true do
-		if state and (state.unclaimedIncome or 0) &gt; 0 then
+		if state and (state.unclaimedIncome or 0) > 0 then
 			local phase = (os.clock() % 2.4) / 2.4
 			local alpha = 0.05 + 0.5 * (1 - math.abs(phase * 2 - 1))
 			updateIncomeLine(alpha)
@@ -11418,7 +11318,7 @@ local function animateCashTo(target)
 		cashLabel.Text = "$" .. formatCash(target)
 		return
 	end
-	if lastCash and target &gt; lastCash then
+	if lastCash and target > lastCash then
 		local gain = makeLabel(hud, {
 			Size = UDim2.new(0, 100, 0, 20),
 			Position = UDim2.new(1, -110, 0, 8),
@@ -11457,7 +11357,7 @@ local function animateCashTo(target)
 		a = 1 - (1 - a) ^ 3
 		displayedCash = from + (target - from) * a
 		cashLabel.Text = "$" .. formatCash(displayedCash)
-		if a &gt;= 1 then
+		if a >= 1 then
 			displayedCash = target
 			cashTweenConn:Disconnect()
 			cashTweenConn = nil
@@ -11639,7 +11539,7 @@ local function showToastDirect(message, color, category, actions)
 	-- Unmapped categories and variant.duration=0 fall back to TOAST_LIFETIME.
 	local vName = CATEGORY_TO_VARIANT[category]
 	local vConf = vName and TOAST_VARIANTS[vName]
-	local lifetime = (vConf and vConf.duration &gt; 0) and vConf.duration or TOAST_LIFETIME
+	local lifetime = (vConf and vConf.duration > 0) and vConf.duration or TOAST_LIFETIME
 	local persistent = vConf and vConf.persistent
 	-- Render action buttons if provided (max 2 per toast, right-aligned)
 	if actions then
@@ -11650,7 +11550,7 @@ local function showToastDirect(message, color, category, actions)
 			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
 		end
 		for i, action in ipairs(actions) do
-			if i &gt; 2 then break end -- max 2 action buttons per toast
+			if i > 2 then break end -- max 2 action buttons per toast
 			local btn = makeButton(toast, {
 				Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24),
 				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
@@ -11718,7 +11618,7 @@ end
 
 -- Assign to the forward-declared local
 drainToastQueue = function()
-	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue &gt; 0 do
+	while activeToastCount &lt; MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category)
 	end
@@ -11756,7 +11656,7 @@ local function showNotification(message, color, category, actions)
 		-- R3 audit #2: unbounded queue → stale "You caught X" toasts surfacing
 		-- minutes after a raid flurry. Evict the OLDEST non-severe entry
 		-- beyond a cap (severe toasts keep their queue-jump priority).
-		while #toastQueue &gt; MAX_TOAST_QUEUE do
+		while #toastQueue > MAX_TOAST_QUEUE do
 			local evicted = false
 			for i, pending in ipairs(toastQueue) do
 				if not SEVERE_CATEGORIES[pending.category] then
@@ -11838,7 +11738,7 @@ onboardingAccentBar.Parent = onboardingPrompt
 corner(onboardingAccentBar, Theme.corners.hairline)
 
 local onboardingLabel = makeLabel(onboardingPrompt, {
-	-- harborheist-bpem.1: widened right padding (-52 -&gt; -60) to match the
+	-- harborheist-bpem.1: widened right padding (-52 -> -60) to match the
 	-- enlarged 44px close button, preserving the original 10px text/button
 	-- overlap relationship (button bg covers the empty right label margin).
 	Size = UDim2.new(1, -60, 1, 0),
@@ -11919,7 +11819,7 @@ sellStorePrompt.Name = "SellStorePrompt"
 sellStorePrompt.AnchorPoint = Vector2.new(0.5, 0)
 -- hvfh.4.3 (BronzeLynx plan-space note): anchor below the cap-3 toast
 -- stack (3 toasts ~= 152px from SAFE_TOP+8) so first-catch toasts no
--- longer render on top of this prompt (toast ZIndex 51 &gt; 16).
+-- longer render on top of this prompt (toast ZIndex 51 > 16).
 sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
 table.insert(safeTopConsumers, function()
 	sellStorePrompt.Position = UDim2.new(0.5, 0, 0, SAFE_TOP + 170)
@@ -12263,7 +12163,7 @@ local function makePanel(title, titleColor, desktopSize)
 
 		-- R4 polish (mobile): drag-to-dismiss — THE bottom-sheet pattern.
 		-- The grabber was decorative; now the header strip is a drag surface.
-		-- Pull down &gt;90px (or fling) to dismiss; release short of that and
+		-- Pull down >90px (or fling) to dismiss; release short of that and
 		-- the sheet springs back. hidePanels is forward-declared above.
 		local dragSurface = Instance.new("TextButton")
 		dragSurface.Name = "DragDismiss"
@@ -12297,7 +12197,7 @@ local function makePanel(title, titleColor, desktopSize)
 		UserInputService.TouchEnded:Connect(function(input)
 			if input == dragInput then
 				dragInput = nil
-				if dragDy &gt; 90 then
+				if dragDy > 90 then
 					hidePanels()
 				else
 					TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
@@ -12559,7 +12459,7 @@ local claimButton = makeButton(aquariumPanel, {
 -- R4 polish: gentle CLAIM glow while income is ready and the panel is open.
 -- The HUD income-line pulse (TASK 24.1) covers the closed-panel case; this
 -- covers the in-panel "what do I press next" moment. Runs at 10Hz only
--- while ready &gt; 0 and the aquarium panel is active; render()'s 1Hz color
+-- while ready > 0 and the aquarium panel is active; render()'s 1Hz color
 -- set loses the fight visually (same pattern as the income line).
 -- Defined here — NOT in the income-line loop — because claimButton and
 -- aquariumPanel don't exist at that point in the file (lexical binding).
@@ -12571,7 +12471,7 @@ task.spawn(function()
 		-- state — render() paints the button danger-red "SAVING UNAVAILABLE"
 		-- then, and a green glow over it would lie about a dead feature.
 		if state
-			and (state.unclaimedIncome or 0) &gt; 0
+			and (state.unclaimedIncome or 0) > 0
 			and state.dataStoreHealthy ~= false
 			and activePanel == aquariumPanel
 		then
@@ -12729,12 +12629,12 @@ local function sortCarriedForDisplay(carried)
 		local ra = FishDefinitions.RARITY_ORDER[a.fish.Rarity] or 0
 		local rb = FishDefinitions.RARITY_ORDER[b.fish.Rarity] or 0
 		if ra ~= rb then
-			return ra &gt; rb
+			return ra > rb
 		end
 		local va = a.fish.BaseSellValue or 0
 		local vb = b.fish.BaseSellValue or 0
 		if va ~= vb then
-			return va &gt; vb
+			return va > vb
 		end
 		return a.idx &lt; b.idx
 	end)
@@ -12813,7 +12713,7 @@ local function renderInventory()
 	-- R3 audit #9: STORE ALL should be dead while the bag is empty, otherwise
 	-- it fires a pointless round-trip and the server returns a confusing
 	-- toast. Reflect carry state on the bulk button every render.
-	local bagHasFish = #carried &gt; 0
+	local bagHasFish = #carried > 0
 	invStoreAllBtn.Active = bagHasFish
 	invStoreAllBtn.AutoButtonColor = bagHasFish
 	invStoreAllBtn.TextColor3 = bagHasFish and Theme.color.text.ink or Theme.color.text.tertiary
@@ -13374,7 +13274,7 @@ renderCollection = function()
 	clearCollectionList()
 
 	collectionProgress.Text = string.format("%d / %d species discovered", book.discoveredCount or 0, book.totalSpecies or 0)
-	local progress = (book.totalSpecies or 0) &gt; 0 and (book.discoveredCount or 0) / (book.totalSpecies or 0) or 0
+	local progress = (book.totalSpecies or 0) > 0 and (book.discoveredCount or 0) / (book.totalSpecies or 0) or 0
 	collectionProgressFill.Size = UDim2.new(math.clamp(progress, 0, 1), 0, 1, 0)
 
 	if not book.ordered or #book.ordered == 0 then
@@ -13426,7 +13326,7 @@ renderCollection = function()
 	makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = "MILESTONES", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.status.warn, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 	order += 1
 
-	if book.milestones and #book.milestones &gt; 0 then
+	if book.milestones and #book.milestones > 0 then
 		for _, milestone in ipairs(book.milestones) do
 			makeMilestoneRow(collectionList, order, milestone)
 			order += 1
@@ -13584,7 +13484,7 @@ local function itemSubText(entry)
 	elseif entry.kind == "dock" then
 		-- DockUpgradeTiers use `incomeMultiplier` + `cosmeticUnlocks`.
 		local mult = "+" .. math.floor(((it.incomeMultiplier or 1) - 1) * 100 + 0.5) .. "% income"
-		if it.cosmeticUnlocks and #it.cosmeticUnlocks &gt; 0 then
+		if it.cosmeticUnlocks and #it.cosmeticUnlocks > 0 then
 			return mult .. "  •  " .. table.concat(it.cosmeticUnlocks, ", ")
 		end
 		return mult
@@ -13727,7 +13627,7 @@ function refreshShop()
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
 			entry.buyButton.Active = false
 		elseif entry.level == currentLevel + 1 then
-			local affordable = state.cash &gt;= (entry.item.cost or 0)
+			local affordable = state.cash >= (entry.item.cost or 0)
 			entry.affordable = affordable -- harborheist-cl05: read by the buy handler
 			entry.buyButton.Text = "$" .. formatCash(entry.item.cost)
 			-- harborheist-cl05: unaffordable-but-tappable must not read as
@@ -13963,11 +13863,11 @@ raidTargetLayout.Parent = raidTargetList
 
 local raidRefreshButton = makeButton(raidContent, {
 	-- harborheist-bpem.1: 36px was below the 44pt mobile touch-target
-	-- minimum. Grown upward (Y 104-&gt;96) so the bottom edge stays at 140,
+	-- minimum. Grown upward (Y 104->96) so the bottom edge stays at 140,
 	-- preserving the 4px gap to the target list (top 144). Trade-off: the
 	-- Y-overlap with the full-width raidOptInPanelButton (bottom edge 114)
 	-- increases from 10px to 18px; the optIn button text is vertically
-	-- centered (Y~92), above the overlap region (Y&gt;=96), so no text is
+	-- centered (Y~92), above the overlap region (Y>=96), so no text is
 	-- hidden — the refresh button's opaque bg just covers more of the
 	-- optIn button's empty bottom-right corner.
 	Size = UDim2.new(0, IS_MOBILE and 100 or 90, 0, IS_MOBILE and 44 or 28),
@@ -14102,7 +14002,7 @@ local function renderRaidTargets(data)
 				no_stealable_fish = "No fish to steal",
 			})[reason] or reason
 
-			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds &gt; 0 then
+			if (reason == "locked" or reason == "raid_protection" or reason == "victim_cooldown") and target.unavailableSeconds and target.unavailableSeconds > 0 then
 				subtitleText = string.format("%s  •  %s", reasonLabel, formatRaidTime(target.unavailableSeconds))
 				-- Store reference for 1Hz update
 				local countdownLabel = makeLabel(row, {
@@ -14442,8 +14342,8 @@ function startRaidMinigame(challenge)
 	local perfectEnd = challenge.perfectEnd or 0.56
 	local pWidth = perfectEnd - perfectStart
 	local pCenter = (perfectStart + perfectEnd) / 2
-	local relWidth = goodWidth &gt; 0 and (pWidth / goodWidth) or 0.4
-	local relCenter = goodWidth &gt; 0 and ((pCenter - goodStart) / goodWidth) or 0.5
+	local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
+	local relCenter = goodWidth > 0 and ((pCenter - goodStart) / goodWidth) or 0.5
 	raidPerfectZone.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
 	raidPerfectZone.Position = UDim2.new(math.clamp(relCenter, 0, 1), 0, 0, 4)
 
@@ -15036,13 +14936,13 @@ local dataStoreWarningShown = false
 --   waiting     "WAITING"/"..."   muted,  slow stroke pulse
 --   bite-ready  "FISH ON!"/"FISH!" warn,   fast stroke pulse
 -- Transition edges (verified against server event order):
---   idle      -&gt; waiting     on CastState(true)
---   waiting   -&gt; idle        on CastState(false) with no bite
---   *         -&gt; bite-ready  on BiteEvent, REGARDLESS of flag state
+--   idle      -> waiting     on CastState(true)
+--   waiting   -> idle        on CastState(false) with no bite
+--   *         -> bite-ready  on BiteEvent, REGARDLESS of flag state
 --   (CastState(false) fires at FishingService:187 BEFORE BiteEvent at
 --    :213, so the transient idle is immediately overridden — bite-ready
 --    survives that ordering rather than being lost to the early false.)
---   bite-ready -&gt; idle       when the LOCAL minigame closes (tap or
+--   bite-ready -> idle       when the LOCAL minigame closes (tap or
 --   timeout via onMinigameTap / runMinigame expiry) — NOT on any
 --   CastState event; none is coming.
 -- `casting` stays for the doFish + cast-input guards; it no longer
@@ -15272,7 +15172,7 @@ local function render()
 	end
 	animateCashTo(state.cash)
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
-	-- pulse loop re-asserts it while ready &gt; 0; this covers every state push).
+	-- pulse loop re-asserts it while ready > 0; this covers every state push).
 	updateIncomeLine()
 	carryLabel.Text = string.format("On line: %d / %d fish", state.carried or 0, state.maxCarried or 0)
 	-- harborheist-yi2q: carried-count badge on the BAG action button — the
@@ -15300,7 +15200,7 @@ local function render()
 		})
 	end
 	local maxCarry = state.maxCarried or 0
-	local bagFull = maxCarry &gt; 0 and (state.carried or 0) &gt;= maxCarry
+	local bagFull = maxCarry > 0 and (state.carried or 0) >= maxCarry
 	bagBadgeLabel.Text = string.format("%d/%d", state.carried or 0, maxCarry)
 	bagBadge.BackgroundColor3 = bagFull and Theme.color.status.bad or Theme.color.surface.elevated
 	bagBadgeLabel.TextColor3 = bagFull and Theme.color.text.ink or Theme.color.text.secondary
@@ -15354,7 +15254,7 @@ local function render()
 	-- complaint hvfh.2.3 fixed on the HUD), in the panel where players go to
 	-- understand income.
 	aquariumStats.Text = string.format(
-		'&lt;font color="#EEF3FA"&gt;&lt;b&gt;%d / %d fish&lt;/b&gt;&lt;/font&gt;  •  &lt;font color="#86EFAC"&gt;&lt;b&gt;%s&lt;/b&gt;&lt;/font&gt;\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
+		'&lt;font color="#EEF3FA">&lt;b>%d / %d fish&lt;/b>&lt;/font>  •  &lt;font color="#86EFAC">&lt;b>%s&lt;/b>&lt;/font>\n%s + %s\nTank %d  •  Lock %d  •  Alarm %d',
 		state.liveWellCount, state.capacity, formatIncomeRate(state.incomePerSec), rodName, baitName,
 		state.upgradeLevel or 1, state.lockLevel or 0, state.alarmLevel or 0
 	)
@@ -15363,9 +15263,9 @@ local function render()
 	-- comfortable, amber past 60%, red past 85% ("nearly full, sell or
 	-- upgrade"). Color tweens with the size so transitions stay smooth.
 	local capacityClass = "low"
-	if capacityRatio &gt;= 0.85 then
+	if capacityRatio >= 0.85 then
 		capacityClass = "high"
-	elseif capacityRatio &gt;= 0.6 then
+	elseif capacityRatio >= 0.6 then
 		capacityClass = "mid"
 	end
 	local capacityColor = capacityClass == "high" and Theme.color.status.bad or capacityClass == "mid" and Theme.color.status.warn or Theme.color.brand.purple
@@ -15373,7 +15273,7 @@ local function render()
 	-- a fresh tween pair on the same properties, orphaning the previous
 	-- ones and restarting the easing so the bar never settled (same
 	-- class-gate pattern as the lock button below).
-	if capacityClass ~= lastCapacityClass or not lastCapacityRatio or math.abs(capacityRatio - lastCapacityRatio) &gt;= 0.01 then
+	if capacityClass ~= lastCapacityClass or not lastCapacityRatio or math.abs(capacityRatio - lastCapacityRatio) >= 0.01 then
 		lastCapacityClass = capacityClass
 		lastCapacityRatio = capacityRatio
 		TweenService:Create(capacityFill, EASE_OUT, { Size = UDim2.new(capacityRatio, 0, 1, 0), BackgroundColor3 = capacityColor }):Play()
@@ -15395,7 +15295,7 @@ local function render()
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
-			'&lt;font color="%s"&gt;●&lt;/font&gt;  &lt;font color="%s"&gt;&lt;b&gt;%s&lt;/b&gt;&lt;/font&gt;  ×%d   &lt;font color="#94A3B8"&gt;$%d each&lt;/font&gt;',
+			'&lt;font color="%s">●&lt;/font>  &lt;font color="%s">&lt;b>%s&lt;/b>&lt;/font>  ×%d   &lt;font color="#94A3B8">$%d each&lt;/font>',
 			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
 		))
 	end
@@ -15406,19 +15306,19 @@ local function render()
 	-- push. Only re-assert when the state CLASS changes — the countdown text
 	-- updates every second and would restart the tween constantly.
 	local lockClass, lockBg, lockFg
-	if (state.lockedUntil or 0) &gt; 0 then
+	if (state.lockedUntil or 0) > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockClass, lockBg, lockFg = "locked", Theme.color.status.bad, Theme.color.text.ink
-	elseif (state.lockCooldownUntil or 0) &gt; 0 then
+	elseif (state.lockCooldownUntil or 0) > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
 		lockClass, lockBg, lockFg = "recharge", Theme.color.surface.elevated, Theme.color.text.secondary
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
-		if state.lockLevel and state.lockLevel &gt; 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
+		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
 			lockDur = GameConfig.Upgrades.Lock[state.lockLevel].lockDuration
 		end
 		local freeUses = state.lockFreeUsesRemaining or 0
-		if freeUses &gt; 0 then
+		if freeUses > 0 then
 			lockButton.Text = string.format("LOCK %ds — %d quick locks left", lockDur, freeUses)
 		else
 			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
@@ -15446,7 +15346,7 @@ local function render()
 	if character then
 		local humanoid = character:FindFirstChildOfClass("Humanoid")
 		if humanoid then
-			if state.stunRemaining and state.stunRemaining &gt; 0 then
+			if state.stunRemaining and state.stunRemaining > 0 then
 				humanoid.WalkSpeed = 8
 			else
 				humanoid.WalkSpeed = 16
@@ -15460,7 +15360,7 @@ local function render()
 	if not storeHealthy then
 		claimButton.Text = "SAVING UNAVAILABLE"
 		claimButton.BackgroundColor3 = Theme.color.status.disabled
-	elseif state.unclaimedIncome &gt; 0 then
+	elseif state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
 		claimButton.BackgroundColor3 = Theme.color.status.claimReady
 	else
@@ -15488,7 +15388,7 @@ local function render()
 		end
 	elseif not ob.HasStoredFirstFish then
 		-- Stage 2: caught a fish but hasn't stored it yet.
-		if state.carried &gt; 0 then
+		if state.carried > 0 then
 			-- Button renamed STORE → BAG by TASK 4.4 (0cw.4): G now opens the
 			-- per-fish bag panel, where STORE / STORE ALL live.
 			showOnboardingPrompt("firstStore",
@@ -15502,7 +15402,7 @@ local function render()
 			currentPromptStage = nil
 			onboardingPrompt.Visible = false
 		end
-	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) &gt; 0 then
+	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) > 0 then
 		-- Stage 3: has stored fish earning income but hasn't claimed yet.
 		showOnboardingPrompt("firstClaim",
 			IS_MOBILE and "Tap CLAIM to collect your earned income!" or "Open your tank and hit CLAIM to collect your income!",
@@ -15542,7 +15442,7 @@ local function render()
 		end
 	end
 
-	if carriedCount &gt; lastCarriedCount
+	if carriedCount > lastCarriedCount
 		and not sellStorePromptShown
 		and not (state.onboarding or {}).HasSeenSellStoreComparison
 		and not sellStorePrompt.Visible then
@@ -15651,7 +15551,7 @@ local function runMinigame(windowSeconds)
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
-	-- BiteEvent -&gt; runMinigame reached here, so a bite is really happening:
+	-- BiteEvent -> runMinigame reached here, so a bite is really happening:
 	-- enter bite-ready now (after the windowSeconds guard, so a bad payload
 	-- never sticks the button in bite-ready with no minigame to close it).
 	setFishState("bite-ready")
@@ -15680,7 +15580,7 @@ local function runMinigame(windowSeconds)
 		local sweepDuration = 1.2 -- seconds for one full sweep
 		while minigameActive do
 			local elapsed = os.clock() - minigameStartTime
-			if elapsed &gt; minigameWindow then
+			if elapsed > minigameWindow then
 				-- Time expired
 				minigameActive = false
 				releaseOverlay("bite")
@@ -15690,13 +15590,13 @@ local function runMinigame(windowSeconds)
 				break
 			end
 
-			-- Ping-pong sweep: 0 -&gt; 1 -&gt; 0
+			-- Ping-pong sweep: 0 -> 1 -> 0
 			local t = (elapsed % sweepDuration) / sweepDuration
 			local pos
 			if t &lt; 0.5 then
-				pos = t * 2 -- 0 -&gt; 1
+				pos = t * 2 -- 0 -> 1
 			else
-				pos = 2 - t * 2 -- 1 -&gt; 0
+				pos = 2 - t * 2 -- 1 -> 0
 			end
 			biteMarker.Position = UDim2.new(pos, -2, 0, -2)
 			task.wait()
@@ -15776,6 +15676,7 @@ local function showRevealCard(speciesId, rarity, value)
 	cardScale.Parent = card
 	-- harborheist-2wuo.1: Legendary reveal also uses Spring (was Back) for
 	-- physics-based overshoot — the most dramatic catch gets the bounciest pop.
+	-- selene: allow(incorrect_standard_library_use) — Spring is valid (see EASE_POP note).
 	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Spring, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
 
 	-- Epic+: stroke breathes while the card is up. Stored so dismiss() and
@@ -15953,7 +15854,7 @@ local function onMinigameTap()
 	-- against the rod's zone size in SubmitCatchInput); this just aligns
 	-- the client's pre-validation with the visual the player saw.
 	local halfWidth = minigameZoneHalfWidth or 0.15
-	local hit = markerPos &gt;= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
+	local hit = markerPos >= (0.5 - halfWidth) and markerPos &lt;= (0.5 + halfWidth)
 	minigameActive = false
 	releaseOverlay("bite")
 	minigameFrame.Visible = false
@@ -15971,7 +15872,7 @@ local function onMinigameTap()
 		catchesThisSession += 1
 		local rarity = result.rarity or "Common"
 		-- harborheist-6qyq: every catch splashes; rarity layers a sting on
-		-- top (ping -&gt; flashbulb -&gt; thunder) so the tiers ASCEND audibly.
+		-- top (ping -> flashbulb -> thunder) so the tiers ASCEND audibly.
 		playSound(SOUNDS.catchSplash, 0.55)
 		if rarity == "Rare" then
 			playSound(SOUNDS.catchRare, 0.6, 1.3)
@@ -16150,7 +16051,7 @@ computeSellPayout = function(): number
 	if not state then
 		return 0
 	end
-	local locked = (state.lockedUntil or 0) &gt; 0
+	local locked = (state.lockedUntil or 0) > 0
 	local payout = 0
 	for _, fish in ipairs(state.carriedFish or {}) do
 		payout += fish.BaseSellValue or 0
@@ -16186,8 +16087,8 @@ sellButton.Activated:Connect(function()
 	else
 		local payout = computeSellPayout()
 		if payout &lt;= 0 then
-			local locked = (state.lockedUntil or 0) &gt; 0
-			if locked and (state.liveWellCount or 0) &gt; 0 then
+			local locked = (state.lockedUntil or 0) > 0
+			if locked and (state.liveWellCount or 0) > 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
 				else
 				showNotification("No fish to sell!", Theme.color.status.alert)
@@ -16196,7 +16097,7 @@ sellButton.Activated:Connect(function()
 		end
 		sellArmed = true
 		sellArmPayout = payout
-		local locked = (state.lockedUntil or 0) &gt; 0
+		local locked = (state.lockedUntil or 0) > 0
 		if locked then
 			sellButton.Text = string.format("SELL BAG $%s? TAP", formatCash(payout))
 		else
@@ -16237,7 +16138,7 @@ end)
 claimButton.Activated:Connect(function()
 	local result = Remotes.RequestClaimIncome:InvokeServer()
 	-- harborheist-6qyq: cha-ching only when income actually landed.
-	if result and result.ok and (result.amount or 0) &gt; 0 then
+	if result and result.ok and (result.amount or 0) > 0 then
 		playSound(SOUNDS.claimCoins, 0.6)
 	end
 end)
@@ -16564,9 +16465,9 @@ task.spawn(function()
 		
 		-- Update unavailable target countdowns (hvfh.6.1.2)
 		for userId, data in pairs(raidTargetCountdownLabels) do
-			if data.seconds &gt; 0 then
+			if data.seconds > 0 then
 				data.seconds = data.seconds - 1
-				if data.seconds &gt; 0 then
+				if data.seconds > 0 then
 					data.label.Text = string.format("%s  •  %s", data.reasonLabel, formatRaidTime(data.seconds))
 				else
 					data.label.Text = data.reasonLabel
@@ -16614,9 +16515,9 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			local pWidth = castHitZone.perfectEnd_ - castHitZone.perfectStart_
 			local pCenter = (castHitZone.perfectStart_ + castHitZone.perfectEnd_) / 2
 			-- Width of perfect zone relative to the good band
-			local relWidth = goodWidth &gt; 0 and (pWidth / goodWidth) or 0.4
+			local relWidth = goodWidth > 0 and (pWidth / goodWidth) or 0.4
 			-- Center of perfect zone as a fraction within the good band [0,1]
-			local relCenter = goodWidth &gt; 0
+			local relCenter = goodWidth > 0
 				and ((pCenter - goodStart) / goodWidth)
 				or 0.5
 			perfectZoneFrame.Size = UDim2.new(math.clamp(relWidth, 0, 1), 0, 1, -8)
@@ -16751,7 +16652,7 @@ end)
 
 -- ============================================================
 -- TASK 23.1 (hvfh.3.1): the ONE UserInputService.InputBegan router.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name&gt;
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
 -- assignment (cast at stopCastOverlay, raid in startRaidMinigame, bite in
 -- the bite-minigame section), because Lua locals are lexically scoped and
 -- those handlers don't exist until their sections run. Every event checks
@@ -16806,7 +16707,7 @@ addToHistory = function(message, color, category, actions)
 	})
 
 	-- Trim to max capacity (keep newest entries)
-	if #toastHistory &gt; MAX_HISTORY then
+	if #toastHistory > MAX_HISTORY then
 		table.remove(toastHistory, #toastHistory)
 	end
 	
@@ -16840,7 +16741,7 @@ setmetatable(toastHistory, {__mode = "k"})
 -- overlays — without it overlayInputHandlers.cast/.bite/.raid are
 -- registered but never invoked and the minigames cannot receive clicks.
 -- It was silently overwritten at HEAD by 6f1a0c8's toast-history append.
--- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name&gt;
+-- Lives at the BOTTOM of the file, after every overlayInputHandlers.&lt;name>
 -- assignment (lexical scope: handlers don't exist until their sections run;
 -- every event re-reads the CURRENT activeOverlay so late registration is
 -- picked up even if an overlay opened before its handler section executed).
@@ -17145,6 +17046,9 @@ function MicroInteraction:addPress(button, soundId, volume)
   button.MouseButton1Up:Connect(function()
     local scale = interaction.scaleInstance
     if scale and scale.Parent then
+      -- selene: allow(incorrect_standard_library_use) — Spring is a valid
+      -- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+      -- 0.31's roblox std is stale.
       TweenService:Create(scale, TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out),
                          { Scale = interaction.scaleUp }):Play()
     end
@@ -17706,40 +17610,47 @@ return AnimationSystem
 --   The presets are static tables — no per-frame allocation.
 --
 -- MAINTENANCE:
---   The UI table (lines 28-43) mirrors init.client.lua's palette. If that palette
---   changes, update both files. Presets use tuned RGB variants for visual polish;
---   these aren't in the base UI table but are documented in the preset comments.
+-- Base colors are sourced from the shared UIPalette module
+-- (ReplicatedStorage.Shared.UIPalette). Gradient presets use tuned RGB
+-- variants for visual polish; these aren't base palette colors but are
+-- documented in each preset's comment.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-nk22 (EPIC 36): Source base colors from the shared UIPalette
+-- module instead of duplicating them here. Eliminates the silent drift risk
+-- where this file's copy fell out of sync with init.client.lua's palette.
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local Gradients = {}
 
 -- ============================================================================
--- Color references (must match init.client.lua UI table)
+-- Color references (sourced from shared UIPalette — single source of truth)
 -- ============================================================================
--- These are duplicated here because modules can't access init.client.lua's
--- locals. If the UI palette changes, update both files.
 local UI = {
-	bg = Color3.fromRGB(13, 20, 31),
-	surface = Color3.fromRGB(20, 30, 46),
-	surfaceHi = Color3.fromRGB(30, 43, 63),
-	accent = Color3.fromRGB(56, 152, 255),
-	accentSoft = Color3.fromRGB(120, 190, 255),
-	good = Color3.fromRGB(52, 199, 123),
-	bad = Color3.fromRGB(255, 92, 92),
-	warn = Color3.fromRGB(255, 184, 64),
-	quest = Color3.fromRGB(255, 205, 92),
-	boat = Color3.fromRGB(94, 200, 235),
-	purple = Color3.fromRGB(167, 139, 250),
-	text = Color3.fromRGB(238, 243, 250),
-	textDim = Color3.fromRGB(148, 163, 184),
-	ink = Color3.fromRGB(10, 16, 26),
+	bg = UIPalette.color("bg"),
+	surface = UIPalette.color("surface"),
+	surfaceHi = UIPalette.color("surfaceHi"),
+	accent = UIPalette.color("accent"),
+	accentSoft = UIPalette.color("accentSoft"),
+	good = UIPalette.color("good"),
+	bad = UIPalette.color("bad"),
+	warn = UIPalette.color("warn"),
+	quest = UIPalette.color("quest"),
+	boat = UIPalette.color("boat"),
+	purple = UIPalette.color("purple"),
+	text = UIPalette.color("text"),
+	textDim = UIPalette.color("textDim"),
+	ink = UIPalette.color("ink"),
 }
 
 -- ============================================================================
 -- Gradient presets
 -- ============================================================================
--- Presets reference the UI table for base colors, with some tuned variants
--- for visual polish (e.g., 26,38,57 is a surface highlight between UI.surface
--- and UI.surfaceHi). These tuned values are documented inline.
+-- Presets reference the UI table (sourced from UIPalette) for base colors,
+-- with some tuned variants for visual polish (e.g. 26,38,57 is a surface
+-- highlight between UI.surface and UI.surfaceHi). These tuned values are
+-- documented inline.
 local PRESETS = {
 	-- Surface gradients: subtle background variations for panels/containers
 	-- "default" is the workhorse — used by overlays, panels, HUD, reveal cards
