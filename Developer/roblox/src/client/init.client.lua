@@ -982,6 +982,43 @@ local function makeButton(parent, props)
 			end)
 		end
 
+		-- harborheist-l0rb: Visual ripple effect on press (all platforms).
+		-- A white circle spawns at the press point and expands outward while
+		-- fading — complements the scale-darken and haptic systems. Fires
+		-- on every button (before the hasAnimPress gate) so Anim-backed
+		-- buttons also get the ripple. Self-cleans via task.delay.
+		local function spawnRipple()
+			if not button.Active then return end
+			local mousePos = UserInputService:GetMouseLocation()
+			local absPos = button.AbsolutePosition
+			local absSize = button.AbsoluteSize
+			local x = math.clamp(mousePos.X - absPos.X, 0, absSize.X)
+			local y = math.clamp(mousePos.Y - absPos.Y, 0, absSize.Y)
+			local maxSize = math.max(absSize.X, absSize.Y) * 1.5
+			local ripple = Instance.new("Frame")
+			ripple.Name = "Ripple"
+			ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			ripple.BackgroundTransparency = 0.6
+			ripple.AnchorPoint = Vector2.new(0.5, 0.5)
+			ripple.Position = UDim2.new(0, x, 0, y)
+			ripple.Size = UDim2.new(0, 0, 0, 0)
+			local rippleCorner = Instance.new("UICorner")
+			rippleCorner.CornerRadius = UDim.new(1, 0)
+			rippleCorner.Parent = ripple
+			ripple.ZIndex = button.ZIndex + 1
+			ripple.Parent = button
+			TweenService:Create(ripple, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = UDim2.new(0, maxSize, 0, maxSize),
+				BackgroundTransparency = 1,
+			}):Play()
+			task.delay(0.4, function()
+				if ripple.Parent then
+					ripple:Destroy()
+				end
+			end)
+		end
+		button.MouseButton1Down:Connect(spawnRipple)
+
 		if hasAnimPress then return end  -- AnimationSystem handles the visual scale
 		if pressTween then return end
 		
