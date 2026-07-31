@@ -1254,7 +1254,46 @@ local function createSkeletonRows(parent, config)
 			itemStroke.Parent = item
 		end
 	end
-	
+
+	-- harborheist-t6gt: shimmer overlay on skeleton rows.
+	-- A subtle white Frame whose BackgroundTransparency cycles between
+	-- 0.95 and 0.98 over a 2-second sine-wave period at 20fps. A single
+	-- task.spawn loop drives all overlays (one loop, not N) and
+	-- self-terminates when the first overlay loses its parent (rows
+	-- destroyed/replaced by real content — callers like showLoading
+	-- clear the parent's children, which sets Parent to nil).
+	if config.animated ~= false then
+		local shimmerOverlays = {}
+		for i = 1, rows do
+			local row = parent:FindFirstChild(string.format("SkeletonRow_%d", i))
+			if row then
+				local shimmer = Instance.new("Frame")
+				shimmer.Name = "ShimmerOverlay"
+				shimmer.Size = UDim2.new(1, 0, 1, 0)
+				shimmer.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+				shimmer.BackgroundTransparency = 0.95
+				shimmer.ZIndex = zIndex + i + 10
+				shimmer.Parent = row
+				corner(shimmer, Theme.corners.sm)
+				table.insert(shimmerOverlays, shimmer)
+			end
+		end
+		task.spawn(function()
+			local startTime = os.clock()
+			while #shimmerOverlays > 0 and shimmerOverlays[1].Parent do
+				local t = os.clock() - startTime
+				local wave = (math.sin(t * math.pi) + 1) / 2
+				local trans = 0.95 + wave * 0.03
+				for _, overlay in ipairs(shimmerOverlays) do
+					if overlay.Parent then
+						overlay.BackgroundTransparency = trans
+					end
+				end
+				task.wait(0.05)
+			end
+		end)
+	end
+
 	parent.LoadingSpinner = spinner
 end
 
