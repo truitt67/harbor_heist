@@ -2217,7 +2217,7 @@ local Players = game:GetService("Players")
 -- game:GetService on EVERY event fire (~20+/min/player). Now resolved once.
 local _engineService = nil
 local _engineServiceResolved = false
-local function getEngineService()
+local function getEngineService(): any
 	if _engineServiceResolved then
 		return _engineService
 	end
@@ -2273,25 +2273,37 @@ local EVENTS = {
 	raid_targets_requested = true,
 }
 
+-- Per-player session record. The first*At stamps hold the event's age
+-- (seconds since sessionStart), filled on first occurrence; nil = not yet.
+-- The explicit type matters: without it --!strict infers the nil-literal
+-- fields as type nil, hiding bad assignments from the analyzer.
+type FunnelSession = {
+	sessionStart: number,
+	firstCastAt: number?,
+	firstCatchAt: number?,
+	firstStoreAt: number?,
+	firstSaleAt: number?,
+	firstUpgradeAt: number?,
+}
+
 -- Per-player session state: first-session start time + funnel progress flags.
 -- Keyed by UserId (stable across rejoins, unlike Player instances).
-local sessions = {}
+local sessions: { [number]: FunnelSession } = {}
 
 -- Internal: get or create the per-player session record.
-local function getSession(userId)
+local function getSession(userId): FunnelSession
 	local s = sessions[userId]
 	if not s then
-		s = {
+		-- Funnel stamp fields start absent (nil = milestone not reached).
+		-- They are documented on the FunnelSession type. The local
+		-- annotation contextually types the literal (missing optional
+		-- fields are fine); an unannotated literal would trip Luau's
+		-- mutable-field invariance at the sessions[] write.
+		local fresh: FunnelSession = {
 			sessionStart = os.time(),
-			-- Funnel progress flags — set once, never overwritten. Lets the
-			-- dashboard compute time-to-first-X by subtracting sessionStart.
-			firstCastAt = nil,
-			firstCatchAt = nil,
-			firstStoreAt = nil,
-			firstSaleAt = nil,
-			firstUpgradeAt = nil,
 		}
-		sessions[userId] = s
+		sessions[userId] = fresh
+		return fresh
 	end
 	return s
 end
@@ -2325,6 +2337,13 @@ function AnalyticsService.track(player, eventName, fields)
 
 	-- Enrich with funnel metadata so the dashboard doesn't need joins.
 	local s = getSession(userId)
+	-- Session age computed ONCE and shared by the enriched payload and the
+	-- first_* stamps below. CORRECTED (review): the stamps previously read
+	-- `s.session_age_s` — a field that only ever existed on `enriched`, not
+	-- on the session record — so every stamp assigned nil, isFirst() gating
+	-- never engaged, first_* events fired on EVERY occurrence, and the
+	-- time_to_first_* fields never reached the dashboard.
+	local sessionAge = os.time() - s.sessionStart
 	local enriched = {
 		event = eventName,
 		-- userId inside customFields so the dashboard can filter/group by
@@ -2334,7 +2353,7 @@ function AnalyticsService.track(player, eventName, fields)
 		-- ISO-ish epoch seconds; dashboard converts as needed.
 		ts = os.time(),
 		session_start = s.sessionStart,
-		session_age_s = os.time() - s.sessionStart,
+		session_age_s = sessionAge,
 	}
 	-- Merge caller-provided fields (shallow). Caller fields win on collision
 	-- so gameplay code can override the defaults if it ever needs to.
@@ -2352,20 +2371,20 @@ function AnalyticsService.track(player, eventName, fields)
 	-- only the first `fish_caught` carried time_to_first_catch_s; now the
 	-- dedicated `first_catch` event carries it, which matches its semantic.
 	if eventName == "first_cast" and not s.firstCastAt then
-		s.firstCastAt = s.session_age_s
-		enriched.time_to_first_cast_s = s.firstCastAt
+		s.firstCastAt = sessionAge
+		enriched.time_to_first_cast_s = sessionAge
 	elseif eventName == "first_catch" and not s.firstCatchAt then
-		s.firstCatchAt = s.session_age_s
-		enriched.time_to_first_catch_s = s.firstCatchAt
+		s.firstCatchAt = sessionAge
+		enriched.time_to_first_catch_s = sessionAge
 	elseif eventName == "first_store" and not s.firstStoreAt then
-		s.firstStoreAt = s.session_age_s
-		enriched.time_to_first_store_s = s.firstStoreAt
+		s.firstStoreAt = sessionAge
+		enriched.time_to_first_store_s = sessionAge
 	elseif eventName == "first_sale" and not s.firstSaleAt then
-		s.firstSaleAt = s.session_age_s
-		enriched.time_to_first_sale_s = s.firstSaleAt
+		s.firstSaleAt = sessionAge
+		enriched.time_to_first_sale_s = sessionAge
 	elseif eventName == "first_upgrade" and not s.firstUpgradeAt then
-		s.firstUpgradeAt = s.session_age_s
-		enriched.time_to_first_upgrade_s = s.firstUpgradeAt
+		s.firstUpgradeAt = sessionAge
+		enriched.time_to_first_upgrade_s = sessionAge
 	end
 
 	-- Fire-and-forget. pcall so a transient analytics backend failure never
@@ -4212,8 +4231,13 @@ end
 -- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
 -- checks this BEFORE GetAsync so a rapid same-UserId rejoin doesn't read stale
 -- pre-save data (the wqw.20 deferred leave-save can be mid-UpdateAsync when the
--- rejoin's GetAsync fires on the same key). Set in save() after isSaving, cleared
--- after the save completes. Keyed by UserId (stable across rejoins) not Player.
+-- rejoin's GetAsync fires on the same key). Keyed by UserId (stable across
+-- rejoins) not Player. harborheist-7mev: holds a COUNT of in-flight saves, not a
+-- boolean — a stale leave-save and a new-session autosave can overlap for the
+-- same UserId, and the first to finish must not clear the flag while the second
+-- is still mid-UpdateAsync (that reopened the stale-read window it exists to
+-- close). Incremented in save() after isSaving, decremented on completion and
+-- removed at zero.
 local pendingSaveUserIds = {}
 
 -- R1.1 (egf.1): tracks the ACTIVE session for each UserId (the one the
@@ -4794,7 +4818,7 @@ function DataManager.save(player, isShutdown)
 	session.isSaving = true
 	-- TASK 14.27 (xsk): mark this userId as save-in-flight so a concurrent
 	-- load() (rapid rejoin) waits for the UpdateAsync to commit before reading.
-	pendingSaveUserIds[player.UserId] = true
+	pendingSaveUserIds[player.UserId] = (pendingSaveUserIds[player.UserId] or 0) + 1
 
 	local profile = session.profile
 
@@ -4858,7 +4882,14 @@ function DataManager.save(player, isShutdown)
 
 	session.isSaving = false
 	-- TASK 14.27 (xsk): save committed (or failed) — unblock any waiting load().
-	pendingSaveUserIds[player.UserId] = nil
+	-- harborheist-7mev: decrement, don't clear — another save for this UserId
+	-- may still be in flight (overlapping stale leave-save + new-session save).
+	local pendingCount = (pendingSaveUserIds[player.UserId] or 1) - 1
+	if pendingCount &lt;= 0 then
+		pendingSaveUserIds[player.UserId] = nil
+	else
+		pendingSaveUserIds[player.UserId] = pendingCount
+	end
 
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))
@@ -5774,22 +5805,36 @@ function FishInventoryService.init(deps)
 			local storedFish = session.profile.Aquarium.StoredFish
 			local idx = findFishIndex(storedFish, instanceId)
 			if idx then
+				-- harborheist-on5u: validate BEFORE removal — the old
+				-- remove-then-validate order silently DELETED the fish on the
+				-- invalid_fish path (early return below fired with the record
+				-- already out of every list). Mirror RaidService xqd.4's
+				-- no-mutation-before-validation standard.
+				local candidate = storedFish[idx]
+				if not FishInstance.validate(candidate) then
+					warn("[HarborHeist] Invalid fish record blocked from sale: " .. tostring(instanceId))
+					return { ok = false, reason = "invalid_fish" }
+				end
 				fish = table.remove(storedFish, idx)
 				soldFromStored = true
 			end
 		else
 			local idx = findFishIndex(session.carried, instanceId)
 			if idx then
+				-- harborheist-on5u: same validate-before-remove guard for the
+				-- carried path (carried bypasses load-time sanitize entirely).
+				local candidate = session.carried[idx]
+				if not FishInstance.validate(candidate) then
+					warn("[HarborHeist] Invalid carried fish record blocked from sale: " .. tostring(instanceId))
+					return { ok = false, reason = "invalid_fish" }
+				end
 				fish = table.remove(session.carried, idx)
 			end
 		end
 
-		-- TASK 14.15 (wqw.15) + sc0 (fresh-eyes): invalidate the cached incomePerSec
-		-- IMMEDIATELY after removing a stored fish — BEFORE the validate check below.
-		-- If validate rejects the fish (corrupt record), the early return previously
-		-- skipped invalidateIncomeCache, leaving a stale cache. Moving it here ensures
-		-- the cache is invalidated regardless of the validate outcome. (Unreachable in
-		-- practice — sanitize guarantees stored fish are valid — but defensive.)
+		-- TASK 14.15 (wqw.15): invalidate the cached incomePerSec after removing a
+		-- stored fish. harborheist-on5u moved validation ABOVE the removal, so this
+		-- now runs only after a successful removal — the semantically correct order.
 		if soldFromStored then
 			stateSync.invalidateIncomeCache(session)
 		end
@@ -5798,7 +5843,9 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "fish_not_found" }
 		end
 
-		-- Validate the fish record before selling
+		-- Defense in depth: both source branches pre-validate before removal
+		-- (harborheist-on5u), so this second check can never fire — kept as a
+		-- zero-cost tripwire in case a future edit adds a third source branch.
 		if not FishInstance.validate(fish) then
 			warn("[HarborHeist] Invalid fish record sold: " .. tostring(instanceId))
 			return { ok = false, reason = "invalid_fish" }
@@ -5889,11 +5936,15 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "aquarium_full" }
 		end
 
-		local fish = table.remove(session.carried, idx)
+		-- harborheist-on5u: validate BEFORE removal — the old remove-then-validate
+		-- order silently DELETED the fish on the invalid_fish path (the record was
+		-- out of carried but never inserted into StoredFish: lost from every list).
+		local fish = session.carried[idx]
 		if not FishInstance.validate(fish) then
-			warn("[HarborHeist] Invalid fish record stored: " .. tostring(instanceId))
+			warn("[HarborHeist] Invalid fish record blocked from store: " .. tostring(instanceId))
 			return { ok = false, reason = "invalid_fish" }
 		end
+		table.remove(session.carried, idx)
 
 		table.insert(storedFish, fish)
 		-- TASK 14.15 (wqw.15): a fish was added to StoredFish -> invalidate the
@@ -14501,6 +14552,7 @@ local raidMinigameFrame, raidTitle, raidBarTrack, raidGoodZone, raidPerfectZone,
 
 local raidMinigameTween = nil
 local raidMinigameDuration = 0
+local raidMinigameGeneration = 0
 
 local function stopRaidMinigame()
 	raidMinigameFrame.Visible = false
@@ -14552,7 +14604,19 @@ function startRaidMinigame(challenge)
 	raidMinigameTween:Play()
 
 	-- Expire the overlay if the player never clicks (matching the server deadline).
+	-- harborheist-d6et: generation-guard the expiry. The closure reads
+	-- raidMinigameFrame.Visible at FIRE time, so without the guard a stale
+	-- timer from a PREVIOUS raid would see the NEW raid's visible frame and
+	-- stopRaidMinigame() it mid-play (plus raidInProgress=false and a bogus
+	-- "Too slow!" toast). Latent today — raiderCooldownSeconds (360s) is
+	-- burned at attempt time so no re-raid can start inside the 8s window —
+	-- but a config retune below durationSeconds would weaponize it.
+	raidMinigameGeneration += 1
+	local generation = raidMinigameGeneration
 	task.delay(raidMinigameDuration, function()
+		if generation ~= raidMinigameGeneration then
+			return
+		end
 		if raidMinigameFrame.Visible then
 			stopRaidMinigame()
 			raidInProgress = false
@@ -17121,9 +17185,15 @@ function Spring:update(dt)
     return true
   end
 
-  -- Spring physics: F = -kx - cv (Hooke's law + damping)
+  -- Spring physics: F = kx - cv (Hooke's restoring law + damping). The
+  -- restoring term must point TOWARD the target (displacement = target -
+  -- current, so +k*displacement); the previous negated form was an
+  -- anti-restoring force that diverged from the target and never settled
+  -- (dead code today — no Spring consumers — but a landmine for any
+  -- future caller, since unsettled springs accumulate in activeSprings
+  -- and get ticked every Heartbeat forever).
   local displacement = self.targetValue - self.currentValue
-  local force = -(self.stiffness * displacement) - (self.damping * self.velocity)
+  local force = (self.stiffness * displacement) - (self.damping * self.velocity)
 
   self.velocity = self.velocity + (force * dt)
   self.currentValue = self.currentValue + (self.velocity * dt)
@@ -17582,6 +17652,14 @@ function Transition.new(config)
   return self
 end
 
+-- TextTransparency exists only on text-bearing classes. Including it in a
+-- tween goal for a plain Frame/ImageLabel makes TweenService:Create raise
+-- "TextTransparency is not a valid member of <Class>" and abort the caller
+-- (init.client.lua's desktop showPanel passed a Frame here).
+local function supportsTextTransparency(element)
+  return element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox")
+end
+
 function Transition:fade(element, visible, duration)
   if not element then
     return false
@@ -17591,19 +17669,14 @@ function Transition:fade(element, visible, duration)
   local easing = self.defaultEasing or Enum.EasingStyle.Quad
   local tweenInfo = TweenInfo.new(dur, easing, Enum.EasingDirection.Out)
 
-  if visible then
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 0,
-      TextTransparency = 0
-    }):Play()
-    return true
-  else
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 1,
-      TextTransparency = 1
-    }):Play()
-    return false
+  local target = visible and 0 or 1
+  local props = { BackgroundTransparency = target }
+  if supportsTextTransparency(element) then
+    props.TextTransparency = target
   end
+
+  TweenService:Create(element, tweenInfo, props):Play()
+  return visible and true or false
 end
 
 function Transition:slide(element, direction, duration)
@@ -17690,21 +17763,17 @@ function Transition:fadeSlide(element, visible, direction, duration)
   local dur = duration or self.defaultDuration or 0.3
   local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
-  if visible then
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 0,
-      TextTransparency = 0,
-      Position = UDim2.new(0.5, 0, 0.5, 0)  -- center position
-    }):Play()
-    return true
-  else
-    TweenService:Create(element, tweenInfo, {
-      BackgroundTransparency = 1,
-      TextTransparency = 1,
-      Position = offset
-    }):Play()
-    return false
+  local target = visible and 0 or 1
+  local props = {
+    BackgroundTransparency = target,
+    Position = visible and UDim2.new(0.5, 0, 0.5, 0) or offset,  -- center when showing
+  }
+  if supportsTextTransparency(element) then
+    props.TextTransparency = target
   end
+
+  TweenService:Create(element, tweenInfo, props):Play()
+  return visible and true or false
 end
 
 --[[
@@ -18005,20 +18074,20 @@ local isMobile = UserInputService.TouchEnabled and not UserInputService.Keyboard
 	@param tabOrder number - Tab order (lower = earlier in tab cycle)
 	@return nil
 ]]
-function KeyboardNav:Register(element, tabOrder)
+function KeyboardNav:Register(element, tabOrder, onActivate)
 	if isMobile then return end
 	if not element or not element:IsA("GuiButton") then
 		warn("[KeyboardNav] Cannot register non-GuiButton element")
 		return
 	end
-	
+
 	-- Check if already registered
 	for _, entry in ipairs(focusableElements) do
 		if entry.element == element then
 			return -- Already registered
 		end
 	end
-	
+
 	-- Create focus indicator (UIStroke)
 	local stroke = Instance.new("UIStroke")
 	stroke.Thickness = 0
@@ -18026,11 +18095,15 @@ function KeyboardNav:Register(element, tabOrder)
 	stroke.Transparency = 0
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = element
-	
+
 	table.insert(focusableElements, {
 		element = element,
 		tabOrder = tabOrder or #focusableElements + 1,
 		stroke = stroke,
+		-- Engine signals (Activated etc.) cannot be fired from scripts, so
+		-- Enter/Space activation needs an explicit callback (see
+		-- ActivateFocused). Optional until all call sites are wired.
+		onActivate = type(onActivate) == "function" and onActivate or nil,
 	})
 	
 	-- Sort by tab order
@@ -18116,9 +18189,19 @@ function KeyboardNav:ActivateFocused()
 	end
 	
 	local entry = focusableElements[currentFocusIndex]
-	if entry and entry.element and entry.element.Active then
-		-- Fire the Activated event
-		entry.element.Activated:Fire()
+	if not (entry and entry.element and entry.element.Active) then
+		return
+	end
+
+	if entry.onActivate then
+		entry.onActivate()
+	elseif not entry.warnedNoCallback then
+		-- RBXScriptSignal has no script-accessible :Fire() and
+		-- VirtualInputManager is RobloxScriptSecurity-locked, so a button
+		-- without a registered onActivate callback cannot be activated.
+		-- Warn once per element instead of erroring on every keypress.
+		entry.warnedNoCallback = true
+		warn("[KeyboardNav] No onActivate callback registered for", entry.element.Name)
 	end
 end
 
@@ -18152,10 +18235,20 @@ function KeyboardNav:ApplyFocus()
 		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 			Thickness = FOCUS_INDICATOR_THICKNESS
 		}):Play()
-		
-		-- Ensure element is visible (scroll into view if needed)
-		if entry.element.Parent and entry.element:IsA("ScrollingFrame") then
-			-- TODO: Implement scroll-into-view for ScrollingFrame children
+
+		-- Ensure the focused element is visible inside any ancestor
+		-- ScrollingFrame (vertical lists).
+		local scrollFrame = entry.element:FindFirstAncestorOfClass("ScrollingFrame")
+		if scrollFrame then
+			local canvasY = scrollFrame.CanvasPosition.Y
+			local viewHeight = scrollFrame.AbsoluteWindowSize.Y
+			local elementTop = entry.element.AbsolutePosition.Y - scrollFrame.AbsolutePosition.Y + canvasY
+			local elementBottom = elementTop + entry.element.AbsoluteSize.Y
+			if elementTop < canvasY then
+				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementTop)
+			elseif elementBottom > canvasY + viewHeight then
+				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementBottom - viewHeight)
+			end
 		end
 	end
 end
