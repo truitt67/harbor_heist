@@ -1112,6 +1112,29 @@ end
 DataManager.remove(raider)
 DataManager.remove(raidVictim)
 
+-- harborheist-r7an: no_session raid attempt — a player with no loaded
+-- session (DataManager.get returns nil) must be rejected cleanly by both
+-- requestRaidAttempt and submitRaidResult without crashing or corrupting
+-- state. Covers the exploit path where a client tries to raid before their
+-- profile has loaded or after it was removed.
+local noSessionPlayer = {
+	UserId = 444000444,
+	Name = "E2ENoSession",
+	DisplayName = "E2ENoSession",
+	Parent = Players,
+	Character = nil,
+}
+assertTrue("19.8 no_session: player has no DataManager session",
+	DataManager.get(noSessionPlayer) == nil)
+
+local rNoSess = RaidService.requestRaidAttempt(noSessionPlayer, 222000222)
+assertEq("19.8 no_session: requestRaidAttempt rejected",
+	"no_session", rNoSess and rNoSess.reason)
+
+local sNoSess = RaidService.submitRaidResult(noSessionPlayer, 0.5)
+assertEq("19.8 no_session: submitRaidResult rejected",
+	"no_session", sNoSess and sNoSess.reason)
+
 -- ============================================================
 -- TASK 19.9: Abuse & anti-exploit battery (spam, forgery, bad payloads)
 -- ============================================================
@@ -1137,13 +1160,21 @@ if abuS then
 	abuS.profile.Coins = 100000 -- prove rejects never charge
 
 	-- ===== 1. SPAM: rate limiting (lock action, 5 calls / 10s) =====
-	local activateLock99 = _G.HARBORHEIST_TEST.aquariumActivateLock
-	local lastRes = nil
-	for _ = 1, 6 do
-		local _, res = pcall(activateLock99, abuser)
-		lastRes = res -- calls may throw at notify (fake player); 6th returns cleanly
+	-- harborheist-sfb4: nil-guard prevents cryptic "attempt to index nil"
+	-- crash when the test seam is missing (e.g. server init didn't expose
+	-- _G.HARBORHEIST_TEST). Provides an actionable failure message instead.
+	local activateLock99 = _G.HARBORHEIST_TEST and _G.HARBORHEIST_TEST.aquariumActivateLock
+	if activateLock99 then
+		local lastRes = nil
+		for _ = 1, 6 do
+			local _, res = pcall(activateLock99, abuser)
+			lastRes = res -- calls may throw at notify (fake player); 6th returns cleanly
+		end
+		assertEq("19.9 spam: 6th lock call rate_limited", "rate_limited", lastRes and lastRes.reason)
+	else
+		report("19.9 spam: aquariumActivateLock seam available", false,
+			"seam is nil — _G.HARBORHEIST_TEST not exposed by server init")
 	end
-	assertEq("19.9 spam: 6th lock call rate_limited", "rate_limited", lastRes and lastRes.reason)
 	local spamLog = AntiExploitService.getLog(abuser.UserId)
 	assertTrue("19.9 spam: rate breach recorded in suspicious log", #spamLog >= 1)
 	if #spamLog >= 1 then
@@ -1154,26 +1185,34 @@ if abuS then
 	assertTrue("19.9 unknown rate-limit action allowed (warn-only)", unknownOk == true)
 
 	-- ===== 2. BAD PAYLOADS: shop purchases =====
-	local shopPurchase99 = _G.HARBORHEIST_TEST.shopPurchase
-	local coinsBefore = abuS.profile.Coins
-	local s1 = shopPurchase99(abuser, nil, 1)
-	assertEq("19.9 shop: nil kind rejected", "bad_args", s1 and s1.reason)
-	local s2 = shopPurchase99(abuser, "rod", "two")
-	assertEq("19.9 shop: non-number level rejected", "bad_args", s2 and s2.reason)
-	local s3 = shopPurchase99(abuser, "yacht", 1)
-	assertEq("19.9 shop: unknown kind rejected", "bad_kind", s3 and s3.reason)
-	local s4 = shopPurchase99(abuser, "rod", 99)
-	assertEq("19.9 shop: out-of-range level rejected", "bad_level", s4 and s4.reason)
-	-- Tier-skip forgery: at rod 1, try to buy rod 3 directly (notify throws
-	-- on fakes BEFORE the return — verify via state instead)
-	pcall(shopPurchase99, abuser, "rod", 3)
-	assertEq("19.9 shop: tier-skip forgery does not apply", 1, abuS.profile.Equipment.EquippedRodLevel)
-	assertEq("19.9 shop: all rejects charged nothing", coinsBefore, abuS.profile.Coins)
+	-- harborheist-sfb4: nil-guard prevents cryptic crash when seam missing
+	local shopPurchase99 = _G.HARBORHEIST_TEST and _G.HARBORHEIST_TEST.shopPurchase
+	if shopPurchase99 then
+		local coinsBefore = abuS.profile.Coins
+		local s1 = shopPurchase99(abuser, nil, 1)
+		assertEq("19.9 shop: nil kind rejected", "bad_args", s1 and s1.reason)
+		local s2 = shopPurchase99(abuser, "rod", "two")
+		assertEq("19.9 shop: non-number level rejected", "bad_args", s2 and s2.reason)
+		local s3 = shopPurchase99(abuser, "yacht", 1)
+		assertEq("19.9 shop: unknown kind rejected", "bad_kind", s3 and s3.reason)
+		local s4 = shopPurchase99(abuser, "rod", 99)
+		assertEq("19.9 shop: out-of-range level rejected", "bad_level", s4 and s4.reason)
+		-- Tier-skip forgery: at rod 1, try to buy rod 3 directly (notify throws
+		-- on fakes BEFORE the return — verify via state instead)
+		pcall(shopPurchase99, abuser, "rod", 3)
+		assertEq("19.9 shop: tier-skip forgery does not apply", 1, abuS.profile.Equipment.EquippedRodLevel)
+		assertEq("19.9 shop: all rejects charged nothing", coinsBefore, abuS.profile.Coins)
+	else
+		report("19.9 shop: shopPurchase seam available", false,
+			"seam is nil — _G.HARBORHEIST_TEST not exposed by server init")
+	end
 
 	-- ===== 3. FORGERY: fishing submit-catch =====
-	local submitCatch99 = _G.HARBORHEIST_TEST.submitCatch
-	local activeBites99 = _G.HARBORHEIST_TEST.activeBites
-	local setFishingRng99 = _G.HARBORHEIST_TEST.setFishingRng
+	-- harborheist-sfb4: safe access prevents crash when _G.HARBORHEIST_TEST is nil
+	local ht = _G.HARBORHEIST_TEST
+	local submitCatch99 = ht and ht.submitCatch
+	local activeBites99 = ht and ht.activeBites
+	local setFishingRng99 = ht and ht.setFishingRng
 	assertTrue("19.9 fishing test seams available",
 		submitCatch99 ~= nil and activeBites99 ~= nil and setFishingRng99 ~= nil)
 
