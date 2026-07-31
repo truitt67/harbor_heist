@@ -79,8 +79,13 @@ end
 -- TASK 14.27 (xsk): tracks UserIds with an in-flight UpdateAsync save. load()
 -- checks this BEFORE GetAsync so a rapid same-UserId rejoin doesn't read stale
 -- pre-save data (the wqw.20 deferred leave-save can be mid-UpdateAsync when the
--- rejoin's GetAsync fires on the same key). Set in save() after isSaving, cleared
--- after the save completes. Keyed by UserId (stable across rejoins) not Player.
+-- rejoin's GetAsync fires on the same key). Keyed by UserId (stable across
+-- rejoins) not Player. harborheist-7mev: holds a COUNT of in-flight saves, not a
+-- boolean — a stale leave-save and a new-session autosave can overlap for the
+-- same UserId, and the first to finish must not clear the flag while the second
+-- is still mid-UpdateAsync (that reopened the stale-read window it exists to
+-- close). Incremented in save() after isSaving, decremented on completion and
+-- removed at zero.
 local pendingSaveUserIds = {}
 
 -- R1.1 (egf.1): tracks the ACTIVE session for each UserId (the one the
@@ -661,7 +666,7 @@ function DataManager.save(player, isShutdown)
 	session.isSaving = true
 	-- TASK 14.27 (xsk): mark this userId as save-in-flight so a concurrent
 	-- load() (rapid rejoin) waits for the UpdateAsync to commit before reading.
-	pendingSaveUserIds[player.UserId] = true
+	pendingSaveUserIds[player.UserId] = (pendingSaveUserIds[player.UserId] or 0) + 1
 
 	local profile = session.profile
 
@@ -725,7 +730,14 @@ function DataManager.save(player, isShutdown)
 
 	session.isSaving = false
 	-- TASK 14.27 (xsk): save committed (or failed) — unblock any waiting load().
-	pendingSaveUserIds[player.UserId] = nil
+	-- harborheist-7mev: decrement, don't clear — another save for this UserId
+	-- may still be in flight (overlapping stale leave-save + new-session save).
+	local pendingCount = (pendingSaveUserIds[player.UserId] or 1) - 1
+	if pendingCount <= 0 then
+		pendingSaveUserIds[player.UserId] = nil
+	else
+		pendingSaveUserIds[player.UserId] = pendingCount
+	end
 
 	if not ok then
 		warn("[HarborHeist] Failed to save data for " .. player.Name .. ": " .. tostring(err))

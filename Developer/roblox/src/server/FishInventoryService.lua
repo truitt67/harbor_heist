@@ -84,22 +84,36 @@ function FishInventoryService.init(deps)
 			local storedFish = session.profile.Aquarium.StoredFish
 			local idx = findFishIndex(storedFish, instanceId)
 			if idx then
+				-- harborheist-on5u: validate BEFORE removal — the old
+				-- remove-then-validate order silently DELETED the fish on the
+				-- invalid_fish path (early return below fired with the record
+				-- already out of every list). Mirror RaidService xqd.4's
+				-- no-mutation-before-validation standard.
+				local candidate = storedFish[idx]
+				if not FishInstance.validate(candidate) then
+					warn("[HarborHeist] Invalid fish record blocked from sale: " .. tostring(instanceId))
+					return { ok = false, reason = "invalid_fish" }
+				end
 				fish = table.remove(storedFish, idx)
 				soldFromStored = true
 			end
 		else
 			local idx = findFishIndex(session.carried, instanceId)
 			if idx then
+				-- harborheist-on5u: same validate-before-remove guard for the
+				-- carried path (carried bypasses load-time sanitize entirely).
+				local candidate = session.carried[idx]
+				if not FishInstance.validate(candidate) then
+					warn("[HarborHeist] Invalid carried fish record blocked from sale: " .. tostring(instanceId))
+					return { ok = false, reason = "invalid_fish" }
+				end
 				fish = table.remove(session.carried, idx)
 			end
 		end
 
-		-- TASK 14.15 (wqw.15) + sc0 (fresh-eyes): invalidate the cached incomePerSec
-		-- IMMEDIATELY after removing a stored fish — BEFORE the validate check below.
-		-- If validate rejects the fish (corrupt record), the early return previously
-		-- skipped invalidateIncomeCache, leaving a stale cache. Moving it here ensures
-		-- the cache is invalidated regardless of the validate outcome. (Unreachable in
-		-- practice — sanitize guarantees stored fish are valid — but defensive.)
+		-- TASK 14.15 (wqw.15): invalidate the cached incomePerSec after removing a
+		-- stored fish. harborheist-on5u moved validation ABOVE the removal, so this
+		-- now runs only after a successful removal — the semantically correct order.
 		if soldFromStored then
 			stateSync.invalidateIncomeCache(session)
 		end
@@ -108,7 +122,9 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "fish_not_found" }
 		end
 
-		-- Validate the fish record before selling
+		-- Defense in depth: both source branches pre-validate before removal
+		-- (harborheist-on5u), so this second check can never fire — kept as a
+		-- zero-cost tripwire in case a future edit adds a third source branch.
 		if not FishInstance.validate(fish) then
 			warn("[HarborHeist] Invalid fish record sold: " .. tostring(instanceId))
 			return { ok = false, reason = "invalid_fish" }
@@ -199,11 +215,15 @@ function FishInventoryService.init(deps)
 			return { ok = false, reason = "aquarium_full" }
 		end
 
-		local fish = table.remove(session.carried, idx)
+		-- harborheist-on5u: validate BEFORE removal — the old remove-then-validate
+		-- order silently DELETED the fish on the invalid_fish path (the record was
+		-- out of carried but never inserted into StoredFish: lost from every list).
+		local fish = session.carried[idx]
 		if not FishInstance.validate(fish) then
-			warn("[HarborHeist] Invalid fish record stored: " .. tostring(instanceId))
+			warn("[HarborHeist] Invalid fish record blocked from store: " .. tostring(instanceId))
 			return { ok = false, reason = "invalid_fish" }
 		end
+		table.remove(session.carried, idx)
 
 		table.insert(storedFish, fish)
 		-- TASK 14.15 (wqw.15): a fish was added to StoredFish -> invalidate the

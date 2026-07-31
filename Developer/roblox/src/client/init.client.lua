@@ -4952,6 +4952,7 @@ local raidMinigameFrame, raidTitle, raidBarTrack, raidGoodZone, raidPerfectZone,
 
 local raidMinigameTween = nil
 local raidMinigameDuration = 0
+local raidMinigameGeneration = 0
 
 local function stopRaidMinigame()
 	raidMinigameFrame.Visible = false
@@ -5003,7 +5004,19 @@ function startRaidMinigame(challenge)
 	raidMinigameTween:Play()
 
 	-- Expire the overlay if the player never clicks (matching the server deadline).
+	-- harborheist-d6et: generation-guard the expiry. The closure reads
+	-- raidMinigameFrame.Visible at FIRE time, so without the guard a stale
+	-- timer from a PREVIOUS raid would see the NEW raid's visible frame and
+	-- stopRaidMinigame() it mid-play (plus raidInProgress=false and a bogus
+	-- "Too slow!" toast). Latent today — raiderCooldownSeconds (360s) is
+	-- burned at attempt time so no re-raid can start inside the 8s window —
+	-- but a config retune below durationSeconds would weaponize it.
+	raidMinigameGeneration += 1
+	local generation = raidMinigameGeneration
 	task.delay(raidMinigameDuration, function()
+		if generation ~= raidMinigameGeneration then
+			return
+		end
 		if raidMinigameFrame.Visible then
 			stopRaidMinigame()
 			raidInProgress = false
