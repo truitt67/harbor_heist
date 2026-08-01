@@ -632,67 +632,72 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	-- harborheist-review-aug2026-6yp6.8: FindFirstChild + nil guards (was
 	-- direct indexing; a missing FishDisplay means nothing to render into).
 	local display = dock.aquarium:FindFirstChild("FishDisplay")
-	if not display then return end
+	-- harborheist-d6f5: wrap ONLY the display-dependent rendering — the
+	-- StatusLabel + décor updates below don't need FishDisplay and must
+	-- still run when it's missing (fresh-eyes review F2; was an early
+	-- return that skipped them).
+	if display then
 
-	-- TASK 12.3: pool fish models instead of destroying/recreating them on
-	-- every store/sell refresh. Move currently displayed models back to the
-	-- global pool so they can be reused for the same (species, rarity) pair.
-	for _, child in ipairs(display:GetChildren()) do
-		releaseModel(child)
-	end
-
-	-- 6yp6.8: guarded Water lookup — the origin fallback is defensive-only;
-	-- buildAll always creates Water, so this path means broken structure.
-	local waterPart = dock.aquarium:FindFirstChild("Water")
-	local waterCFrame = waterPart and waterPart.CFrame or CFrame.new(0, 0, 0)
-	local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
-
-	-- SECURITY: validFish entries are pre-validated above; render via the
-	-- TASK 2.8 FishVisuals archetype factory (shape from SpeciesId, rarity
-	-- adds size/glow/particles; falls back to a default archetype).
-	for i = 1, shown do
-		local fishData = validFish[i]
-		local speciesId = fishData.SpeciesId
-		local rarityName = fishData.Rarity
-		local key = FishVisuals.getModelKey(speciesId, rarityName)
-
-		-- Try to reuse a pooled model for this visual identity; build a new one
-		-- only if the pool has no match.
-		local fishModel = getPooledModel(key)
-		if not fishModel then
-			fishModel = FishVisuals.build(speciesId, rarityName)
-			fishModel:SetAttribute("FishModelKey", key)
+		-- TASK 12.3: pool fish models instead of destroying/recreating them on
+		-- every store/sell refresh. Move currently displayed models back to the
+		-- global pool so they can be reused for the same (species, rarity) pair.
+		for _, child in ipairs(display:GetChildren()) do
+			releaseModel(child)
 		end
 
-		local body = fishModel.PrimaryPart
-		if body then
-			local startYaw = rng:NextNumber(0, math.pi * 2)
-			local startCFrame = waterCFrame
-				* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
-				* CFrame.Angles(0, startYaw, 0)
-			fishModel:SetPrimaryPartCFrame(startCFrame)
-			fishModel.Parent = display
+		-- 6yp6.8: guarded Water lookup — the origin fallback is defensive-only;
+		-- buildAll always creates Water, so this path means broken structure.
+		local waterPart = dock.aquarium:FindFirstChild("Water")
+		local waterCFrame = waterPart and waterPart.CFrame or CFrame.new(0, 0, 0)
+		local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
 
-			-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
-			local driftCFrame = startCFrame
-				* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
-				* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
-			local swimTween = TweenService:Create(
-				body,
-				TweenInfo.new(
-					rng:NextNumber(2.2, 3.6),
-					Enum.EasingStyle.Sine,
-					Enum.EasingDirection.InOut,
-					-1,
-					true,
-					rng:NextNumber(0, 1.5)
-				),
-				{ CFrame = driftCFrame }
-			)
-			swimTween:Play()
-			activeFishTweens[fishModel] = swimTween
+		-- SECURITY: validFish entries are pre-validated above; render via the
+		-- TASK 2.8 FishVisuals archetype factory (shape from SpeciesId, rarity
+		-- adds size/glow/particles; falls back to a default archetype).
+		for i = 1, shown do
+			local fishData = validFish[i]
+			local speciesId = fishData.SpeciesId
+			local rarityName = fishData.Rarity
+			local key = FishVisuals.getModelKey(speciesId, rarityName)
+
+			-- Try to reuse a pooled model for this visual identity; build a new one
+			-- only if the pool has no match.
+			local fishModel = getPooledModel(key)
+			if not fishModel then
+				fishModel = FishVisuals.build(speciesId, rarityName)
+				fishModel:SetAttribute("FishModelKey", key)
+			end
+
+			local body = fishModel.PrimaryPart
+			if body then
+				local startYaw = rng:NextNumber(0, math.pi * 2)
+				local startCFrame = waterCFrame
+					* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
+					* CFrame.Angles(0, startYaw, 0)
+				fishModel:SetPrimaryPartCFrame(startCFrame)
+				fishModel.Parent = display
+
+				-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
+				local driftCFrame = startCFrame
+					* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
+					* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
+				local swimTween = TweenService:Create(
+					body,
+					TweenInfo.new(
+						rng:NextNumber(2.2, 3.6),
+						Enum.EasingStyle.Sine,
+						Enum.EasingDirection.InOut,
+						-1,
+						true,
+						rng:NextNumber(0, 1.5)
+					),
+					{ CFrame = driftCFrame }
+				)
+				swimTween:Play()
+				activeFishTweens[fishModel] = swimTween
+			end
 		end
-	end
+	end -- if display (d6f5)
 
 	-- TASK 12.3: cap the global pool so memory does not grow without bound.
 	trimPool()

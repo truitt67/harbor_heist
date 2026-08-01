@@ -41,10 +41,24 @@ return function(describe, it, expect)
 			expect(src:find("dock.aquarium.PrimaryPart.InfoSign", 1, true) == nil).to.equal(true)
 			expect(src:find("dock.aquarium.PrimaryPart.AquariumPrompt", 1, true) == nil).to.equal(true)
 		end)
-		it("updateAquariumVisual uses FindFirstChild for FishDisplay with early return", function()
+		it("updateAquariumVisual wraps only display-dependent work (d6f5 F2 shape)", function()
+			-- d6f5: the guard must NOT be an early return — the StatusLabel +
+			-- décor updates at the tail don't need FishDisplay and must run.
 			expect(src:find('local display = dock.aquarium:FindFirstChild("FishDisplay")', 1, true)).to.be.a("number")
-			expect(src:find("if not display then return end", 1, true)).to.be.a("number")
+			expect(src:find("if not display then return end", 1, true) == nil).to.equal(true)
 			expect(src:find("local display = dock.aquarium.FishDisplay", 1, true) == nil).to.equal(true)
+			local guardPos = src:find("if display then", 1, true)
+			expect(guardPos).to.be.a("number")
+			-- Search from the guard: trimPool()'s first occurrence file-wide
+			-- is its definition (:83), which would invert the ordering check.
+			local poolPos = src:find("trimPool()", guardPos, true)
+			local signPos = src:find("-- SECURITY: Verify sign elements exist before updating", 1, true)
+			expect(guardPos).to.be.a("number")
+			expect(poolPos).to.be.a("number")
+			expect(signPos).to.be.a("number")
+			-- trimPool + sign update sit AFTER the display-guarded render block.
+			expect(guardPos < poolPos).to.equal(true)
+			expect(poolPos < signPos).to.equal(true)
 		end)
 		it("updateAquariumVisual guards the Water part", function()
 			expect(src:find('local waterPart = dock.aquarium:FindFirstChild("Water")', 1, true)).to.be.a("number")

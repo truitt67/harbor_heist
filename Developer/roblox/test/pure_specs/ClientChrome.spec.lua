@@ -37,6 +37,7 @@
 -- 6yp6.2 contracts ACTIVATED 2026-08-01: scrollbar auto-hide helper returns connection handle + action-stack connection stored at module level.
 -- 6yp6.7 contracts ACTIVATED 2026-08-01: onboarding state.carried access pinned inside render()'s nil-guarded body (regression guard; finding was stale — no separate update function exists).
 -- 6yp6.9 contract ACTIVATED 2026-08-01: toast-cap 1Hz poll-vs-event V1 design comment pinned.
+-- d6f5 contracts ACTIVATED 2026-08-01 (fresh-eyes review): CurrentCamera binding pinned to the wrapper shape (F1 regression); formatCash negative-comma artifact fixed + mirrored.
 
 local fs = require("@lune/fs")
 
@@ -951,6 +952,23 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("abbreviated forms strip a trailing .0 (1M not 1.0M)", function()
 			expect(clientSource:find('string.format("%.1f", scaled):gsub("%.0$", "")', 1, true)).to.be.a("number")
 		end)
+		it("d6f5: comma pass strips the negative-grouping artifact", function()
+			expect(clientSource:find('gsub("^%-,", "-")', 1, true)).to.be.a("number")
+		end)
+		it("d6f5 behavioral mirror: negatives comma-group without a stray comma", function()
+			-- Mirror of formatCash's integer path (source pinned above).
+			local function commaInt(n)
+				local s = tostring(math.floor(n + 0.5))
+				return s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""):gsub("^%-,", "-")
+			end
+			expect(commaInt(-150)).to.equal("-150")
+			expect(commaInt(-1500)).to.equal("-1,500")
+			expect(commaInt(-150000)).to.equal("-150,000")
+			expect(commaInt(-15)).to.equal("-15")
+			expect(commaInt(150)).to.equal("150")
+			expect(commaInt(999999)).to.equal("999,999")
+			expect(commaInt(0)).to.equal("0")
+		end)
 		it("reveal card income label routes through formatCash", function()
 			expect(clientSource:find('Text = string.format("$%s  •  $%s/min", formatCash(value or 0), formatCash(incomePerMin)),', 1, true)).to.be.a("number")
 		end)
@@ -1034,6 +1052,20 @@ describe("EPIC 44 client chrome source contracts", function()
 			expect(rebindPos).to.be.a("number")
 			expect(bindPos < disconnectPos).to.equal(true)
 			expect(disconnectPos < rebindPos).to.equal(true)
+		end)
+		it("d6f5 F1: CurrentCamera subscription wraps the call (property signals pass no args)", function()
+			-- A direct Connect(bindAquariumFit) invokes it with nil on every
+			-- camera swap — disconnecting the live binding and rebinding
+			-- nothing. The wrapper reads workspace.CurrentCamera fresh.
+			local bindPos = clientSource:find("local function bindAquariumFit(cam)", 1, true)
+			expect(bindPos).to.be.a("number")
+			local subPos = clientSource:find('GetPropertyChangedSignal("CurrentCamera"):Connect(function()', bindPos, true)
+			expect(subPos).to.be.a("number")
+			local callPos = clientSource:find("bindAquariumFit(workspace.CurrentCamera)", subPos, true)
+			expect(callPos).to.be.a("number")
+			expect(subPos < callPos).to.equal(true)
+			-- The direct-pass regression shape must not come back.
+			expect(clientSource:find('CurrentCamera"):Connect(bindAquariumFit)', 1, true) == nil).to.equal(true)
 		end)
 	end)
 

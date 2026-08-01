@@ -5695,67 +5695,72 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	-- harborheist-review-aug2026-6yp6.8: FindFirstChild + nil guards (was
 	-- direct indexing; a missing FishDisplay means nothing to render into).
 	local display = dock.aquarium:FindFirstChild("FishDisplay")
-	if not display then return end
+	-- harborheist-d6f5: wrap ONLY the display-dependent rendering — the
+	-- StatusLabel + décor updates below don't need FishDisplay and must
+	-- still run when it's missing (fresh-eyes review F2; was an early
+	-- return that skipped them).
+	if display then
 
-	-- TASK 12.3: pool fish models instead of destroying/recreating them on
-	-- every store/sell refresh. Move currently displayed models back to the
-	-- global pool so they can be reused for the same (species, rarity) pair.
-	for _, child in ipairs(display:GetChildren()) do
-		releaseModel(child)
-	end
-
-	-- 6yp6.8: guarded Water lookup — the origin fallback is defensive-only;
-	-- buildAll always creates Water, so this path means broken structure.
-	local waterPart = dock.aquarium:FindFirstChild("Water")
-	local waterCFrame = waterPart and waterPart.CFrame or CFrame.new(0, 0, 0)
-	local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
-
-	-- SECURITY: validFish entries are pre-validated above; render via the
-	-- TASK 2.8 FishVisuals archetype factory (shape from SpeciesId, rarity
-	-- adds size/glow/particles; falls back to a default archetype).
-	for i = 1, shown do
-		local fishData = validFish[i]
-		local speciesId = fishData.SpeciesId
-		local rarityName = fishData.Rarity
-		local key = FishVisuals.getModelKey(speciesId, rarityName)
-
-		-- Try to reuse a pooled model for this visual identity; build a new one
-		-- only if the pool has no match.
-		local fishModel = getPooledModel(key)
-		if not fishModel then
-			fishModel = FishVisuals.build(speciesId, rarityName)
-			fishModel:SetAttribute("FishModelKey", key)
+		-- TASK 12.3: pool fish models instead of destroying/recreating them on
+		-- every store/sell refresh. Move currently displayed models back to the
+		-- global pool so they can be reused for the same (species, rarity) pair.
+		for _, child in ipairs(display:GetChildren()) do
+			releaseModel(child)
 		end
 
-		local body = fishModel.PrimaryPart
-		if body then
-			local startYaw = rng:NextNumber(0, math.pi * 2)
-			local startCFrame = waterCFrame
-				* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
-				* CFrame.Angles(0, startYaw, 0)
-			fishModel:SetPrimaryPartCFrame(startCFrame)
-			fishModel.Parent = display
+		-- 6yp6.8: guarded Water lookup — the origin fallback is defensive-only;
+		-- buildAll always creates Water, so this path means broken structure.
+		local waterPart = dock.aquarium:FindFirstChild("Water")
+		local waterCFrame = waterPart and waterPart.CFrame or CFrame.new(0, 0, 0)
+		local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
 
-			-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
-			local driftCFrame = startCFrame
-				* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
-				* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
-			local swimTween = TweenService:Create(
-				body,
-				TweenInfo.new(
-					rng:NextNumber(2.2, 3.6),
-					Enum.EasingStyle.Sine,
-					Enum.EasingDirection.InOut,
-					-1,
-					true,
-					rng:NextNumber(0, 1.5)
-				),
-				{ CFrame = driftCFrame }
-			)
-			swimTween:Play()
-			activeFishTweens[fishModel] = swimTween
+		-- SECURITY: validFish entries are pre-validated above; render via the
+		-- TASK 2.8 FishVisuals archetype factory (shape from SpeciesId, rarity
+		-- adds size/glow/particles; falls back to a default archetype).
+		for i = 1, shown do
+			local fishData = validFish[i]
+			local speciesId = fishData.SpeciesId
+			local rarityName = fishData.Rarity
+			local key = FishVisuals.getModelKey(speciesId, rarityName)
+
+			-- Try to reuse a pooled model for this visual identity; build a new one
+			-- only if the pool has no match.
+			local fishModel = getPooledModel(key)
+			if not fishModel then
+				fishModel = FishVisuals.build(speciesId, rarityName)
+				fishModel:SetAttribute("FishModelKey", key)
+			end
+
+			local body = fishModel.PrimaryPart
+			if body then
+				local startYaw = rng:NextNumber(0, math.pi * 2)
+				local startCFrame = waterCFrame
+					* CFrame.new(rng:NextNumber(-1.8, 1.8), rng:NextNumber(-0.9, 0.9), rng:NextNumber(-1.1, 1.1))
+					* CFrame.Angles(0, startYaw, 0)
+				fishModel:SetPrimaryPartCFrame(startCFrame)
+				fishModel.Parent = display
+
+				-- Gentle looping swim: drift sideways/vertically with a slow turn, reversing forever.
+				local driftCFrame = startCFrame
+					* CFrame.new(rng:NextNumber(0.5, 1.1), rng:NextNumber(-0.35, 0.35), rng:NextNumber(-0.5, 0.5))
+					* CFrame.Angles(0, rng:NextNumber(-0.9, 0.9), rng:NextNumber(-0.08, 0.08))
+				local swimTween = TweenService:Create(
+					body,
+					TweenInfo.new(
+						rng:NextNumber(2.2, 3.6),
+						Enum.EasingStyle.Sine,
+						Enum.EasingDirection.InOut,
+						-1,
+						true,
+						rng:NextNumber(0, 1.5)
+					),
+					{ CFrame = driftCFrame }
+				)
+				swimTween:Play()
+				activeFishTweens[fishModel] = swimTween
+			end
 		end
-	end
+	end -- if display (d6f5)
 
 	-- TASK 12.3: cap the global pool so memory does not grow without bound.
 	trimPool()
@@ -11599,9 +11604,12 @@ end
 -- practice — PlayerProfile.MAX_COINS = 999,999,999). K is intentionally
 -- unused: every surface fits "$999,999" (8 chars), so sub-million
 -- abbreviation would only cost precision. Fractional inputs under 1000
--- keep one decimal ("0.5", "3.5") so small income-per-minute values
--- never round to "$0"; fractional values >= 1000 round to whole digits
--- (big numbers don't need decimals). All currency/income UI routes here.
+-- keep one decimal ("0.5", "3.5") so typical small income-per-minute
+-- values render honestly instead of rounding to whole digits; fractional
+-- values >= 1000 round to whole (big numbers don't need decimals). All
+-- currency/income UI routes here.
+-- harborheist-d6f5: the comma pass also strips a "-," artifact so negative
+-- values with a 3/6/9-digit magnitude ("-150") don't render "-,150".
 local function formatCash(n)
 	n = n or 0
 	local abs = math.abs(n)
@@ -11620,7 +11628,9 @@ local function formatCash(n)
 		return (string.format("%.1f", n):gsub("%.0$", ""))
 	end
 	local s = tostring(math.floor(n + 0.5))
-	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	-- d6f5: negative magnitudes with digit-count ≡ 0 (mod 3) group as "-,150"
+	-- after the reverse — strip that artifact too.
+	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""):gsub("^%-,", "-")
 	return formatted
 end
 
@@ -13349,7 +13359,14 @@ if IS_MOBILE then
 		end
 	end
 	bindAquariumFit(workspace.CurrentCamera)
-	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindAquariumFit)
+	-- harborheist-d6f5: property-changed signals pass NO arguments, so this
+	-- must wrap the call and read workspace.CurrentCamera fresh — a direct
+	-- Connect(bindAquariumFit) invoked the binding with nil on every camera
+	-- swap, disconnecting the live ViewportSize conn and binding nothing
+	-- (fresh-eyes review F1). Same wrapper shape as bindViewportWidth (:2963).
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindAquariumFit(workspace.CurrentCamera)
+	end)
 end
 
 -- ============================================================

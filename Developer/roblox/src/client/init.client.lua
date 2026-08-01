@@ -1753,9 +1753,12 @@ end
 -- practice — PlayerProfile.MAX_COINS = 999,999,999). K is intentionally
 -- unused: every surface fits "$999,999" (8 chars), so sub-million
 -- abbreviation would only cost precision. Fractional inputs under 1000
--- keep one decimal ("0.5", "3.5") so small income-per-minute values
--- never round to "$0"; fractional values >= 1000 round to whole digits
--- (big numbers don't need decimals). All currency/income UI routes here.
+-- keep one decimal ("0.5", "3.5") so typical small income-per-minute
+-- values render honestly instead of rounding to whole digits; fractional
+-- values >= 1000 round to whole (big numbers don't need decimals). All
+-- currency/income UI routes here.
+-- harborheist-d6f5: the comma pass also strips a "-," artifact so negative
+-- values with a 3/6/9-digit magnitude ("-150") don't render "-,150".
 local function formatCash(n)
 	n = n or 0
 	local abs = math.abs(n)
@@ -1774,7 +1777,9 @@ local function formatCash(n)
 		return (string.format("%.1f", n):gsub("%.0$", ""))
 	end
 	local s = tostring(math.floor(n + 0.5))
-	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+	-- d6f5: negative magnitudes with digit-count ≡ 0 (mod 3) group as "-,150"
+	-- after the reverse — strip that artifact too.
+	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", ""):gsub("^%-,", "-")
 	return formatted
 end
 
@@ -3503,7 +3508,14 @@ if IS_MOBILE then
 		end
 	end
 	bindAquariumFit(workspace.CurrentCamera)
-	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindAquariumFit)
+	-- harborheist-d6f5: property-changed signals pass NO arguments, so this
+	-- must wrap the call and read workspace.CurrentCamera fresh — a direct
+	-- Connect(bindAquariumFit) invoked the binding with nil on every camera
+	-- swap, disconnecting the live ViewportSize conn and binding nothing
+	-- (fresh-eyes review F1). Same wrapper shape as bindViewportWidth (:2963).
+	workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+		bindAquariumFit(workspace.CurrentCamera)
+	end)
 end
 
 -- ============================================================
