@@ -5004,7 +5004,25 @@ local function renderRaidTargets(data)
 				ZIndex = 27,
 			})
 		end
-		
+
+		-- a2ug.12: best-in-pool intel chip on available rows. The server
+		-- sends bestRarity only for available targets (highest stealable
+		-- rarity; Legendary is never stealable so it never appears here).
+		-- The "best in pool" caption keeps the chip reading as intel, not a
+		-- promised steal — selection stays weighted-random server-side.
+		if isAvailable and target.bestRarity then
+			makeLabel(row, {
+				Size = UDim2.new(1, -110, 0, 14),
+				Position = UDim2.new(0, 12, 0, 44),
+				Text = string.format("%s POOL  •  best in pool", string.upper(target.bestRarity)),
+				Font = Theme.type.fonts.body,
+				TextSize = Theme.type.sizes.xs,
+				TextColor3 = RARITY_COLORS[target.bestRarity] or Theme.color.text.secondary,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				ZIndex = 27,
+			})
+		end
+
 		local attempt = makeButton(row, {
 			Size = UDim2.new(0, IS_MOBILE and 104 or 92, 0, IS_MOBILE and 44 or 32),
 			Position = UDim2.new(1, IS_MOBILE and -114 or -102, 0.5, IS_MOBILE and -22 or -16),
