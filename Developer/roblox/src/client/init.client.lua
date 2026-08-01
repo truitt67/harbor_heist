@@ -1577,9 +1577,14 @@ end
 -- card, faded in via the stagger helper. Lives AFTER staggerFadeIn because
 -- Luau binds locals lexically at the definition site (same trap as the
 -- makeOverlayFrame P0 at :508). cfg = { icon, title, description, action,
--- order = <LayoutOrder>, accent = <Color3> }. Icon uses a Unicode glyph;
+-- order = <LayoutOrder>, accent = <Color3>, gradient = <GradientLibrary
+-- preset path> }. Icon uses a Unicode glyph on a GradientLibrary tile;
 -- every color is a Theme token and all exceed 4.5:1 contrast on the panel
 -- surface (text.primary ~16:1, text.secondary ~7:1, brand accents ~7-12:1).
+-- [harborheist-kqbq.14] Icon tile upgrade: bare glyph replaced with a
+-- category-colored GradientLibrary tile (Theme.corners.md, subtle stroke)
+-- so empty states feel intentionally designed — each category has its own
+-- gradient and matched glyph.
 local function renderEmptyState(parent, cfg)
 	local cardH = IS_MOBILE and 220 or 200
 	local card = Instance.new("Frame")
@@ -1602,14 +1607,27 @@ local function renderEmptyState(parent, cfg)
 
 	local accent = cfg.accent or Theme.color.accent.base
 
-	makeLabel(card, {
-		Size = UDim2.new(0, 64, 0, 64),
+	-- [harborheist-kqbq.14] Icon tile: a 72px GradientLibrary-backed tile
+	-- replaces the bare 64px glyph. Tile uses the category gradient (or
+	-- accent.soft fallback) and Theme.corners.md for a soft, designed feel.
+	local tile = Instance.new("Frame")
+	tile.Size = UDim2.new(0, 72, 0, 72)
+	tile.BackgroundColor3 = accent
+	tile.BackgroundTransparency = 0.20
+	tile.LayoutOrder = 1
+	tile.ZIndex = 27
+	tile.Parent = card
+	corner(tile, Theme.corners.md)
+	stroke(tile, 0.85, accent, 1)
+	Gradients.apply(tile, cfg.gradient or "accent.soft")
+
+	makeLabel(tile, {
+		Size = UDim2.new(1, 0, 1, 0),
 		Text = cfg.icon or "○",
 		Font = Theme.type.fonts.body,
-		TextSize = 64,
-		TextColor3 = accent,
-		LayoutOrder = 1,
-		ZIndex = 27,
+		TextSize = 36,
+		TextColor3 = Theme.color.text.primary,
+		ZIndex = 28,
 	})
 	makeLabel(card, {
 		Size = UDim2.new(1, -Theme.spacing.xxl * 2, 0, 26),
@@ -3314,12 +3332,13 @@ local function renderInventory()
 
 	if #carried == 0 then
 		renderEmptyState(inventoryList, {
-			icon = "🎣",
+			icon = "\u{1F3A3}",
 			title = "No fish yet",
 			description = "Your hold is empty — catch fish to start earning coins.",
 			action = "Cast your line to get started",
 			order = 1,
 			accent = Theme.color.brand.boat,
+			gradient = "accent.primary",
 		})
 		return
 	end
@@ -3861,12 +3880,13 @@ renderCollection = function()
 
 	if not book.ordered or #book.ordered == 0 then
 		renderEmptyState(collectionList, {
-			icon = "📖",
+			icon = "\u{1F41F}",
 			title = "No discoveries yet",
 			description = "You haven't catalogued any species. Each new catch adds to your collection.",
 			action = "Catch a fish to begin your catalogue",
 			order = 1,
 			accent = Theme.color.brand.purple,
+			gradient = "status.collection",
 		})
 		return
 	end
@@ -4584,12 +4604,13 @@ local function renderQuestPanel(data)
 	-- harborheist-7h69.6: empty-state message when no daily quests.
 	if not data or not data.dailyQuests or #data.dailyQuests == 0 then
 		renderEmptyState(questList, {
-			icon = "📜",
+			icon = "\u{1F4C5}",
 			title = "No daily quests",
 			description = "New daily quests refresh at midnight.",
 			action = "Check back tomorrow for fresh challenges",
 			order = 2,
 			accent = Theme.color.brand.quest,
+			gradient = "status.warning",
 		})
 	end
 
@@ -4609,12 +4630,13 @@ local function renderQuestPanel(data)
 	-- harborheist-7h69.6: empty-state message when no weekly quests.
 	if not data or not data.weeklyQuests or #data.weeklyQuests == 0 then
 		renderEmptyState(questList, {
-			icon = "📜",
+			icon = "\u{1F504}",
 			title = "No weekly quests",
 			description = "Weekly challenges are on a rotation.",
 			action = "Check back soon for new challenges",
 			order = 101,
 			accent = Theme.color.brand.quest,
+			gradient = "accent.brand",
 		})
 	end
 end
