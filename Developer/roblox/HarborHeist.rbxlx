@@ -2231,6 +2231,31 @@ local function getEngineService(): any
 	return _engineService
 end
 
+-- Narrow a Player-instance-or-something-else argument to a Player (or nil).
+-- typeof() is read through a LOCAL on purpose: luau-analyze refines direct
+-- `typeof(x) == "Instance"` comparisons against a Roblox type environment
+-- the CLI doesn't have, producing UnknownType 'Instance' noise in this
+-- --!strict file. Semantics are identical (typeof is a pure builtin).
+local function asPlayer(player: any): any
+	local t = typeof(player)
+	if t == "Instance" and player:IsA("Player") then
+		return player
+	end
+	return nil
+end
+
+-- Narrow a Player-instance-or-UserId argument to a UserId (or nil).
+local function userIdOf(player: any): number?
+	local p = asPlayer(player)
+	if p then
+		return p.UserId
+	end
+	if type(player) == "number" then
+		return player
+	end
+	return nil
+end
+
 local AnalyticsService = {}
 
 -- Authoritative catalog of the 24 V1 events. track() validates against this.
@@ -2291,7 +2316,7 @@ type FunnelSession = {
 local sessions: { [number]: FunnelSession } = {}
 
 -- Internal: get or create the per-player session record.
-local function getSession(userId): FunnelSession
+local function getSession(userId: number): FunnelSession
 	local s = sessions[userId]
 	if not s then
 		-- Funnel stamp fields start absent (nil = milestone not reached).
@@ -2325,10 +2350,7 @@ function AnalyticsService.track(player, eventName, fields)
 
 	-- Accept either a Player instance or a raw UserId so callers in
 	-- PlayerRemoving handlers (where the Player may be parented-away) work.
-	local userId = (typeof(player) == "Instance" and player:IsA("Player"))
-		and player.UserId
-		or (type(player) == "number" and player)
-		or nil
+	local userId = userIdOf(player)
 	if not userId then
 		warn(("[Analytics] %s: invalid player (got %s)")
 			:format(eventName, typeof(player)))
@@ -2409,7 +2431,7 @@ function AnalyticsService.track(player, eventName, fields)
 		-- don't think the event was rejected for a validation reason.
 		return true
 	end
-	local playerInstance = typeof(player) == "Instance" and player:IsA("Player") and player
+	local playerInstance = asPlayer(player)
 		or Players:GetPlayerByUserId(userId)
 	if not playerInstance then
 		-- Player left between the call and resolution (common in PlayerRemoving).
@@ -2442,7 +2464,7 @@ end
 -- @param milestone string — one of: first_cast, first_catch, first_store,
 --        first_sale, first_upgrade
 -- @return boolean — true if this milestone has NOT been recorded yet
-function AnalyticsService.isFirst(userId, milestone)
+function AnalyticsService.isFirst(userId: number, milestone: string)
 	local s = sessions[userId]
 	if not s then
 		-- No session yet means nothing recorded — it's the first.
@@ -2461,7 +2483,7 @@ end
 -- Used by onPlayerRemoving to decide whether to fire churn signals.
 -- @return table with firstCastAt/firstCatchAt/firstStoreAt/firstSaleAt/firstUpgradeAt
 --         (nil for milestones not yet reached)
-function AnalyticsService.getFunnelState(userId)
+function AnalyticsService.getFunnelState(userId: number)
 	local s = sessions[userId]
 	if not s then
 		return {}
@@ -2479,10 +2501,7 @@ end
 -- the `sessions` table across long server uptimes. Called from
 -- Players.PlayerRemoving by init.server.lua (wired in TASK 11.2).
 function AnalyticsService.clearSession(player)
-	local userId = (typeof(player) == "Instance" and player:IsA("Player"))
-		and player.UserId
-		or (type(player) == "number" and player)
-		or nil
+	local userId = userIdOf(player)
 	if userId and sessions[userId] then
 		sessions[userId] = nil
 	end
@@ -18041,8 +18060,11 @@ return Gradients
 	KeyboardNav.lua - Keyboard navigation system for Harbor Heist
 	EPIC 32: Accessibility & Mobile UX
 	
-	Provides Tab/Shift+Tab navigation through UI elements, Enter/Space activation,
-	and visual focus indicators. Desktop-only (no-op on mobile).
+	Provides Tab/Shift+Tab navigation through UI elements with visual focus
+	indicators. Enter/Space activation is handled natively by the Roblox engine
+	via GuiService.SelectedObject — when a registered button is focused, the
+	engine fires its Activated signal on Enter/Space. Desktop-only (no-op on
+	mobile).
 	
 	Usage:
 		local KeyboardNav = require(script.Parent.KeyboardNav)
@@ -18052,6 +18074,7 @@ return Gradients
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 local KeyboardNav = {}
 KeyboardNav.__index = KeyboardNav
@@ -18096,13 +18119,26 @@ function KeyboardNav:Register(element, tabOrder, onActivate)
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = element
 
+	-- Suppress the engine's default selection ring (harborheist-mdzl):
+	-- GuiService.SelectedObject shows a blue rectangle around the focused
+	-- button. Our UIStroke above already provides the visual indicator, so a
+	-- transparent SelectionImageObject prevents a double-ring.
+	if not element.SelectionImageObject then
+		local blankSelection = Instance.new("ImageLabel")
+		blankSelection.Name = "KeyboardNavBlankSelection"
+		blankSelection.Image = ""
+		blankSelection.BackgroundTransparency = 1
+		blankSelection.Size = UDim2.fromScale(1, 1)
+		element.SelectionImageObject = blankSelection
+	end
+
 	table.insert(focusableElements, {
 		element = element,
 		tabOrder = tabOrder or #focusableElements + 1,
 		stroke = stroke,
-		-- Engine signals (Activated etc.) cannot be fired from scripts, so
-		-- Enter/Space activation needs an explicit callback (see
-		-- ActivateFocused). Optional until all call sites are wired.
+		-- harborheist-mdzl: onActivate is retained for backward compat but
+		-- is no longer the activation path — GuiService.SelectedObject (set
+		-- in ApplyFocus) makes the engine fire Activated on Enter/Space.
 		onActivate = type(onActivate) == "function" and onActivate or nil,
 	})
 	
@@ -18211,11 +18247,17 @@ end
 	@return nil
 ]]
 function KeyboardNav:ClearFocus()
+	-- harborheist-mdzl: clear engine selection if it points to one of our
+	-- registered elements (avoids clobbering selection set by other systems).
+	local selected = GuiService.SelectedObject
 	for _, entry in ipairs(focusableElements) do
 		if entry.stroke then
 			TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 				Thickness = 0
 			}):Play()
+		end
+		if entry.element == selected then
+			GuiService.SelectedObject = nil
 		end
 	end
 end
@@ -18235,6 +18277,12 @@ function KeyboardNav:ApplyFocus()
 		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 			Thickness = FOCUS_INDICATOR_THICKNESS
 		}):Play()
+
+		-- harborheist-mdzl: set GuiService.SelectedObject so the engine
+		-- natively handles Enter/Space activation (fires the button's
+		-- Activated signal). This replaces the removed ActivateFocused
+		-- callback approach that required manual wiring at every call site.
+		GuiService.SelectedObject = entry.element
 
 		-- Ensure the focused element is visible inside any ancestor
 		-- ScrollingFrame (vertical lists).
@@ -18263,7 +18311,7 @@ function KeyboardNav:Enable()
 	
 	isEnabled = true
 	
-	-- Listen for Tab, Shift+Tab, Enter, Space
+	-- Listen for Tab and Shift+Tab (Enter/Space handled natively by engine)
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not isEnabled then return end
 		if gameProcessed then return end -- Let game handle it first
@@ -18274,9 +18322,11 @@ function KeyboardNav:Enable()
 			else
 				self:FocusNext()
 			end
-		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
-			self:ActivateFocused()
 		end
+		-- harborheist-mdzl: Enter/Space activation is now handled natively by
+		-- the engine via GuiService.SelectedObject (set in ApplyFocus). When
+		-- the focused button is SelectedObject, pressing Enter/Space fires
+		-- its Activated signal directly — no manual callback wiring needed.
 	end)
 end
 

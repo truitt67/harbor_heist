@@ -2,8 +2,11 @@
 	KeyboardNav.lua - Keyboard navigation system for Harbor Heist
 	EPIC 32: Accessibility & Mobile UX
 	
-	Provides Tab/Shift+Tab navigation through UI elements, Enter/Space activation,
-	and visual focus indicators. Desktop-only (no-op on mobile).
+	Provides Tab/Shift+Tab navigation through UI elements with visual focus
+	indicators. Enter/Space activation is handled natively by the Roblox engine
+	via GuiService.SelectedObject — when a registered button is focused, the
+	engine fires its Activated signal on Enter/Space. Desktop-only (no-op on
+	mobile).
 	
 	Usage:
 		local KeyboardNav = require(script.Parent.KeyboardNav)
@@ -13,6 +16,7 @@
 
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local GuiService = game:GetService("GuiService")
 
 local KeyboardNav = {}
 KeyboardNav.__index = KeyboardNav
@@ -57,13 +61,26 @@ function KeyboardNav:Register(element, tabOrder, onActivate)
 	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	stroke.Parent = element
 
+	-- Suppress the engine's default selection ring (harborheist-mdzl):
+	-- GuiService.SelectedObject shows a blue rectangle around the focused
+	-- button. Our UIStroke above already provides the visual indicator, so a
+	-- transparent SelectionImageObject prevents a double-ring.
+	if not element.SelectionImageObject then
+		local blankSelection = Instance.new("ImageLabel")
+		blankSelection.Name = "KeyboardNavBlankSelection"
+		blankSelection.Image = ""
+		blankSelection.BackgroundTransparency = 1
+		blankSelection.Size = UDim2.fromScale(1, 1)
+		element.SelectionImageObject = blankSelection
+	end
+
 	table.insert(focusableElements, {
 		element = element,
 		tabOrder = tabOrder or #focusableElements + 1,
 		stroke = stroke,
-		-- Engine signals (Activated etc.) cannot be fired from scripts, so
-		-- Enter/Space activation needs an explicit callback (see
-		-- ActivateFocused). Optional until all call sites are wired.
+		-- harborheist-mdzl: onActivate is retained for backward compat but
+		-- is no longer the activation path — GuiService.SelectedObject (set
+		-- in ApplyFocus) makes the engine fire Activated on Enter/Space.
 		onActivate = type(onActivate) == "function" and onActivate or nil,
 	})
 	
@@ -172,11 +189,17 @@ end
 	@return nil
 ]]
 function KeyboardNav:ClearFocus()
+	-- harborheist-mdzl: clear engine selection if it points to one of our
+	-- registered elements (avoids clobbering selection set by other systems).
+	local selected = GuiService.SelectedObject
 	for _, entry in ipairs(focusableElements) do
 		if entry.stroke then
 			TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 				Thickness = 0
 			}):Play()
+		end
+		if entry.element == selected then
+			GuiService.SelectedObject = nil
 		end
 	end
 end
@@ -196,6 +219,12 @@ function KeyboardNav:ApplyFocus()
 		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
 			Thickness = FOCUS_INDICATOR_THICKNESS
 		}):Play()
+
+		-- harborheist-mdzl: set GuiService.SelectedObject so the engine
+		-- natively handles Enter/Space activation (fires the button's
+		-- Activated signal). This replaces the removed ActivateFocused
+		-- callback approach that required manual wiring at every call site.
+		GuiService.SelectedObject = entry.element
 
 		-- Ensure the focused element is visible inside any ancestor
 		-- ScrollingFrame (vertical lists).
@@ -224,7 +253,7 @@ function KeyboardNav:Enable()
 	
 	isEnabled = true
 	
-	-- Listen for Tab, Shift+Tab, Enter, Space
+	-- Listen for Tab and Shift+Tab (Enter/Space handled natively by engine)
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not isEnabled then return end
 		if gameProcessed then return end -- Let game handle it first
@@ -235,9 +264,11 @@ function KeyboardNav:Enable()
 			else
 				self:FocusNext()
 			end
-		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
-			self:ActivateFocused()
 		end
+		-- harborheist-mdzl: Enter/Space activation is now handled natively by
+		-- the engine via GuiService.SelectedObject (set in ApplyFocus). When
+		-- the focused button is SelectedObject, pressing Enter/Space fires
+		-- its Activated signal directly — no manual callback wiring needed.
 	end)
 end
 
