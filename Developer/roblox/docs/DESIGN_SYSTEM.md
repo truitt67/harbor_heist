@@ -14,7 +14,11 @@
 7. [Button System](#7-button-system)
 8. [Animation & Motion](#8-animation--motion)
 9. [Accessibility Standards](#9-accessibility-standards)
-10. [Best Practices](#10-best-practices)
+10. [Feedback & Affordance](#10-feedback--affordance-epic-44)
+11. [Desktop Modality](#11-desktop-modality-epic-44)
+12. [Mobile Modality](#12-mobile-modality-epic-44)
+13. [Minigame Visual Language](#13-minigame-visual-language-epic-44)
+14. [Best Practices](#14-best-practices)
 
 ---
 
@@ -49,6 +53,7 @@ UI.surface
 | `bg` | 13, 20, 31 | Root background |
 | `surface` | 20, 30, 46 | Panel/card backgrounds |
 | `surfaceHi` | 30, 43, 63 | Elevated surfaces, hover states |
+| `surfaceMid` | 26, 38, 57 | Mid-surface highlight (gradient tokens) |
 | `stroke` | 255, 255, 255 | Borders/dividers (always used with transparency) |
 | `accent` | 56, 152, 255 | Primary interactive elements |
 | `accentSoft` | 120, 190, 255 | Hover/soft accent states |
@@ -215,9 +220,9 @@ Gradients.apply(bar, "status.success")
 
 | Preset | From | To | Usage |
 | --- | --- | --- | --- |
-| `surface.default` | #1A2639 (tuned) | bg | Panels, overlays, HUD, reveal cards |
+| `surface.default` | `surfaceMid` (token) | bg | Panels, overlays, reveal cards |
 | `surface.elevated` | surface | surfaceHi | Elevated containers |
-| `surface.hud` | #182436 (tuned) | bg | HUD background |
+| `surface.hud` | surface | bg | HUD background (kqbq.22.5: seam fix) |
 
 ### Accent Gradients
 
@@ -226,28 +231,32 @@ Gradients.apply(bar, "status.success")
 | `accent.primary` | accent | accentSoft | Buttons, highlights |
 | `accent.soft` | accentSoft | text | Soft accents |
 | `accent.brand` | purple | accent | Branded elements |
-| `accent.capacity` | #C4B5FD (tuned) | purple | Capacity meters |
+| `accent.capacity` | `purple:Lerp(text, 0.3)` | purple | Capacity meters |
 
 ### Status Gradients
 
 | Preset | From | To | Usage |
 | --- | --- | --- | --- |
-| `status.success` | good | #64DCA0 (tuned) | Progress bars, success |
+| `status.success` | good | `good:Lerp(text, 0.3)` | Progress bars, success |
 | `status.warning` | quest | warn | Warning indicators |
 | `status.collection` | quest | warn | Collection milestones |
-| `status.error` | bad | #FF8C8C (tuned) | Error indicators |
+| `status.error` | bad | `bad:Lerp(text, 0.3)` | Error indicators |
 | `status.info` | accentSoft | boat | Informational elements |
 
 ### Rarity Gradients
 
+All presets derive from palette tokens via `Color3:Lerp` (kqbq.22.5). Presets are
+currently unused (canonical rarity colors live in `GameConfig.Rarities`); kept for
+future gradient effects.
+
 | Preset | Colors | Usage |
 | --- | --- | --- |
-| `rarity.Common` | Gray gradient | Common fish |
-| `rarity.Uncommon` | Green gradient | Uncommon fish |
-| `rarity.Rare` | Blue gradient | Rare fish |
-| `rarity.Epic` | Purple gradient | Epic fish |
-| `rarity.Legendary` | Gold-orange gradient | Legendary fish |
-| `rarity.Mythic` | Pink-magenta gradient | Mythic fish |
+| `rarity.Common` | `textDim` gradient | Common fish |
+| `rarity.Uncommon` | `good` gradient | Uncommon fish |
+| `rarity.Rare` | `accent` gradient | Rare fish |
+| `rarity.Epic` | `purple` gradient | Epic fish |
+| `rarity.Legendary` | `quest` gradient | Legendary fish |
+| `rarity.Mythic` | `purple:Lerp(bad, 0.5)` gradient | Mythic fish |
 
 ---
 
@@ -278,10 +287,11 @@ All variants use `Theme.corners.md` (12px) corner radius by default.
 
 Every `makeButton` includes:
 
-- **Press**: 0.96 scale compression (EASE_FAST, 0.12s)
+- **Press**: 0.94 scale compression (EASE_PRESS, 0.10s Quad Out)
 - **Release**: Spring bounce-back (EASE_POP, 0.28s)
-- **Visual ripple**: White circular Frame spawns at press point, expands
-  outward while fading (350ms, self-cleaning via `task.delay`)
+- **Visual ripple**: Luminance-derived circular Frame spawns at press point
+  (adapts to button bg brightness), expands outward while fading
+  (EASE_RIPPLE, 350ms, self-cleaning via `task.delay`)
 - **Haptic feedback**: `UIClick` haptic on press (mobile only, `IS_MOBILE` guard)
 
 ---
@@ -295,10 +305,14 @@ Every `makeButton` includes:
 | `EASE_OUT` | Quint | Out | 0.22s | Panel opens, element entry |
 | `EASE_IN` | Quad | In | 0.16s | Panel closes, element exit |
 | `EASE_POP` | Spring | Out | 0.28s | Button bounce, scale reveals |
-| `EASE_FAST` | Quad | Out | 0.12s | Press compression, hover glows |
+| `EASE_FAST` | Quad | Out | 0.12s | Legacy fast transitions |
+| `EASE_PRESS` | Quad | Out | 0.10s | Button press compression |
+| `EASE_HOVER` | Quad | Out | 0.20s | Hover/leave tweens (distinct from press) |
+| `EASE_RIPPLE` | Quad | Out | 0.35s | Visual ripple expansion |
 
 **Principle**: Entries decelerate (feel smooth arriving); exits accelerate
-(feel snappy leaving). Spring easing is reserved for physical bounce-back, not
+at ~0.8x the entry duration (e.g. 0.22s close vs 0.28s open). Spring easing
+is reserved for physical bounce-back, not
 fades or exits.
 
 ### PanelAnimation (`src/shared/PanelAnimation.lua`)
@@ -342,6 +356,21 @@ Advanced spring-physics animation engine for:
 - Gesture-driven animations (drag, swipe)
 - Staggered list item reveals
 - Skeleton loader shimmer effects
+
+### Theme.motion Token Table (EPIC-44 kqbq.17.2)
+
+`Theme.motion` is the single source for every duration/easing token. `EASE_*`
+presets derive from `Theme.motion`. **New motion: add a `Theme.motion` token
+and alias — never construct `TweenInfo.new` inline at call sites.**
+
+- **Press depth**: 0.94 at `EASE_PRESS` (0.10s Quad Out). Release: `EASE_POP` (Spring).
+- **Hover**: `EASE_HOVER` (0.20s Quad Out) — perceptually distinct from press (0.10s).
+- **Ripple**: `EASE_RIPPLE` (0.35s Quad Out).
+- **Panel close**: `EASE_IN` (0.16s Quad In) at ~0.8x the 0.22s `EASE_OUT` open.
+
+**RULE**: No `TweenInfo.new` literals outside `Theme.motion` without a code-comment
+justification (see rejection log in `ClientChrome.spec.lua`). Finger-tracking is
+always 1:1 instant — never Spring. Spring is reserved for bounce-back only.
 
 ---
 
@@ -387,7 +416,125 @@ scripts/run_tests.sh --pure
 
 ---
 
-## 10. Best Practices
+## 10. Feedback & Affordance (EPIC-44)
+
+Stripe-level UX means nothing ever leaves the player guessing. Every input gets
+an acknowledgment; every state is visually legible.
+
+### Adaptive Ripple (kqbq.4)
+
+Button press ripple adapts to button background luminance. On dark buttons
+(primary, danger) the ripple is light; on light buttons (ghost, secondary) it
+darkens. The previous hardcoded white ripple was invisible on light backgrounds.
+
+### Disabled State Recipe (kqbq.18.2)
+
+`setButtonEnabled(button, false)` applies a uniform disabled treatment:
+- `Active = false`
+- `TextColor3` → `text.tertiary`
+- `BackgroundColor3` → semantic disabled bg (`surface.elevated` or `status.disabled`)
+
+Applied to: inventory debounce, raid opt-in debounce, claim button (DataStore
+unhealthy), lock RECHARGE. Shop OWNED/LOCKED/unaffordable already have distinct
+visuals (harborheist-cl05).
+
+### Toast System (kqbq.5/kqbq.18.3)
+
+- **Accent bar**: 6px left bar colored by category (good/bad/warn/quest) with a
+  soft category glow frame.
+- **Text overflow**: fade-edge indicator on long toast text.
+- **Known tech debt**: server toasts use ~8 off-palette raw `Color3` literals —
+  tracked in a2ug.1/.2/.3 for palette migration.
+
+### Gradient Color Discipline (kqbq.22.5)
+
+`GradientLibrary` presets derive from `UIPalette` tokens only — either directly
+or via `Color3:Lerp`. No raw `Color3.fromRGB` in `GradientLibrary` (contract-
+verified in `ClientChrome.spec.lua`). `surfaceMid` (26,38,57) promoted to
+`UIPalette` as a named token. The HUD gradient seam was fixed: `surface.hud`
+uses `UI.surface` instead of a hardcoded brighter value.
+
+---
+
+## 11. Desktop Modality (EPIC-44)
+
+Desktop is not scaled-up mobile. It leverages cursor hover, physical keyboard,
+and screen real estate.
+
+### Hover Tooltips (kqbq.10/kqbq.20.1)
+
+Action bar buttons show tooltips on hover: name + keyboard shortcut + one-line
+hint. Tooltips never appear while a panel or minigame owns input.
+
+### Esc-Cancel (kqbq.12.2)
+
+Esc closes the current context: panels, prompts, onboarding, and cast overlay.
+Cast cancel requires server cooperation — the client fires `Remotes.CancelCast`
+and hides the cast overlay. Client-only cancel would desync the pending 2-6s
+bite window.
+
+### Ultra-Wide Balance (kqbq.13, P4)
+
+On >1920px viewports, the bottom action bar scales button width modestly and
+caps total bar width at ~40% of viewport. Standard widths remain unchanged
+below the threshold.
+
+---
+
+## 12. Mobile Modality (EPIC-44)
+
+Mobile is the dominant Roblox modality. It must feel NATIVE, not ported.
+44px minimum touch targets (`TouchTargets.spec` enforced). Landscape phones
+(~375px height) are the binding constraint.
+
+### Scroll Affordance (kqbq.8)
+
+Scrollable action stacks render a fade-edge indicator at the cut-off boundary
+and a one-time nudge animation on first overflow. This signals scrollability
+without persistent visual clutter.
+
+### Scrollbar Auto-Hide (kqbq.9)
+
+6 scrolling frames (shop, collection, inventory, quests, raid targets, action
+stack) auto-hide their scrollbars after 3s of idle. Scrollbars fade in on
+scroll, fade out when idle. Eliminates visual clutter on small screens.
+
+### Toast Density (kqbq.16, planned)
+
+Mobile toasts carry a 52px min-height (to fit 44x44 action buttons) and stack
+up to 3. Compact mobile toast layout planned: icon-only 44x44 inline-right
+actions, tighter padding, viewport-relative stack cap (~30% of height) with
++N overflow indicator.
+
+---
+
+## 13. Minigame Visual Language (EPIC-44)
+
+The three minigames (cast, bite, raid) share one visual language. A player
+moving from cast to bite to raid should need zero re-learning.
+
+### Zone Vocabulary (kqbq.19.1)
+
+- **Good band**: wide, forgiving zone (accent-soft color).
+- **Perfect bullseye**: narrow, high-reward zone (accent or rarity color).
+- **Marker**: moving indicator (white, 18px glow at 0.50 transparency — kqbq.6).
+- **Track**: dark surface with subtle stroke.
+
+### Labels (kqbq.7)
+
+Cast overlay shows PERFECT / GOOD micro-labels on the zone bands. Progressive
+disclosure: labels appear subtly on first cast, fade on repeated casts. Luck
+bonus values shown as subtitle: `PERFECT +25 LUCK  GOOD +12 LUCK`.
+
+### Marker Sweep (kqbq.19.1)
+
+Bite and raid markers use `os.clock`-based ping-pong triangular wave (not linear
+`TweenService`). Sweep period ~1.7s for raid. Both minigames use the same timing
+language.
+
+---
+
+## 14. Best Practices
 
 ### Do
 
@@ -400,7 +547,8 @@ scripts/run_tests.sh --pure
 - **Apply gradients via `Gradients.apply(el, "category.name")`** — never
   hand-create `UIGradient` instances inline.
 - **Animate panels via `PanelAnimation`** — don't hand-roll fade/scale tweens.
-- **Use `EASE_OUT` for entries, `EASE_IN` for exits, `EASE_POP` for bounces.**
+- **Use `EASE_OUT` for entries, `EASE_IN` for exits, `EASE_POP` for bounces,
+  `EASE_PRESS` for press, `EASE_HOVER` for hover, `EASE_RIPPLE` for ripples.**
 - **Ensure every new interactive element meets 44px touch target on mobile.**
 - **Verify new text/surface color pairs pass WCAG AA** by adding cases to
   `Contrast.spec.lua` if introducing a new surface or text color.

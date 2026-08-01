@@ -284,6 +284,9 @@ local Theme = {
 		flashTail = { duration = 0.45, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
 		toastFade = { duration = 0.40, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
 		easeIn = { duration = 0.16, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
+		-- harborheist-kqbq.10: tooltip fade-in (kqbq.20.1 spec: 0.15s Quad
+		-- Out — 25% faster than hoverOut so the tooltip leads the hover lift).
+		tooltip = { duration = 0.15, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.Out },
 	},
 }
 
@@ -309,6 +312,7 @@ local EASE_POP = TweenInfo.new(Theme.motion.pop.duration, Theme.motion.pop.style
 local EASE_FAST = TweenInfo.new(Theme.motion.fast.duration, Theme.motion.fast.style, Theme.motion.fast.direction)
 local EASE_PRESS = TweenInfo.new(Theme.motion.pressIn.duration, Theme.motion.pressIn.style, Theme.motion.pressIn.direction)
 local EASE_HOVER = TweenInfo.new(Theme.motion.hoverOut.duration, Theme.motion.hoverOut.style, Theme.motion.hoverOut.direction)
+local EASE_TOOLTIP = TweenInfo.new(Theme.motion.tooltip.duration, Theme.motion.tooltip.style, Theme.motion.tooltip.direction)
 local EASE_RIPPLE = TweenInfo.new(Theme.motion.ripple.duration, Theme.motion.ripple.style, Theme.motion.ripple.direction)
 -- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
 -- paths (mobile slide, desktop shrink) used decelerating easings — the
@@ -2679,6 +2683,16 @@ backdrop.ZIndex = 20
 backdrop.Parent = screenGui
 
 local activePanel = nil
+-- harborheist-kqbq.17.3: suppress backdrop dismissal while a panel's open
+-- animation is in flight. showPanel sets backdrop.Visible immediately and
+-- the 0.28s slide/scale-up (EASE_POP) runs after — a backdrop tap during
+-- that window fired hidePanels mid-animation (panel snapped away before it
+-- arrived; double-tap-prone mobile users hit this constantly). Cleared when
+-- the open tween completes (token-guarded task.delay) OR in hidePanels.
+-- panelOpenToken is a generation counter so a rapid A->B switch can't let a
+-- stale open-clear from A drop the flag while B is still opening.
+local panelOpening = false
+local panelOpenToken = 0
 -- harborheist-vasr: forward declaration — the context menu implementation
 -- lives in the inventory section below, but hidePanels must be able to
 -- destroy an open menu when its panel closes.
@@ -2920,6 +2934,11 @@ end
 -- Assigned to the forward-declared local (see above makePanel) so the
 -- mobile drag-to-dismiss handlers can reference it.
 hidePanels = function()
+	-- kqbq.17.3: any dismiss path clears the open-animation guard and
+	-- invalidates pending open-clears (token bump) so the backdrop can't
+	-- dead-lock open and a stale clear can't resurrect the flag.
+	panelOpening = false
+	panelOpenToken += 1
 	if activePanel then
 		-- TASK 25.1 (hvfh.5.1): disarm SELL ALL confirm on panel close.
 		if disarmSellButton then
@@ -3023,6 +3042,10 @@ local function showPanel(panel)
 	if updateActionBarIndicator then
 		updateActionBarIndicator()
 	end
+	-- kqbq.17.3: arm the open-animation guard before the backdrop is tappable.
+	panelOpenToken += 1
+	local openToken = panelOpenToken
+	panelOpening = true
 	backdrop.Visible = true
 	-- harborheist-pytn: Use AnimationSystem fade for backdrop
 	Anim:fade(backdrop, true, EASE_OUT)
@@ -3047,9 +3070,23 @@ local function showPanel(panel)
 		Anim:scale(panel, fit, EASE_POP)
 		Anim:fade(panel, true, EASE_OUT)
 	end
+	-- kqbq.17.3: clear the open-animation guard once the entrance finishes.
+	-- Token guard: a rapid A->B switch invalidates A's pending clear so it
+	-- can't drop the flag while B is still opening.
+	task.delay(Theme.motion.pop.duration, function()
+		if openToken == panelOpenToken then
+			panelOpening = false
+		end
+	end)
 end
 
-backdrop.Activated:Connect(hidePanels)
+backdrop.Activated:Connect(function()
+	-- kqbq.17.3: ignore backdrop taps while a panel is still opening — a
+	-- mid-animation dismiss snaps the panel away before it arrives.
+	if not panelOpening then
+		hidePanels()
+	end
+end)
 
 -- TASK 28.3 (hvfh.8.3): re-clamp an OPEN desktop panel on window resize —
 -- the fit computed in showPanel would otherwise go stale mid-session.
@@ -5488,6 +5525,21 @@ local ACTIONS = {
 if not IS_MOBILE then
 	table.insert(ACTIONS, { id = "help", label = "HELP", short = "HELP", key = "H", color = Theme.color.accent.soft })
 end
+
+-- [harborheist-kqbq.10] ACTION_INFO: single source of truth for action
+-- NAME / HINT / KEY (kqbq.20.1 design spec). Feeds the desktop hover
+-- tooltips AND re-derives the H-panel SHORTCUT_ROWS action rows, so the
+-- two surfaces can never drift. Tooltip strings must come from here only.
+local ACTION_INFO = {
+	fish = { name = "Cast Line", hint = "Fish in the glowing zone at your dock", key = "F" },
+	store = { name = "Fish Bag", hint = "Carried fish — store or sell", key = "G" },
+	collection = { name = "Collection", hint = "Discovered species & milestones", key = "C" },
+	aquarium = { name = "My Aquarium", hint = "Your tank — stored fish earn cash/sec", key = "T" },
+	quests = { name = "Quests", hint = "Active objectives & rewards", key = "Q" },
+	raid = { name = "Raid Waters", hint = "Raid other players tanks for fish", key = "R" },
+	boat = { name = "Spawn Boat", hint = "Cosmetic boat at your dock", key = "B" },
+	help = { name = "Shortcuts", hint = "Toggle this keyboard-shortcuts panel", key = "H" },
+}
 -- constants that build the stack/bar, so adding/removing an ACTION keeps
 -- the prompt clear with zero manual edits. Recomputed on ViewportSize
 -- change (rotation / window resize) — the previous one-shot startup
@@ -5937,6 +5989,305 @@ if not IS_MOBILE then
 	
 	-- Enable keyboard navigation
 	KeyboardNav:Enable()
+end
+
+-- ============================================================
+-- [harborheist-kqbq.10] Desktop action-bar hover tooltips — the
+-- kqbq.20.1 design spec implemented verbatim: ONE shared instance (no
+-- per-button instances), 0.35s hover delay + EASE_TOOLTIP fade-in,
+-- INSTANT hide, keyboard-focus parity (no delay), suppression while a
+-- panel/overlay/context menu owns input, above+centered default with
+-- flip-below + X-clamp, HUD balance-card variant with live income.
+-- Content comes ONLY from ACTION_INFO (declared with ACTIONS above).
+-- ============================================================
+if not IS_MOBILE then
+	local TOOLTIP_MAX_WIDTH = 220
+	local TOOLTIP_SHOW_DELAY = 0.35
+	local TOOLTIP_GAP = 10 -- button edge -> tooltip edge (arrow sits inside)
+	local TOOLTIP_PAD_X = Theme.spacing.md
+	local TOOLTIP_PAD_Y = Theme.spacing.sm
+	local TOOLTIP_NAME_H = 14
+	local TOOLTIP_ROW_GAP = 2
+
+	-- Active=false everywhere so the tooltip never intercepts the mouse —
+	-- a hover-dead tooltip over the button would break MouseLeave detection.
+	local tooltip = Instance.new("Frame")
+	tooltip.Name = "ActionTooltip"
+	tooltip.Visible = false
+	tooltip.Size = UDim2.new(0, 0, 0, 0)
+	tooltip.BackgroundColor3 = Theme.color.surface.elevated
+	tooltip.BackgroundTransparency = 1
+	tooltip.BorderSizePixel = 0
+	tooltip.ZIndex = 30
+	tooltip.Active = false
+	tooltip.Parent = screenGui
+	corner(tooltip, Theme.corners.compact)
+	local tooltipStroke = stroke(tooltip, 0.85)
+	tooltipStroke.Transparency = 1
+	applyElevation(tooltip, "low")
+
+	local tooltipName = makeLabel(tooltip, {
+		Position = UDim2.new(0, TOOLTIP_PAD_X, 0, TOOLTIP_PAD_Y),
+		Size = UDim2.new(0, 0, 0, TOOLTIP_NAME_H),
+		Text = "",
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.primary,
+		TextTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 31,
+	})
+
+	local tooltipKeyChip = Instance.new("Frame")
+	tooltipKeyChip.Name = "KeyChip"
+	tooltipKeyChip.Size = UDim2.new(0, 20, 0, 18)
+	tooltipKeyChip.AnchorPoint = Vector2.new(0, 0.5)
+	tooltipKeyChip.BackgroundColor3 = Theme.color.surface.primary
+	tooltipKeyChip.BackgroundTransparency = 1
+	tooltipKeyChip.ZIndex = 31
+	tooltipKeyChip.Active = false
+	tooltipKeyChip.Parent = tooltip
+	corner(tooltipKeyChip, Theme.corners.snug)
+
+	local tooltipKeyLabel = makeLabel(tooltipKeyChip, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = "",
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xxs,
+		TextColor3 = Theme.color.text.tertiary,
+		TextTransparency = 1,
+		ZIndex = 31,
+	})
+
+	local tooltipHint = makeLabel(tooltip, {
+		Position = UDim2.new(0, TOOLTIP_PAD_X, 0, TOOLTIP_PAD_Y + TOOLTIP_NAME_H + TOOLTIP_ROW_GAP),
+		Size = UDim2.new(0, TOOLTIP_MAX_WIDTH - 2 * TOOLTIP_PAD_X, 0, 0),
+		Text = "",
+		Font = Theme.type.fonts.med,
+		TextSize = Theme.type.sizes.xxs,
+		TextColor3 = Theme.color.text.secondary,
+		TextTransparency = 1,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 31,
+	})
+
+	-- 8x8 rotated-square arrow (ZIndex 31 per spec) anchors the tooltip to
+	-- its button; below the frame when shown above, above when flipped.
+	local tooltipArrow = Instance.new("Frame")
+	tooltipArrow.Name = "ActionTooltipArrow"
+	tooltipArrow.Visible = false
+	tooltipArrow.Size = UDim2.new(0, 8, 0, 8)
+	tooltipArrow.Rotation = 45
+	tooltipArrow.BackgroundColor3 = Theme.color.surface.elevated
+	tooltipArrow.BackgroundTransparency = 1
+	tooltipArrow.BorderSizePixel = 0
+	tooltipArrow.ZIndex = 31
+	tooltipArrow.Active = false
+	tooltipArrow.Parent = screenGui
+
+	local tooltipPending = nil -- task.delay handle for a pending 0.35s show
+	local tooltipFadeTweens = {}
+	local tooltipTarget = nil
+
+	local function cancelTooltipFade()
+		for _, tween in ipairs(tooltipFadeTweens) do
+			tween:Cancel()
+		end
+		tooltipFadeTweens = {}
+	end
+
+	local function hideTooltip()
+		if tooltipPending then
+			task.cancel(tooltipPending)
+			tooltipPending = nil
+		end
+		cancelTooltipFade()
+		tooltipTarget = nil
+		-- INSTANT hide (no fade-out): snappiness, and nothing lingers over
+		-- a panel that just opened under the cursor.
+		tooltip.Visible = false
+		tooltipArrow.Visible = false
+	end
+
+	-- kqbq.20.1 suppression predicate: any surface owning input wins.
+	local function tooltipSuppressed()
+		return activePanel ~= nil or activeContextMenu ~= nil
+			or isOverlayActive("cast") or isOverlayActive("bite") or isOverlayActive("raid")
+	end
+
+	-- Content + manual sizing. TextBounds is fresh synchronously after the
+	-- Text set (same pattern as updateIncomeLine); sizes are stored as
+	-- offsets on the frame so positioning never depends on a layout pass.
+	local function setTooltipContent(nameText, hintText, keyLetter)
+		tooltipName.Text = nameText
+		tooltipHint.Text = hintText
+		tooltipKeyLabel.Text = keyLetter or ""
+		tooltipKeyChip.Visible = keyLetter ~= nil
+		local nameW = tooltipName.TextBounds.X
+		local nameRowW = nameW + (keyLetter and (6 + 20) or 0)
+		tooltipName.Size = UDim2.new(0, nameW, 0, TOOLTIP_NAME_H)
+		tooltipKeyChip.Position = UDim2.new(0, TOOLTIP_PAD_X + nameW + 6, 0, TOOLTIP_PAD_Y + TOOLTIP_NAME_H / 2)
+		local hintW = tooltipHint.TextBounds.X
+		local hintH = tooltipHint.TextBounds.Y
+		tooltipHint.Size = UDim2.new(0, TOOLTIP_MAX_WIDTH - 2 * TOOLTIP_PAD_X, 0, hintH)
+		local contentW = math.max(nameRowW, hintW)
+		tooltip.Size = UDim2.new(0, contentW + 2 * TOOLTIP_PAD_X, 0, 2 * TOOLTIP_PAD_Y + TOOLTIP_NAME_H + TOOLTIP_ROW_GAP + hintH)
+	end
+
+	-- Above + centered by default; flip below when the space above is
+	-- short; clamp X so the tooltip never leaves the viewport. The HUD
+	-- card variant anchors below + left-aligned to the card edge.
+	local function positionTooltip(target, anchor)
+		local cam = workspace.CurrentCamera
+		local viewport = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+		local tipW = tooltip.Size.X.Offset
+		local tipH = tooltip.Size.Y.Offset
+		local btnPos = target.AbsolutePosition
+		local btnSize = target.AbsoluteSize
+		local centerX = btnPos.X + btnSize.X / 2
+		local maxX = math.max(8, viewport.X - tipW - 8)
+		local x, y, arrowY
+		if anchor == "below" then
+			x = math.clamp(btnPos.X, 8, maxX)
+			y = btnPos.Y + btnSize.Y + TOOLTIP_GAP
+			arrowY = y - 4
+		else
+			x = math.clamp(centerX - tipW / 2, 8, maxX)
+			y = btnPos.Y - tipH - TOOLTIP_GAP
+			if y < SAFE_TOP then
+				y = btnPos.Y + btnSize.Y + TOOLTIP_GAP
+				arrowY = y - 4
+			else
+				arrowY = y + tipH - 4
+			end
+		end
+		tooltip.Position = UDim2.new(0, x, 0, y)
+		local arrowX = math.clamp(centerX - 4, x + 8, x + tipW - 16)
+		tooltipArrow.Position = UDim2.new(0, arrowX, 0, arrowY)
+	end
+
+	local function fadeTooltipIn()
+		cancelTooltipFade()
+		tooltip.BackgroundTransparency = 1
+		tooltipStroke.Transparency = 1
+		tooltipName.TextTransparency = 1
+		tooltipHint.TextTransparency = 1
+		tooltipKeyChip.BackgroundTransparency = 1
+		tooltipKeyLabel.TextTransparency = 1
+		tooltipArrow.BackgroundTransparency = 1
+		local fadeTargets = {
+			{ tooltip, "BackgroundTransparency", 0 },
+			{ tooltipStroke, "Transparency", 0.85 },
+			{ tooltipName, "TextTransparency", 0 },
+			{ tooltipHint, "TextTransparency", 0 },
+			{ tooltipKeyChip, "BackgroundTransparency", 0 },
+			{ tooltipKeyLabel, "TextTransparency", 0 },
+			{ tooltipArrow, "BackgroundTransparency", 0 },
+		}
+		for _, entry in ipairs(fadeTargets) do
+			local tween = TweenService:Create(entry[1], EASE_TOOLTIP, { [entry[2]] = entry[3] })
+			table.insert(tooltipFadeTweens, tween)
+			tween:Play()
+		end
+	end
+
+	local function scheduleTooltip(target, anchor, nameText, hintText, keyLetter, delay)
+		if tooltipPending then
+			task.cancel(tooltipPending)
+			tooltipPending = nil
+		end
+		cancelTooltipFade()
+		tooltipTarget = target
+		setTooltipContent(nameText, hintText, keyLetter)
+		local function beginShow()
+			tooltipPending = nil
+			if tooltipTarget ~= target or tooltipSuppressed() then
+				return
+			end
+			-- All transparencies are 1, so making it visible is not a flash;
+			-- positioning then reads always-fresh offset sizes.
+			tooltip.Visible = true
+			tooltipArrow.Visible = true
+			positionTooltip(target, anchor)
+			fadeTooltipIn()
+		end
+		if delay and delay > 0 then
+			tooltipPending = task.delay(delay, beginShow)
+		else
+			beginShow()
+		end
+	end
+
+	-- Hover bindings per action button: 0.35s delay on enter, instant hide
+	-- on leave/press.
+	for _, action in ipairs(ACTIONS) do
+		local btn = actionButtons[action.id]
+		local info = ACTION_INFO[action.id]
+		if btn and info then
+			btn.MouseEnter:Connect(function()
+				scheduleTooltip(btn, "above", info.name, info.hint, info.key, TOOLTIP_SHOW_DELAY)
+			end)
+			btn.MouseLeave:Connect(function()
+				if tooltipTarget == btn then
+					hideTooltip()
+				end
+			end)
+			btn.Activated:Connect(function()
+				if tooltipTarget == btn then
+					hideTooltip()
+				end
+			end)
+		end
+	end
+
+	-- HUD balance-card variant: below + left anchor, live income in the
+	-- hint (captured on hover enter), no key chip.
+	hudClick.MouseEnter:Connect(function()
+		local hint = string.format("Open your aquarium — stored fish earn %s", formatIncomeRate(state and state.incomePerSec or 0))
+		scheduleTooltip(hud, "below", ACTION_INFO.aquarium.name, hint, nil, TOOLTIP_SHOW_DELAY)
+	end)
+	hudClick.MouseLeave:Connect(function()
+		if tooltipTarget == hud then
+			hideTooltip()
+		end
+	end)
+	hudClick.Activated:Connect(function()
+		if tooltipTarget == hud then
+			hideTooltip()
+		end
+	end)
+
+	-- Keyboard parity (gx6h synergy): KeyboardNav focus on an action button
+	-- shows the tooltip IMMEDIATELY (focus is deliberate — no 0.35s delay);
+	-- focus change/blur hides it. Polled on Heartbeat against the last
+	-- focused element — KeyboardNav exposes no focus-changed signal.
+	-- The same loop kills any visible/pending tooltip the moment a
+	-- suppressor becomes true (panel opened, overlay grabbed input).
+	local lastKeyboardFocus = nil
+	game:GetService("RunService").Heartbeat:Connect(function()
+		local focused = KeyboardNav:GetFocusedElement()
+		if focused ~= lastKeyboardFocus then
+			lastKeyboardFocus = focused
+			local focusedInfo = nil
+			if focused then
+				for _, action in ipairs(ACTIONS) do
+					if actionButtons[action.id] == focused then
+						focusedInfo = ACTION_INFO[action.id]
+						break
+					end
+				end
+			end
+			if focusedInfo then
+				scheduleTooltip(focused, "above", focusedInfo.name, focusedInfo.hint, focusedInfo.key, 0)
+			elseif tooltipTarget then
+				hideTooltip()
+			end
+		end
+		if tooltipTarget and tooltipSuppressed() then
+			hideTooltip()
+		end
+	end)
 end
 
 -- TASK 24.4 (hvfh.4.4): action-bar active-panel indicator. showPanel and
@@ -7543,22 +7894,30 @@ local SHORTCUT_ROWS = {
 	{ tip = true, desc = "Store fish in your tank for passive income" },
 	{ tip = true, desc = "Sell fish for instant cash" },
 	{ tip = true, desc = "Buy upgrades at the Bait & Tackle shop" },
-	-- Keyboard shortcuts (desktop only — mobile skips these rows).
-	{ key = "F",     desc = "Cast / Start Fishing" },
+	-- Keyboard shortcuts (desktop only — mobile skips these rows). Action
+	-- rows (F/G/C/T/Q/R/B + desktop H) are folded in from ACTION_INFO below.
 	{ key = "Space", desc = "Cast (when no panel is open)" },
-	{ key = "G",     desc = "Fish Bag (carried fish)" },
 	{ key = "I",     desc = "Fish Bag (alias of G)" },
-	{ key = "C",     desc = "Collection Book" },
-	{ key = "T",     desc = "My Aquarium (Tank)" },
 	{ key = "S",     desc = "Bait & Tackle (Shop)" },
-	{ key = "Q",     desc = "Quests" },
-	{ key = "R",     desc = "Raid Waters" },
-	{ key = "B",     desc = "Spawn Boat" },
 	{ key = "Tab",   desc = "Navigate buttons (Shift+Tab reverses)" },
 	{ key = "Enter", desc = "Activate the focused button" },
 	{ key = "Esc",   desc = "Close panel / dismiss prompt" },
-	{ key = "H",     desc = "Toggle this shortcuts panel" },
 }
+
+-- [harborheist-kqbq.10] Re-derive the action shortcut rows from ACTION_INFO
+-- (single source of truth) so the H panel and the hover tooltips can never
+-- drift. Inserted right after the tip rows so actions lead the keyboard
+-- section; desc = NAME (hints live in the tooltips, which have the room).
+do
+	local actionRowIndex = 5 -- after the 4 tip rows
+	for _, action in ipairs(ACTIONS) do
+		local info = ACTION_INFO[action.id]
+		if info then
+			table.insert(SHORTCUT_ROWS, actionRowIndex, { key = info.key, desc = info.name })
+			actionRowIndex = actionRowIndex + 1
+		end
+	end
+end
 
 for idx, row in ipairs(SHORTCUT_ROWS) do
 	-- [harborheist-a2ug.13] Skip keyboard-only shortcuts on mobile (no
