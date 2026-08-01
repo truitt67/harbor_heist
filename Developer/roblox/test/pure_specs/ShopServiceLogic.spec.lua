@@ -674,4 +674,35 @@ return function(describe, it, expect)
 			expect(subTextIdx).to.be.a("number")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: shop MAXED summary rows (a2ug.9)
+	-- ──────────────────────────────────────────────────────────────────
+	describe("Source contract: shop MAXED summary rows (a2ug.9)", function()
+		it("shopMaxLevels table computed from SHOP_CATALOG", function()
+			expect(clientSource:find("shopMaxLevels", 1, true)).to.be.a("number")
+			expect(clientSource:find("shopMaxLevels[entry.kind] = entry.level", 1, true)).to.be.a("number")
+		end)
+
+		it("getOrCreateSummaryRow function builds MAXED summary rows", function()
+			expect(clientSource:find("getOrCreateSummaryRow", 1, true)).to.be.a("number")
+			expect(clientSource:find("MAXED", 1, true)).to.be.a("number")
+			expect(clientSource:find("Summary_", 1, true)).to.be.a("number")
+		end)
+
+		it("refreshShop toggles per-tier row visibility for maxed tracks", function()
+			expect(clientSource:find("entry.row.Visible = not isMaxed", 1, true)).to.be.a("number")
+			expect(clientSource:find("summary.row.Visible = isMaxed", 1, true)).to.be.a("number")
+		end)
+
+		it("section headers hide when all tracks in section are maxed", function()
+			expect(clientSource:find("shopSectionHeaders", 1, true)).to.be.a("number")
+			expect(clientSource:find("header.label.Visible = not allMaxed", 1, true)).to.be.a("number")
+		end)
+
+		it("buildSectionHeader stores kinds array for visibility tracking", function()
+			expect(clientSource:find('buildSectionHeader("RODS", -1, { "rod" })', 1, true)).to.be.a("number")
+			expect(clientSource:find('buildSectionHeader("DEFENSE", 299, { "lock", "alarm" })', 1, true)).to.be.a("number")
+		end)
+	end)
 end

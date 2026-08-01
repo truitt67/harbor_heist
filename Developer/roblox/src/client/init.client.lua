@@ -2778,8 +2778,10 @@ hidePanels = function()
 		end
 		if IS_MOBILE then
 			-- harborheist-pytn: Use AnimationSystem slide transition for mobile hide
-			Anim:slide(panel, "down", 0.16)
-			task.delay(0.2, function()
+			-- harborheist-kqbq.1: close 0.16→0.22 — exits slightly faster than
+			-- the 0.28 open, not half-speed (abrupt). Hide delay tracks it.
+			Anim:slide(panel, "down", 0.22)
+			task.delay(0.26, function()
 				-- Fresh-eyes: same reopen race as showPanel's switch path —
 				-- a close→reopen inside the slide would hide the live panel.
 				if activePanel ~= panel then
@@ -2794,8 +2796,9 @@ hidePanels = function()
 				scale.Parent = panel
 			end
 			local fit = scale.Scale
-			Anim:scale(panel, fit * 0.9, 0.16)
-			task.delay(0.2, function()
+			-- harborheist-kqbq.1: close 0.16→0.22 (see mobile twin above)
+			Anim:scale(panel, fit * 0.9, 0.22)
+			task.delay(0.26, function()
 				if activePanel ~= panel then
 					panel.Visible = false
 					scale.Scale = fit -- restore for the next open
@@ -2824,8 +2827,9 @@ local function showPanel(panel)
 		local oldPanel = activePanel
 		if IS_MOBILE then
 			-- harborheist-pytn: Use AnimationSystem slide transition for mobile switch
-			Anim:slide(oldPanel, "down", 0.16)
-			task.delay(0.2, function()
+			-- harborheist-kqbq.1: match hidePanels close duration (0.22)
+			Anim:slide(oldPanel, "down", 0.22)
+			task.delay(0.26, function()
 				-- Guard against A→B→A fast switching: if the user reopened
 				-- this panel before the slide-out finished, don't hide it.
 				if activePanel ~= oldPanel then
@@ -2843,8 +2847,9 @@ local function showPanel(panel)
 			end
 			local fit = scale.Scale
 			-- harborheist-pytn: Use AnimationSystem scale transition for desktop switch
-			Anim:scale(oldPanel, fit * 0.9, 0.16)
-			task.delay(0.2, function()
+			-- harborheist-kqbq.1: match hidePanels close duration (0.22)
+			Anim:scale(oldPanel, fit * 0.9, 0.22)
+			task.delay(0.26, function()
 				if activePanel ~= oldPanel then
 					oldPanel.Visible = false
 					scale.Scale = fit
@@ -3969,8 +3974,11 @@ table.sort(SHOP_CATALOG, function(a, b)
 	return a.order < b.order
 end)
 
-local function buildSectionHeader(title, order)
-	makeLabel(shopList, {
+-- [harborheist-a2ug.9] Return the header label so refreshShop can toggle
+-- visibility when all tracks in a section are maxed.
+local shopSectionHeaders = {}
+local function buildSectionHeader(title, order, kinds)
+	local label = makeLabel(shopList, {
 		Size = UDim2.new(1, -6, 0, 20),
 		Text = title,
 		Font = Theme.type.fonts.bold,
@@ -3980,6 +3988,8 @@ local function buildSectionHeader(title, order)
 		LayoutOrder = order,
 		ZIndex = 26,
 	})
+	shopSectionHeaders[#shopSectionHeaders + 1] = { label = label, kinds = kinds }
+	return label
 end
 
 local KIND_META = {
@@ -4062,6 +4072,11 @@ local function itemDeltaSubText(entry, currentLevel)
 	return itemSubText(entry)
 end
 
+-- [harborheist-a2ug.9] Forward-declared: refreshShop references these but
+-- they are created after the shop rows are built (below). Luau closures
+-- resolve at call time, so this pattern is safe.
+local shopMaxLevels = {}
+local getOrCreateSummaryRow
 local refreshShop
 
 -- [harborheist-a2ug.10] Per-row flash guard (like fishShakeToken) — prevents
@@ -4252,15 +4267,143 @@ function refreshShop()
 			end
 		end
 	end
+
+	-- [harborheist-a2ug.9] Collapse maxed tracks: hide per-tier rows and
+	-- show a single MAXED summary row. Toggle section headers when all
+	-- tracks in a section are maxed.
+	local maxedKinds = {}
+	for kind, maxLevel in pairs(shopMaxLevels) do
+		local currentLevel
+		if kind == "rod" then
+			currentLevel = state.rodLevel or 1
+		elseif kind == "bait" then
+			currentLevel = state.baitLevel or 1
+		elseif kind == "aquarium" then
+			currentLevel = state.upgradeLevel or 1
+		elseif kind == "lock" then
+			currentLevel = state.lockLevel or 0
+		elseif kind == "alarm" then
+			currentLevel = state.alarmLevel or 0
+		elseif kind == "dock" then
+			currentLevel = state.dockLevel or 1
+		end
+		local isMaxed = currentLevel >= maxLevel
+		maxedKinds[kind] = isMaxed
+		-- Toggle per-tier row visibility
+		for level = 1, maxLevel do
+			local entry = shopRows[kind .. level]
+			if entry and entry.row then
+				entry.row.Visible = not isMaxed
+			end
+		end
+		-- Toggle summary row
+		local summary = getOrCreateSummaryRow(kind)
+		if summary then
+			summary.row.Visible = isMaxed
+		end
+	end
+	-- Toggle section headers: hide when all kinds in the section are maxed
+	for _, header in ipairs(shopSectionHeaders) do
+		local allMaxed = true
+		for _, kind in ipairs(header.kinds) do
+			if not maxedKinds[kind] then
+				allMaxed = false
+				break
+			end
+		end
+		header.label.Visible = not allMaxed
+	end
 end
 
-buildSectionHeader("RODS", -1)
-buildSectionHeader("BAIT", 99)
-buildSectionHeader("TANK", 199)
-buildSectionHeader("DEFENSE", 299)
-buildSectionHeader("DOCK", 499)
+buildSectionHeader("RODS", -1, { "rod" })
+buildSectionHeader("BAIT", 99, { "bait" })
+buildSectionHeader("TANK", 199, { "aquarium" })
+buildSectionHeader("DEFENSE", 299, { "lock", "alarm" })
+buildSectionHeader("DOCK", 499, { "dock" })
 for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
+end
+
+-- [harborheist-a2ug.9] Compute max level per kind and create lazily-built
+-- summary rows for maxed tracks. Summary rows show the top-tier name +
+-- "MAXED" label with the kind color chip, no buy button.
+for _, entry in ipairs(SHOP_CATALOG) do
+	if not shopMaxLevels[entry.kind] or entry.level > shopMaxLevels[entry.kind] then
+		shopMaxLevels[entry.kind] = entry.level
+	end
+end
+
+local shopSummaryRows = {}
+getOrCreateSummaryRow = function(kind)
+	if shopSummaryRows[kind] then
+		return shopSummaryRows[kind]
+	end
+	local maxLevel = shopMaxLevels[kind]
+	local catalogEntry = shopRows[kind .. maxLevel]
+	if not catalogEntry then
+		return nil
+	end
+	local meta = KIND_META[kind]
+	local rowH = IS_MOBILE and 74 or 66
+	local row = Instance.new("Frame")
+	row.Name = "Summary_" .. kind
+	row.Size = UDim2.new(1, -6, 0, rowH)
+	row.BackgroundColor3 = Theme.color.surface.elevated
+	row.BackgroundTransparency = 0.15
+	row.Visible = false
+	row.ZIndex = 26
+	-- Use the same LayoutOrder as the first row of this track so the
+	-- summary appears in the right position when per-tier rows are hidden.
+	row.LayoutOrder = catalogEntry.row.LayoutOrder
+	row.Parent = shopList
+	corner(row, Theme.corners.roomy)
+	stroke(row, 0.9)
+
+	local tag = Instance.new("Frame")
+	tag.Size = UDim2.new(0, 46, 0, 18)
+	tag.Position = UDim2.new(0, 10, 0, 8)
+	tag.BackgroundColor3 = meta.color
+	tag.BackgroundTransparency = 0.75
+	tag.ZIndex = 27
+	tag.Parent = row
+	corner(tag, Theme.corners.compact)
+	makeLabel(tag, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = meta.tag,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = meta.color,
+		ZIndex = 28,
+	})
+
+	-- Top-tier name from the GameConfig table at index maxLevel (not a literal)
+	local topTierName = catalogEntry.item.name or catalogEntry.item.desc or kind
+	makeLabel(row, {
+		Size = UDim2.new(0.62, -70, 0, 20),
+		Position = UDim2.new(0, 62, 0, 7),
+		Text = topTierName,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.text.primary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+
+	-- MAXED badge instead of a buy button
+	makeLabel(row, {
+		Size = UDim2.new(0, 80, 0, 24),
+		Position = UDim2.new(0.68, 0, 0.5, -12),
+		Text = "MAXED",
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.status.good,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 27,
+	})
+
+	shopSummaryRows[kind] = { row = row, kind = kind, maxLevel = maxLevel }
+	return shopSummaryRows[kind]
 end
 
 -- ============================================================
