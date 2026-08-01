@@ -1,6 +1,6 @@
 -- harborheist-i39g.3: Gradient library for EPIC 35 (Visual Polish)
 -- Provides reusable UIGradient presets for surfaces, accents, status, and rarity.
--- Base colors reference the UI palette; some presets use tuned variants.
+-- All colors derive from the shared UIPalette (harborheist-kqbq.22.5).
 --
 -- USAGE:
 --   local Gradients = require(script.Parent:WaitForChild("GradientLibrary"))
@@ -20,9 +20,10 @@
 --
 -- MAINTENANCE:
 -- Base colors are sourced from the shared UIPalette module
--- (ReplicatedStorage.Shared.UIPalette). Gradient presets use tuned RGB
--- variants for visual polish; these aren't base palette colors but are
--- documented in each preset's comment.
+-- (ReplicatedStorage.Shared.UIPalette). All gradient presets derive from
+-- palette tokens — either directly or via Color3:Lerp. The single tuned
+-- variant (surfaceMid) was promoted into UIPalette in harborheist-kqbq.22.5
+-- so the palette remains the single source of truth.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -40,6 +41,9 @@ local UI = {
 	bg = UIPalette.color("bg"),
 	surface = UIPalette.color("surface"),
 	surfaceHi = UIPalette.color("surfaceHi"),
+	-- harborheist-kqbq.22.5: tuned mid-surface token promoted from raw
+	-- fromRGB so the palette stays the single source of truth.
+	surfaceMid = UIPalette.color("surfaceMid"),
 	accent = UIPalette.color("accent"),
 	accentSoft = UIPalette.color("accentSoft"),
 	good = UIPalette.color("good"),
@@ -56,17 +60,21 @@ local UI = {
 -- ============================================================================
 -- Gradient presets
 -- ============================================================================
--- Presets reference the UI table (sourced from UIPalette) for base colors,
--- with some tuned variants for visual polish (e.g. 26,38,57 is a surface
--- highlight between UI.surface and UI.surfaceHi). These tuned values are
--- documented inline.
+-- Presets reference the UI table (sourced from UIPalette) for base colors.
+-- harborheist-kqbq.22.5: all presets now derive from palette tokens —
+-- either directly or via Color3:Lerp between existing tokens. No raw
+-- Color3.fromRGB remains (contract-verified in ClientChrome.spec.lua).
 local PRESETS = {
 	-- Surface gradients: subtle background variations for panels/containers
 	-- "default" is the workhorse — used by overlays, panels, HUD, reveal cards
 	surface = {
-		default = { from = Color3.fromRGB(26, 38, 57), to = UI.bg },
+		default = { from = UI.surfaceMid, to = UI.bg },
 		elevated = { from = UI.surface, to = UI.surfaceHi },
-		hud = { from = Color3.fromRGB(24, 36, 54), to = UI.bg },
+		-- kqbq.22.5 SEAM FIX: was a raw Color3 literal brighter than the
+		-- HUD card's base (bg=13,20,31), creating a muddy discontinuity at
+		-- the top edge. Now uses UI.surface (20,30,46) — subtler,
+		-- palette-consistent, closer to the card base.
+		hud = { from = UI.surface, to = UI.bg },
 	},
 
 	-- Accent gradients: buttons, highlights, interactive elements
@@ -74,28 +82,35 @@ local PRESETS = {
 		primary = { from = UI.accent, to = UI.accentSoft },
 		soft = { from = UI.accentSoft, to = UI.text },
 		brand = { from = UI.purple, to = UI.accent },
-		capacity = { from = Color3.fromRGB(196, 181, 253), to = UI.purple },
+		-- kqbq.22.5: from = lightened purple derived via Lerp toward text
+		capacity = { from = UI.purple:Lerp(UI.text, 0.3), to = UI.purple },
 	},
 
 	-- Status gradients: progress bars, health indicators, feedback
 	status = {
-		success = { from = UI.good, to = Color3.fromRGB(100, 220, 160) },
-		warning = { from = Color3.fromRGB(255, 205, 92), to = UI.warn },
+		-- kqbq.22.5: to = lightened good derived via Lerp toward text
+		success = { from = UI.good, to = UI.good:Lerp(UI.text, 0.3) },
+		-- kqbq.22.5: from was raw (255,205,92) which equals UI.quest
+		warning = { from = UI.quest, to = UI.warn },
 		collection = { from = UI.quest, to = UI.warn },
-		error = { from = UI.bad, to = Color3.fromRGB(255, 140, 140) },
+		-- kqbq.22.5: to = lightened bad derived via Lerp toward text
+		error = { from = UI.bad, to = UI.bad:Lerp(UI.text, 0.3) },
 		info = { from = UI.accentSoft, to = UI.boat },
 	},
 
-	-- Rarity gradients: fish rarity colors (Common through Legendary)
-	-- Matches GameConfig.Rarities array order. Colors are illustrative —
-	-- adjust to match the actual rarity color palette used in the UI.
+	-- Rarity gradients: fish rarity colors (Common through Legendary).
+	-- kqbq.22.5: all presets derive from palette tokens via Lerp. The
+	-- canonical rarity colors used in the UI live in GameConfig.Rarities;
+	-- these gradient presets approximate them from palette tokens for
+	-- visual consistency. Presets are currently unused (no Gradients.apply
+	-- call uses the "rarity." path) but kept for future gradient effects.
 	rarity = {
-		Common = { from = Color3.fromRGB(200, 200, 200), to = Color3.fromRGB(150, 150, 150) },
-		Uncommon = { from = Color3.fromRGB(100, 200, 100), to = Color3.fromRGB(50, 150, 50) },
-		Rare = { from = Color3.fromRGB(100, 150, 255), to = Color3.fromRGB(50, 100, 200) },
-		Epic = { from = UI.purple, to = Color3.fromRGB(120, 80, 200) },
-		Legendary = { from = UI.quest, to = Color3.fromRGB(255, 160, 50) },
-		Mythic = { from = Color3.fromRGB(255, 100, 200), to = Color3.fromRGB(200, 50, 150) },
+		Common = { from = UI.textDim, to = UI.textDim:Lerp(UI.ink, 0.5) },
+		Uncommon = { from = UI.good, to = UI.good:Lerp(UI.ink, 0.5) },
+		Rare = { from = UI.accent, to = UI.accent:Lerp(UI.ink, 0.5) },
+		Epic = { from = UI.purple, to = UI.purple:Lerp(UI.ink, 0.5) },
+		Legendary = { from = UI.quest, to = UI.quest:Lerp(UI.ink, 0.5) },
+		Mythic = { from = UI.purple:Lerp(UI.bad, 0.5), to = UI.purple:Lerp(UI.ink, 0.3) },
 	},
 }
 

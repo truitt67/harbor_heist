@@ -44,6 +44,12 @@ UIPalette.colors = {
 	bg = { r = 13, g = 20, b = 31 },
 	surface = { r = 20, g = 30, b = 46 },
 	surfaceHi = { r = 30, g = 43, b = 63 },
+	-- harborheist-kqbq.22.5: Tuned mid-surface highlight for the
+	-- surface.default gradient preset (GradientLibrary). Between surface
+	-- (20,30,46) and surfaceHi (30,43,63) — provides a subtle vertical lift
+	-- on panels/overlays/cards. Promoted from a raw fromRGB in
+	-- GradientLibrary so the palette stays the single source of truth.
+	surfaceMid = { r = 26, g = 38, b = 57 },
 	stroke = { r = 255, g = 255, b = 255 },
 	accent = { r = 56, g = 152, b = 255 },
 	accentSoft = { r = 120, g = 190, b = 255 },
