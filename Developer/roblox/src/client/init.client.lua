@@ -1741,7 +1741,33 @@ local function renderEmptyState(parent, cfg)
 	return card
 end
 
+-- harborheist-kqbq.22.2: single currency/income abbreviation policy.
+-- DECISION (recorded per the bead): values render in full, comma-separated,
+-- up to 999,999; at 1,000,000+ they abbreviate to M (one decimal, trailing
+-- zero stripped: "1M", "2.5M"); 1e9+ would render as B (unreachable in
+-- practice — PlayerProfile.MAX_COINS = 999,999,999). K is intentionally
+-- unused: every surface fits "$999,999" (8 chars), so sub-million
+-- abbreviation would only cost precision. Fractional inputs under 1000
+-- keep one decimal ("0.5", "3.5") so small income-per-minute values
+-- never round to "$0"; fractional values >= 1000 round to whole digits
+-- (big numbers don't need decimals). All currency/income UI routes here.
 local function formatCash(n)
+	n = n or 0
+	local abs = math.abs(n)
+	if abs > 999999 then
+		local scaled, suffix
+		-- Promote to B once the M form would round up to "1000M"
+		-- (covers the MAX_COINS = 999,999,999 cap rendering as "1B").
+		if abs >= 999950000 then
+			scaled, suffix = n / 1e9, "B"
+		else
+			scaled, suffix = n / 1e6, "M"
+		end
+		return (string.format("%.1f", scaled):gsub("%.0$", "")) .. suffix
+	end
+	if n % 1 ~= 0 and abs < 1000 then
+		return (string.format("%.1f", n):gsub("%.0$", ""))
+	end
 	local s = tostring(math.floor(n + 0.5))
 	local formatted = s:reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
 	return formatted
@@ -2702,7 +2728,7 @@ local function showSellStorePrompt(fish)
 	sellStorePromptShown = true
 	sellStoreTargetFish = fish
 	sellStoreSellBtn.Text = string.format("SELL $%s", formatCash(fish.BaseSellValue or 0))
-	sellStoreStoreBtn.Text = string.format("STORE $%.1f/min", fish.IncomePerMinute or 0)
+	sellStoreStoreBtn.Text = string.format("STORE $%s/min", formatCash(fish.IncomePerMinute or 0))
 	sellStorePrompt.Visible = true
 	local scale = sellStorePrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 	scale.Parent = sellStorePrompt
@@ -3678,7 +3704,7 @@ local function renderInventory()
 		makeLabel(row, {
 			Size = UDim2.new(0.52, -20, 0, 18),
 			Position = UDim2.new(0, 10, 0, rowH - 24),
-			Text = string.format("$%s sell  •  $%.1f/min stored", formatCash(fish.BaseSellValue or 0), fish.IncomePerMinute or 0),
+			Text = string.format("$%s sell  •  $%s/min stored", formatCash(fish.BaseSellValue or 0), formatCash(fish.IncomePerMinute or 0)),
 			Font = Theme.type.fonts.body,
 			TextSize = Theme.type.sizes.xs,
 			TextColor3 = Theme.color.text.secondary,
@@ -3821,11 +3847,11 @@ local function createInventoryContextMenu(fish, x, y)
 				local ok, def = pcall(FishDefinitions.get, fish.SpeciesId)
 				if ok and def then
 					showNotification(
-						string.format("%s — %s\n$%s sell  •  $%.1f/min stored",
+						string.format("%s — %s\n$%s sell  •  $%s/min stored",
 							def.DisplayName or fish.SpeciesId,
 							fish.Rarity or "?",
 							formatCash(fish.BaseSellValue or 0),
-							fish.IncomePerMinute or 0),
+							formatCash(fish.IncomePerMinute or 0)),
 						Theme.color.status.info)
 				else
 					showNotification("Unknown species", Theme.color.status.bad)
@@ -4010,7 +4036,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		buildFishSilhouette(icon, rarityColor)
 
 		makeLabel(card, { Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 6, 0, 68), Text = data.displayName, Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.primary, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 27 })
-		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%d  •  $%.1f/min", data.baseSellValue or 0, data.incomePerMinute or 0), Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 106), Text = string.format("$%s  •  $%s/min", formatCash(data.baseSellValue or 0), formatCash(data.incomePerMinute or 0)), Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
 
 		local tag = Instance.new("Frame")
 		tag.Size = UDim2.new(0, 74, 0, 18)
@@ -7111,8 +7137,8 @@ local function render()
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
 		table.insert(lines, string.format(
-			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%d each</font>',
-			toHex(rarity.color), toHex(rarity.color), rarity.name, count, rarity.value
+			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%s each</font>',
+			toHex(rarity.color), toHex(rarity.color), rarity.name, count, formatCash(rarity.value)
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")
@@ -7659,7 +7685,7 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	makeLabel(card, {
 		Size = UDim2.new(1, -92, 0, 20),
 		Position = UDim2.new(0, 76, 0, 92 + contentYOffset),
-		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
+		Text = string.format("$%s  •  $%s/min", formatCash(value or 0), formatCash(incomePerMin)),
 		Font = Theme.type.fonts.body,
 		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.text.secondary,
