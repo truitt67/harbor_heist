@@ -5418,10 +5418,18 @@ end
 -- Fishing minigame overlay — glowing timing bar
 -- ============================================================
 -- TASK 23.2 (hvfh.3.2): Unified overlay factory
+-- [harborheist-a2ug.5] Show the concrete cast-timing prize instead of vague
+-- "BONUS LUCK". Values are flat config (gear-independent) — set once at
+-- construction. See FishingService TASK 14.24 (DECISION C): a perfect cast
+-- inflates the effective bite zone from the rod's base to biteZoneCeiling via
+-- (luckBonus/maxLuck)*(ceiling-base); rod/bait luck are owned stats, not at
+-- stake in this moment, so we show ONLY the marginal timing prizes.
 local castOverlay, castTitle, timingBar, hitZoneFrame, perfectZoneFrame, castSubtitle, marker, markerGlow =
 	makeOverlayFrame("CastOverlay",
 		IS_MOBILE and "TAP WHEN IN THE GREEN!" or "CLICK WHEN IN THE GREEN!",
-		"CENTER HIT  •  BONUS LUCK")
+		string.format("PERFECT +%d LUCK  •  GOOD +%d LUCK",
+			GameConfig.MiniGame.accuracyLuckBonus.perfect,
+			GameConfig.MiniGame.accuracyLuckBonus.good))
 
 local markTween = nil
 
