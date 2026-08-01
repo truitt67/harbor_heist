@@ -11481,8 +11481,7 @@ local incomeRateLabel = makeLabel(hud, {
 	TextXAlignment = Enum.TextXAlignment.Left,
 })
 local readyLabel = makeLabel(hud, {
-	Size = UDim2.new(0, 0, 0, 16),
-	AutomaticSize = Enum.AutomaticSize.X,
+	Size = UDim2.new(1, -28, 0, 16),
 	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
 	Text = "",
 	Font = Theme.type.fonts.bold,
@@ -11490,6 +11489,7 @@ local readyLabel = makeLabel(hud, {
 	TextColor3 = Color3.fromRGB(50, 160, 80),
 	TextTransparency = 1,
 	TextXAlignment = Enum.TextXAlignment.Left,
+	TextTruncate = Enum.TextTruncate.AtEnd,
 	Visible = false,
 })
 
@@ -11556,9 +11556,11 @@ local function updateIncomeLine()
 	incomeRateLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	if ready > 0 then
 		readyLabel.Text = string.format("  •  $%s ready", formatCash(ready))
-		-- Position readyLabel after the rate text using TextBounds measurement
-		local rateW = incomeRateLabel.TextBounds.X
+		-- Position readyLabel after the rate text and constrain its width
+		-- to the remaining HUD card space (prevents overflow on mobile).
+		local rateW = math.floor(incomeRateLabel.TextBounds.X)
 		readyLabel.Position = UDim2.new(0, 14 + rateW, 1, IS_MOBILE and -22 or -26)
+		readyLabel.Size = UDim2.new(1, -(14 + rateW), 0, 16)
 		readyLabel.Visible = true
 	else
 		readyLabel.Visible = false
@@ -15168,8 +15170,8 @@ if IS_MOBILE then
 	fadeGrad.Rotation = 90
 	fadeGrad.Color = ColorSequence.new(Theme.color.surface.primary)
 	fadeGrad.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.84),
-		NumberSequenceKeypoint.new(1, 1),
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0.5),
 	})
 	fadeGrad.Parent = stackFade
 	local stackFadeShown = false
@@ -15263,44 +15265,45 @@ if IS_MOBILE then
 				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
 				entry.hero.TextSize = math.max(12, math.floor(18 * MIN_SCALE + 0.5))
 			end
-			-- Enable scrolling if stack overflows viewport
-			if stack:IsA("ScrollingFrame") then
-				stack.CanvasSize = UDim2.new(0, 0, 0, contentH)
-				stack.ScrollingEnabled = true
-				stack.ScrollingDirection = Enum.ScrollingDirection.Y
-			-- harborheist-kqbq.8: position the fade at the stack's bottom edge
-			stackFade.Size = UDim2.new(0, btnSize + 4, 0, 24)
-			stackFade.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
-			end
-		else
-			-- Normal scaling (fits within viewport)
-			local scale = math.clamp(idealScale, MIN_SCALE, 1)
-			local btnSize = math.floor(60 * scale + 0.5)
-			-- Pitch = button size + padding between buttons
-			mobileStackPitch = btnSize + MOBILE_STACK_PADDING
-			-- Calculate actual content height: buttons + gaps between them
-			local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
-			stack.Size = UDim2.new(0, btnSize + 4, 0, contentH)
-			for _, entry in ipairs(mobileStackButtons) do
-				entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
-				entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
-			end
-			-- Disable scrolling when it fits
-			if stack:IsA("ScrollingFrame") then
-				stack.CanvasSize = UDim2.new(0, 0, 0, 0)
-				stack.ScrollingEnabled = false
-			end
-		-- harborheist-kqbq.8: update fade visibility based on scroll state
-		local atBottom = stack.CanvasPosition.Y >= (stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y) - 1
-		if not stack.ScrollingEnabled or atBottom then
-			stackFade.Visible = false
-			stackFadeShown = false
-		else
-			stackFade.Visible = true
-			stackFadeShown = true
+		-- Enable scrolling if stack overflows viewport
+		if stack:IsA("ScrollingFrame") then
+			stack.CanvasSize = UDim2.new(0, 0, 0, contentH)
+			stack.ScrollingEnabled = true
+			stack.ScrollingDirection = Enum.ScrollingDirection.Y
+		end
+		-- harborheist-kqbq.8: position the fade at the stack's bottom edge
+		stackFade.Size = UDim2.new(0, btnSize + 4, 0, 24)
+		stackFade.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+	else
+		-- Normal scaling (fits within viewport)
+		local scale = math.clamp(idealScale, MIN_SCALE, 1)
+		local btnSize = math.floor(60 * scale + 0.5)
+		-- Pitch = button size + padding between buttons
+		mobileStackPitch = btnSize + MOBILE_STACK_PADDING
+		-- Calculate actual content height: buttons + gaps between them
+		local contentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
+		stack.Size = UDim2.new(0, btnSize + 4, 0, contentH)
+		for _, entry in ipairs(mobileStackButtons) do
+			entry.holder.Size = UDim2.new(0, btnSize, 0, btnSize)
+			entry.hero.TextSize = math.max(12, math.floor(18 * scale + 0.5))
+		end
+		-- Disable scrolling when it fits
+		if stack:IsA("ScrollingFrame") then
+			stack.CanvasSize = UDim2.new(0, 0, 0, 0)
+			stack.ScrollingEnabled = false
 		end
 	end
+	-- harborheist-kqbq.8: update fade visibility based on scroll state
+	-- (runs for BOTH scrollable and non-scrollable cases)
+	local atBottom = stack.CanvasPosition.Y >= (stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y) - 1
+	if not stack.ScrollingEnabled or atBottom then
+		stackFade.Visible = false
+		stackFadeShown = false
+	else
+		stackFade.Visible = true
+		stackFadeShown = true
 	end
+end
 	layoutMobileStack()
 	-- harborheist-kqbq.8: watch scroll position to hide fade at bottom
 	stack:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
