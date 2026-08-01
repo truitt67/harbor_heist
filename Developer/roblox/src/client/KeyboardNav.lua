@@ -244,7 +244,9 @@ function KeyboardNav:ApplyFocus()
 end
 
 --[[
-	Enable keyboard navigation (start listening for Tab/Enter/Space).
+	Enable keyboard navigation (start listening for Tab/Shift+Tab).
+	Enter/Space activation is handled natively by the engine via
+	GuiService.SelectedObject (see ApplyFocus).
 	
 	@return nil
 ]]
@@ -301,9 +303,13 @@ end
 	@return nil
 ]]
 function KeyboardNav:ClearAll()
+	local selected = GuiService.SelectedObject
 	for _, entry in ipairs(focusableElements) do
 		if entry.stroke then
 			entry.stroke:Destroy()
+		end
+		if entry.element == selected then
+			GuiService.SelectedObject = nil
 		end
 	end
 	focusableElements = {}
