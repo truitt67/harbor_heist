@@ -34,6 +34,7 @@
 -- kqbq.22.2 contracts ACTIVATED 2026-08-01: single formatCash abbreviation policy + all currency/income surfaces routed through it.
 -- 6yp6.1 contracts ACTIVATED 2026-08-01: toast AbsoluteSize connection stored + disconnected in dismiss() (per-toast leak fix).
 -- 6yp6.4 contracts ACTIVATED 2026-08-01: aquarium viewport connection tracked + stale binding disconnected on camera change.
+-- 6yp6.2 contracts ACTIVATED 2026-08-01: scrollbar auto-hide helper returns connection handle + action-stack connection stored at module level.
 
 local fs = require("@lune/fs")
 
@@ -1031,6 +1032,27 @@ describe("EPIC 44 client chrome source contracts", function()
 			expect(rebindPos).to.be.a("number")
 			expect(bindPos < disconnectPos).to.equal(true)
 			expect(disconnectPos < rebindPos).to.equal(true)
+		end)
+	end)
+
+	describe("6yp6.2 scrollbar/action-stack connection handles (static leak defense)", function()
+		it("applyScrollbarAutoHide captures and returns the CanvasPosition connection", function()
+			local defPos = clientSource:find("local function applyScrollbarAutoHide(scrollingFrame)", 1, true)
+			local connPos = clientSource:find('local conn = scrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()', 1, true)
+			local returnPos = clientSource:find("return conn", 1, true)
+			expect(defPos).to.be.a("number")
+			expect(connPos).to.be.a("number")
+			expect(returnPos).to.be.a("number")
+			expect(defPos < connPos).to.equal(true)
+			expect(connPos < returnPos).to.equal(true)
+		end)
+		it("action stack scroll connection stored in a module-level local", function()
+			expect(clientSource:find('local actionStackScrollConn = stack:GetPropertyChangedSignal("CanvasPosition"):Connect(function()', 1, true)).to.be.a("number")
+		end)
+		it("decorator call sites unchanged (7 references: 1 definition + 6 calls)", function()
+			local count = 0
+			for _ in clientSource:gmatch("applyScrollbarAutoHide%(") do count = count + 1 end
+			expect(count).to.equal(7)
 		end)
 	end)
 end)

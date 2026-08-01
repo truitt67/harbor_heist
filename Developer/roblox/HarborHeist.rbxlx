@@ -10358,7 +10358,11 @@ local function applyScrollbarAutoHide(scrollingFrame)
 	scrollingFrame.ScrollBarImageTransparency = 1
 	local fadeTween = nil
 	local idleTask = nil
-	scrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+	-- harborheist-review-aug2026-6yp6.2: capture + return the connection so
+	-- callers CAN disconnect — was fire-and-forget, violating the disconnect-
+	-- all-connections best practice (frames are session-lifetime today, so
+	-- this is defensive trackability, not an active-leak fix).
+	local conn = scrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 		if fadeTween then
 			fadeTween:Cancel()
 			fadeTween = nil
@@ -10376,6 +10380,7 @@ local function applyScrollbarAutoHide(scrollingFrame)
 			fadeTween:Play()
 		end)
 	end)
+	return conn
 end
 
 -- TASK 23.2 (hvfh.3.2): Unified overlay factory.
@@ -15788,7 +15793,11 @@ if IS_MOBILE then
 end
 	layoutMobileStack()
 	-- harborheist-kqbq.8: watch scroll position to hide fade at bottom
-	stack:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+	-- harborheist-review-aug2026-6yp6.2: handle stored at module level so
+	-- it's trackable/disconnectable (was fire-and-forget). Session-lifetime
+	-- frame, so never read — annotated to hold the selene baseline.
+	-- selene: allow(unused_variable)
+	local actionStackScrollConn = stack:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
 		if not stack.ScrollingEnabled then return end
 		local atBottom = stack.CanvasPosition.Y >= (stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y) - 1
 		if atBottom and stackFadeShown then
