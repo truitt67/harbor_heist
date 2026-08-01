@@ -912,7 +912,12 @@ local function makeButton(parent, props)
 			local maxSize = math.max(absSize.X, absSize.Y) * 1.5
 			local ripple = Instance.new("Frame")
 			ripple.Name = "Ripple"
-			ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			-- [harborheist-kqbq.4] Derive ripple color from button luminance
+			-- so it's visible on both dark (primary) and light
+			-- (secondary/ghost) buttons. White on dark, ink-dark on light.
+			local btnColor = button.BackgroundColor3
+			local lum = 0.299 * btnColor.R + 0.587 * btnColor.G + 0.114 * btnColor.B
+			ripple.BackgroundColor3 = lum > 0.55 and Theme.color.text.ink or Color3.fromRGB(255, 255, 255)
 			ripple.BackgroundTransparency = 0.6
 			ripple.AnchorPoint = Vector2.new(0.5, 0.5)
 			ripple.Position = UDim2.new(0, x, 0, y)
@@ -4964,6 +4969,7 @@ function startRaidMinigame(challenge)
 		while raidMinigameActive do
 			local elapsed = os.clock() - startTime
 			if elapsed > raidMinigameDuration then
+				raidMinigameActive = false
 				break
 			end
 			-- Triangular wave: 0 -> 1 -> 0 (identical pattern to runMinigame)
@@ -5427,7 +5433,7 @@ else
 end
 
 -- harborheist-ncxu: Register action buttons with keyboard navigation
--- Tab order: action buttons first (fish, store, collection, quests, raid, boat)
+-- Tab order: action buttons first (fish, store, collection, quests, raid, boat, help)
 if not IS_MOBILE then
 	local tabOrder = 1
 	for _, action in ipairs(ACTIONS) do
