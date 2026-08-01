@@ -80,5 +80,44 @@ return function(describe, it, expect)
 			has("Size = UDim2.new(0, IS_MOBILE and 96 or 80, 0, IS_MOBILE and 44 or 32)", "wide button height 44px")
 			has("local buyH = IS_MOBILE and 44 or 38", "buyH height var")
 		end)
+
+		-- [harborheist-a2ug.13] mobile "?" help button is 44x44 (touch target)
+		it("mobile help button is 44x44 touch-target minimum", function()
+			has("Size = UDim2.new(0, 44, 0, 44)", "mobile help button 44x44")
+		end)
+	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: help panel content + entry points (a2ug.13)
+	-- ──────────────────────────────────────────────────────────────────
+	describe("Source contract: help panel entry points (a2ug.13)", function()
+		it("desktop HELP chip added to ACTIONS table", function()
+			has("id = \"help\", label = \"HELP\"", "HELP chip in ACTIONS")
+		end)
+
+		it("mobile help button variable exists", function()
+			has("mobileHelpButton", "mobileHelpButton variable")
+		end)
+
+		it("help panel title changed to HOW TO PLAY", function()
+			has('makePanel("HOW TO PLAY"', "HOW TO PLAY panel title")
+		end)
+
+		it("gameplay tip rows prepended to SHORTCUT_ROWS", function()
+			has("tip = true", "tip field in SHORTCUT_ROWS")
+			has("Fish in the glowing zone", "gameplay tip: fish in zone")
+			has("Store fish in your tank", "gameplay tip: store fish")
+			has("Sell fish for instant cash", "gameplay tip: sell fish")
+			has("Buy upgrades at the Bait", "gameplay tip: buy upgrades")
+		end)
+
+		it("mobile skips keyboard-only shortcut rows", function()
+			has("renderRow = mobileKeys", "mobile key filter for shortcuts")
+		end)
+
+		it("helpPanel forward-declared for updateActionBarIndicator", function()
+			has("local helpPanel = nil", "helpPanel forward declaration")
+			has("[helpPanel] = \"help\"", "helpPanel in panelToAction map")
+		end)
 	end)
 end

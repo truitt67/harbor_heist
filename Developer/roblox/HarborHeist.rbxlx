@@ -14677,6 +14677,33 @@ local raidBannerLabel = makeLabel(raidBanner, {
 	ZIndex = 19,
 })
 -- ============================================================
+-- [harborheist-a2ug.13] Mobile "?" help button — always-visible entry
+-- point to the SHORTCUTS / HOW TO PLAY panel. Desktop uses an ACTIONS
+-- chip instead (added to the ACTIONS table above). The "?" sits 44px
+-- below the raid-banner slot so the two never overlap.
+-- ============================================================
+local mobileHelpButton = nil
+if IS_MOBILE then
+	mobileHelpButton = makeButton(screenGui, {
+		Size = UDim2.new(0, 44, 0, 44),
+		Position = UDim2.new(1, -12, 0, SAFE_TOP + 50),
+		AnchorPoint = Vector2.new(1, 0),
+		Text = "?",
+		BackgroundColor3 = Theme.color.surface.primary,
+		TextColor3 = Theme.color.text.tertiary,
+		CornerRadius = Theme.corners.pill,
+	})
+	mobileHelpButton.BackgroundTransparency = 0.16
+	mobileHelpButton.ZIndex = 18
+	stroke(mobileHelpButton, 0.58, Theme.color.text.tertiary, 1.5)
+	table.insert(safeTopConsumers, function()
+		if mobileHelpButton then
+			mobileHelpButton.Position = UDim2.new(1, -12, 0, SAFE_TOP + 50)
+		end
+	end)
+end
+
+-- ============================================================
 -- Action bar
 --   Desktop: bottom-center pill bar with keyboard hint chips.
 --   Mobile: right-edge thumb-zone stack of large round buttons.
@@ -16647,6 +16674,12 @@ helpListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 helpListLayout.Parent = helpList
 
 local SHORTCUT_ROWS = {
+	-- [harborheist-a2ug.13] Gameplay how-to-play tips (both platforms).
+	{ tip = true, desc = "Fish in the glowing zone at your dock" },
+	{ tip = true, desc = "Store fish in your tank for passive income" },
+	{ tip = true, desc = "Sell fish for instant cash" },
+	{ tip = true, desc = "Buy upgrades at the Bait &amp; Tackle shop" },
+	-- Keyboard shortcuts (desktop only — mobile skips these rows).
 	{ key = "F",     desc = "Cast / Start Fishing" },
 	{ key = "Space", desc = "Cast (when no panel is open)" },
 	{ key = "G",     desc = "Fish Bag (carried fish)" },
@@ -16664,43 +16697,68 @@ local SHORTCUT_ROWS = {
 }
 
 for idx, row in ipairs(SHORTCUT_ROWS) do
-	local rowFrame = Instance.new("Frame")
-	rowFrame.Size = UDim2.new(1, 0, 0, 30)
-	rowFrame.BackgroundTransparency = 1
-	rowFrame.LayoutOrder = idx
-	rowFrame.ZIndex = 26
-	rowFrame.Parent = helpList
+	-- [harborheist-a2ug.13] Skip keyboard-only shortcuts on mobile (no
+	-- keyboard); gameplay tip rows render on both platforms.
+	local renderRow = true
+	if IS_MOBILE and row.key and not row.tip then
+		local mobileKeys = { F = true, G = true, C = true, T = true, S = true, Q = true, R = true, B = true }
+		renderRow = mobileKeys[row.key] == true
+	end
 
-	local chip = Instance.new("Frame")
-	chip.Size = UDim2.new(0, 46, 0, 24)
-	chip.Position = UDim2.new(0, 0, 0.5, 0)
-	chip.AnchorPoint = Vector2.new(0, 0.5)
-	chip.BackgroundColor3 = Theme.color.surface.elevated
-	chip.ZIndex = 27
-	chip.Parent = rowFrame
-	corner(chip, Theme.corners.compact)
-	stroke(chip, 0.85)
+	if renderRow then
+		local rowFrame = Instance.new("Frame")
+		rowFrame.Size = UDim2.new(1, 0, 0, 30)
+		rowFrame.BackgroundTransparency = 1
+		rowFrame.LayoutOrder = idx
+		rowFrame.ZIndex = 26
+		rowFrame.Parent = helpList
 
-	makeLabel(chip, {
-		Size = UDim2.new(1, 0, 1, 0),
-		Text = row.key,
-		Font = Theme.type.fonts.bold,
-		TextSize = Theme.type.sizes.xs,
-		TextColor3 = Theme.color.text.secondary,
-		ZIndex = 28,
-	})
+		if row.tip then
+			-- Gameplay tip: full-width text, no key chip
+			makeLabel(rowFrame, {
+				Size = UDim2.new(1, 0, 1, 0),
+				Position = UDim2.new(0, 0, 0, 0),
+				Text = "\u{2022} " .. row.desc,
+				Font = Theme.type.fonts.med,
+				TextSize = Theme.type.sizes.sm,
+				TextColor3 = Theme.color.accent.soft,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				ZIndex = 27,
+			})
+		else
+			local chip = Instance.new("Frame")
+			chip.Size = UDim2.new(0, 46, 0, 24)
+			chip.Position = UDim2.new(0, 0, 0.5, 0)
+			chip.AnchorPoint = Vector2.new(0, 0.5)
+			chip.BackgroundColor3 = Theme.color.surface.elevated
+			chip.ZIndex = 27
+			chip.Parent = rowFrame
+			corner(chip, Theme.corners.compact)
+			stroke(chip, 0.85)
 
-	makeLabel(rowFrame, {
-		Size = UDim2.new(1, -56, 1, 0),
-		Position = UDim2.new(0, 56, 0, 0),
-		Text = row.desc,
-		Font = Theme.type.fonts.med,
-		TextSize = Theme.type.sizes.sm,
-		TextColor3 = Theme.color.text.primary,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		ZIndex = 27,
-	})
+			makeLabel(chip, {
+				Size = UDim2.new(1, 0, 1, 0),
+				Text = row.key,
+				Font = Theme.type.fonts.bold,
+				TextSize = Theme.type.sizes.xs,
+				TextColor3 = Theme.color.text.secondary,
+				ZIndex = 28,
+			})
+
+			makeLabel(rowFrame, {
+				Size = UDim2.new(1, -56, 1, 0),
+				Position = UDim2.new(0, 56, 0, 0),
+				Text = row.desc,
+				Font = Theme.type.fonts.med,
+				TextSize = Theme.type.sizes.sm,
+				TextColor3 = Theme.color.text.primary,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextTruncate = Enum.TextTruncate.AtEnd,
+				ZIndex = 27,
+			})
+		end
+	end
 end
 
 helpClose.Activated:Connect(hidePanels)
@@ -16717,6 +16775,16 @@ local function toggleHelpPanel()
 		return
 	end
 	showPanel(helpPanel)
+end
+
+-- [harborheist-a2ug.13] Wire HELP action button (desktop) and mobile "?" button
+-- to toggleHelpPanel. Both are gated (help only exists on desktop; the mobile
+-- "?" button is IS_MOBILE-only).
+if actionButtons.help then
+	actionButtons.help.Activated:Connect(toggleHelpPanel)
+end
+if mobileHelpButton then
+	mobileHelpButton.Activated:Connect(toggleHelpPanel)
 end
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
