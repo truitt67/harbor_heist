@@ -60,6 +60,15 @@ local dockManager: any = nil
 
 local rng = Random.new()
 
+-- harborheist-a2ug.12: rarity rank lookup (Common=1 … Legendary=5) derived
+-- from GameConfig.Rarities order, used to report the best stealable rarity
+-- present in an available target's live-well ("best in pool" intel, not a
+-- promise — selection stays weighted-random at resolution time).
+local RARITY_RANK = {}
+for i, rarity in ipairs(GameConfig.Rarities) do
+	RARITY_RANK[rarity.name] = i
+end
+
 -- Test seam (mirrors _setRng below): lets specs substitute the live player
 -- list instead of fabricating engine Player Instances, which sandboxed
 -- plugin contexts cannot create (WritePlayer capability). nil = real Players.
@@ -375,12 +384,27 @@ function RaidService.getRaidTargets(player: Player)
 				end
 				if eligible then
 					local stealable = aquariumService.getStealableFish(targetSession)
+					-- harborheist-a2ug.12: best stealable rarity in the pool.
+					-- Legendary is never stealable (IsRaidProtected) so it can
+					-- never appear here — no Legendary/species leak. Epic is
+					-- included (it is stealable, merely weight-reduced at
+					-- selection time), so the signal is honest pool intel.
+					local bestRarity = nil
+					local bestRank = 0
+					for _, fish in ipairs(stealable) do
+						local rank = RARITY_RANK[fish.Rarity] or 0
+						if rank > bestRank then
+							bestRank = rank
+							bestRarity = fish.Rarity
+						end
+					end
 					table.insert(targets, {
 						userId = targetPlayer.UserId,
 						name = targetPlayer.Name,
 						displayName = targetPlayer.DisplayName,
 						dockIndex = targetSession.dockIndex or 0,
 						stealableCount = #stealable,
+						bestRarity = bestRarity,
 						available = true,
 					})
 				elseif eligReason == "locked" or eligReason == "raid_protection" or eligReason == "no_stealable_fish" or eligReason == "loss_capped" or eligReason == "safe_harbor" then

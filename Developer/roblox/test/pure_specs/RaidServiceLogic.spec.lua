@@ -996,6 +996,23 @@ return function(describe, it, expect)
 			expect(raidSource:find("RaidService._setWindowOpen", 1, true)).to.be.a("number")
 			expect(raidSource:find("RaidService._activeRaids", 1, true)).to.be.a("number")
 		end)
+		it("a2ug.12: available targets report stealableCount (already sent)", function()
+			expect(raidSource:find("stealableCount = #stealable,", 1, true)).to.be.a("number")
+		end)
+
+		it("a2ug.12: rarity rank lookup derived from GameConfig.Rarities order", function()
+			expect(raidSource:find("local RARITY_RANK = {}", 1, true)).to.be.a("number")
+			expect(raidSource:find("RARITY_RANK[rarity.name] = i", 1, true)).to.be.a("number")
+		end)
+
+		it("a2ug.12: available targets carry bestRarity (best-in-pool intel)", function()
+			expect(raidSource:find("bestRarity = bestRarity,", 1, true)).to.be.a("number")
+		end)
+
+		it("a2ug.12: bestRarity scans the stealable pool by rank", function()
+			expect(raidSource:find("local rank = RARITY_RANK[fish.Rarity] or 0", 1, true)).to.be.a("number")
+			expect(raidSource:find("if rank > bestRank then", 1, true)).to.be.a("number")
+		end)
 
 		it("GameConfig raid window: 20-30 min gap, 5 min duration", function()
 			expect(gameConfigSource:find("windowIntervalMin = 20 * 60", 1, true)).to.be.a("number")
