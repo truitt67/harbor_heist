@@ -1774,7 +1774,9 @@ local function formatCash(n)
 		return (string.format("%.1f", scaled):gsub("%.0$", "")) .. suffix
 	end
 	if n % 1 ~= 0 and abs < 1000 then
-		return (string.format("%.1f", n):gsub("%.0$", ""))
+		local s = string.format("%.1f", n):gsub("%.0$", "")
+		if s == "-0" then s = "0" end
+		return s
 	end
 	local s = tostring(math.floor(n + 0.5))
 	-- d6f5: negative magnitudes with digit-count ≡ 0 (mod 3) group as "-,150"
@@ -2178,12 +2180,14 @@ recomputeMobileToastCap()
 -- handles screen rotation smoothly (cap adjusts within 1s) at negligible
 -- O(1) cost per tick. If event-driven is ever desired, pair with the
 -- 6yp6.4 tracked-connection pattern.
-task.spawn(function()
-	while true do
-		recomputeMobileToastCap()
-		task.wait(1)
-	end
-end)
+if IS_MOBILE then
+	task.spawn(function()
+		while true do
+			recomputeMobileToastCap()
+			task.wait(1)
+		end
+	end)
+end
 
 -- Forward declaration: showToastDirect calls drainToastQueue (line 517)
 -- before it's defined, causing a runtime error.
