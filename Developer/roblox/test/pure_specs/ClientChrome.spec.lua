@@ -11,6 +11,7 @@
 -- kqbq.3 contracts ACTIVATED 2026-08-01: EASE_HOVER 0.2s for all hover tweens.
 -- kqbq.5 contracts ACTIVATED 2026-08-01: toast accent bar 6px + soft glow frame.
 -- kqbq.6 contracts ACTIVATED 2026-08-01: marker glow 18px / 0.50 transparency.
+-- kqbq.9 contracts ACTIVATED 2026-08-01: mobile scrollbar auto-hide on idle.
 
 local fs = require("@lune/fs")
 
@@ -132,6 +133,44 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("no 0.75 transparency remains on biteMarkerGlow", function()
 			expect(clientSource:find("biteMarkerGlow.BackgroundTransparency = 0.75", 1, true) == nil).to.equal(true)
+		end)
+	end)
+
+	describe("kqbq.9 mobile scrollbar auto-hide", function()
+		it("applyScrollbarAutoHide helper defined", function()
+			expect(clientSource:find("local function applyScrollbarAutoHide(scrollingFrame)", 1, true)).to.be.a("number")
+		end)
+		it("helper has IS_MOBILE guard", function()
+			expect(clientSource:find("if not IS_MOBILE then return end", 1, true)).to.be.a("number")
+		end)
+		it("helper uses 1.2s idle delay", function()
+			expect(clientSource:find("task.delay(1.2", 1, true)).to.be.a("number")
+		end)
+		it("initial transparency set to 1 (hidden)", function()
+			expect(clientSource:find("ScrollBarImageTransparency = 1", 1, true)).to.be.a("number")
+		end)
+		it("applied to inventoryList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(inventoryList)", 1, true)).to.be.a("number")
+		end)
+		it("applied to collectionList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(collectionList)", 1, true)).to.be.a("number")
+		end)
+		it("applied to shopList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(shopList)", 1, true)).to.be.a("number")
+		end)
+		it("applied to questList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(questList)", 1, true)).to.be.a("number")
+		end)
+		it("applied to raidTargetList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(raidTargetList)", 1, true)).to.be.a("number")
+		end)
+		it("applied to helpList", function()
+			expect(clientSource:find("applyScrollbarAutoHide(helpList)", 1, true)).to.be.a("number")
+		end)
+		it("helper applied to all 6 scrolling frames", function()
+			local count = 0
+			for _ in clientSource:gmatch("applyScrollbarAutoHide%(") do count = count + 1 end
+			expect(count).to.equal(7) -- 1 definition check + 6 calls
 		end)
 	end)
 end)

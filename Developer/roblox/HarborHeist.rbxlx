@@ -10156,6 +10156,32 @@ local function makeLabel(parent, props)
 	label.Parent = parent
 	return label
 end
+-- harborheist-kqbq.9: Mobile scrollbar auto-hide — bar appears during scroll,
+-- fades to transparent after ~1.2s idle. Desktop keeps the persistent thin bar.
+local function applyScrollbarAutoHide(scrollingFrame)
+	if not IS_MOBILE then return end
+	scrollingFrame.ScrollBarImageTransparency = 1
+	local fadeTween = nil
+	local idleTask = nil
+	scrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		if fadeTween then
+			fadeTween:Cancel()
+			fadeTween = nil
+		end
+		if idleTask then
+			task.cancel(idleTask)
+			idleTask = nil
+		end
+		if scrollingFrame.ScrollBarImageTransparency > 0 then
+			TweenService:Create(scrollingFrame, EASE_FAST, { ScrollBarImageTransparency = 0 }):Play()
+		end
+		idleTask = task.delay(1.2, function()
+			idleTask = nil
+			fadeTween = TweenService:Create(scrollingFrame, EASE_FAST, { ScrollBarImageTransparency = 1 })
+			fadeTween:Play()
+		end)
+	end)
+end
 
 -- TASK 23.2 (hvfh.3.2): Unified overlay factory.
 -- TASK 21.4 (harborheist-7w5a): definition MOVED below the primitive helpers
@@ -12793,6 +12819,7 @@ inventoryList.Position = UDim2.new(0, 0, 0, 24)
 inventoryList.BackgroundTransparency = 1
 inventoryList.ScrollBarThickness = 4
 inventoryList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(inventoryList)
 inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
 inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 inventoryList.ZIndex = 26
@@ -13226,6 +13253,7 @@ collectionList.Position = UDim2.new(0, 0, 0, 44)
 collectionList.BackgroundTransparency = 1
 collectionList.ScrollBarThickness = 4
 collectionList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(collectionList)
 collectionList.CanvasSize = UDim2.new(0, 0, 0, 0)
 collectionList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 collectionList.ZIndex = 26
@@ -13625,6 +13653,7 @@ shopList.Size = UDim2.new(1, 0, 1, 0)
 shopList.BackgroundTransparency = 1
 shopList.ScrollBarThickness = 4
 shopList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(shopList)
 shopList.CanvasSize = UDim2.new(0, 0, 0, 0)
 shopList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 shopList.ZIndex = 26
@@ -14104,6 +14133,7 @@ questList.Size = UDim2.new(1, 0, 1, 0)
 questList.BackgroundTransparency = 1
 questList.ScrollBarThickness = 4
 questList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(questList)
 questList.CanvasSize = UDim2.new(0, 0, 0, 0)
 questList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 questList.ZIndex = 26
@@ -14288,6 +14318,7 @@ raidTargetList.Position = UDim2.new(0, 0, 0, 144)
 raidTargetList.BackgroundTransparency = 1
 raidTargetList.ScrollBarThickness = 4
 raidTargetList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(raidTargetList)
 raidTargetList.CanvasSize = UDim2.new(0, 0, 0, 0)
 raidTargetList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 raidTargetList.ZIndex = 26
@@ -16890,6 +16921,7 @@ helpList.BackgroundTransparency = 1
 helpList.BorderSizePixel = 0
 helpList.ScrollBarThickness = 4
 helpList.ScrollBarImageColor3 = Theme.color.text.tertiary
+applyScrollbarAutoHide(helpList)
 helpList.CanvasSize = UDim2.new(0, 0, 0, 0)
 helpList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 helpList.ZIndex = 26
