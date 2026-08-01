@@ -625,4 +625,53 @@ return function(describe, it, expect)
 			expect(rowBgIdx).to.be.a("number")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: a2ug.8 delta subtext on the purchasable row
+	-- ──────────────────────────────────────────────────────────────────
+	describe("Source contract: a2ug.8 delta subtext", function()
+		it("itemDeltaSubText function exists", function()
+			expect(clientSource:find("local function itemDeltaSubText(entry, currentLevel)", 1, true)).to.be.a("number")
+		end)
+
+		it("delta function handles rod kind", function()
+			expect(clientSource:find('"rod"', 1, true)).to.be.a("number")
+			local deltaIdx = clientSource:find("local function itemDeltaSubText", 1, true)
+			local rodIdx = clientSource:find('entry.kind == "rod"', deltaIdx, true)
+			expect(rodIdx).to.be.a("number")
+		end)
+
+		it("delta function handles all six kinds", function()
+			local deltaIdx = clientSource:find("local function itemDeltaSubText", 1, true)
+			for _, kind in ipairs({ "rod", "bait", "aquarium", "lock", "alarm", "dock" }) do
+				local idx = clientSource:find('entry.kind == "' .. kind .. '"', deltaIdx, true)
+				expect(idx).to.be.a("number")
+			end
+		end)
+
+		it("delta uses arrow separator ( -> )", function()
+			expect(clientSource:find(" luck -> +", 1, true)).to.be.a("number")
+			expect(clientSource:find(" -> ", 1, true)).to.be.a("number")
+		end)
+
+		it("buildShopRow stores subTextLabel in shopRows entry", function()
+			expect(clientSource:find("subTextLabel = subTextLabel", 1, true)).to.be.a("number")
+		end)
+
+		it("refreshShop sets delta text on purchasable row", function()
+			expect(clientSource:find("itemDeltaSubText(entry, currentLevel)", 1, true)).to.be.a("number")
+		end)
+
+		it("refreshShop restores absolute text on OWNED row", function()
+			local ownedIdx = clientSource:find('entry.buyButton.Text = "OWNED"', 1, true)
+			local subTextIdx = clientSource:find("itemSubText(entry)", ownedIdx, true)
+			expect(subTextIdx).to.be.a("number")
+		end)
+
+		it("refreshShop restores absolute text on LOCKED row", function()
+			local lockedIdx = clientSource:find('entry.buyButton.Text = "LOCKED"', 1, true)
+			local subTextIdx = clientSource:find("itemSubText(entry)", lockedIdx, true)
+			expect(subTextIdx).to.be.a("number")
+		end)
+	end)
 end

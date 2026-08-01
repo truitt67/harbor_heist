@@ -4012,6 +4012,51 @@ local function itemSubText(entry)
 	return it.desc or ""
 end
 
+-- [harborheist-a2ug.8] Delta subtext for the purchasable row: shows
+-- "current -> next" instead of describing the next tier in isolation.
+-- Answers the player's actual question: "what do I GAIN by buying this?"
+local function itemDeltaSubText(entry, currentLevel)
+	local nxt = entry.item
+	local curr = nil
+	if entry.kind == "rod" then
+		curr = GameConfig.Rods[currentLevel]
+	elseif entry.kind == "bait" then
+		curr = GameConfig.Baits[currentLevel]
+	elseif entry.kind == "aquarium" then
+		curr = GameConfig.AquariumUpgradeTiers[currentLevel]
+	elseif entry.kind == "lock" then
+		curr = currentLevel > 0 and GameConfig.Upgrades.Lock[currentLevel] or nil
+	elseif entry.kind == "alarm" then
+		curr = currentLevel > 0 and GameConfig.Upgrades.Alarm[currentLevel] or nil
+	elseif entry.kind == "dock" then
+		curr = GameConfig.DockUpgradeTiers[currentLevel]
+	end
+	if entry.kind == "rod" or entry.kind == "bait" then
+		return "+" .. (curr and curr.luck or 0) .. " luck -> +" .. (nxt.luck or 0) .. " luck"
+	elseif entry.kind == "aquarium" then
+		local fromPct = math.floor(((curr and curr.incomeMultiplier or 1) - 1) * 100 + 0.5)
+		local toPct = math.floor(((nxt.incomeMultiplier or 1) - 1) * 100 + 0.5)
+		return (curr and curr.capacity or 0) .. " -> " .. (nxt.capacity or 0) .. " fish  •  +" .. fromPct .. "% -> +" .. toPct .. "% income"
+	elseif entry.kind == "lock" then
+		return (curr and curr.lockDuration or GameConfig.Aquarium.lockDuration or 60) .. "s/" .. (curr and curr.lockCooldown or GameConfig.Aquarium.lockCooldown or 120) .. "s -> " .. (nxt.lockDuration or 0) .. "s/" .. (nxt.lockCooldown or 0) .. "s"
+	elseif entry.kind == "alarm" then
+		local fromStun = curr and curr.stunDuration or 0
+		if fromStun == 0 then
+			return "No alarm -> " .. (nxt.stunDuration or 0) .. "s stun"
+		end
+		return fromStun .. "s -> " .. (nxt.stunDuration or 0) .. "s stun"
+	elseif entry.kind == "dock" then
+		local fromPct = math.floor(((curr and curr.incomeMultiplier or 1) - 1) * 100 + 0.5)
+		local toPct = math.floor(((nxt.incomeMultiplier or 1) - 1) * 100 + 0.5)
+		local s = "+" .. fromPct .. "% -> +" .. toPct .. "% income"
+		if nxt.cosmeticUnlocks and #nxt.cosmeticUnlocks > 0 then
+			s = s .. "  •  " .. table.concat(nxt.cosmeticUnlocks, ", ")
+		end
+		return s
+	end
+	return itemSubText(entry)
+end
+
 local refreshShop
 
 -- [harborheist-a2ug.10] Per-row flash guard (like fishShakeToken) — prevents
@@ -4059,7 +4104,9 @@ local function buildShopRow(entry)
 		ZIndex = 27,
 	})
 
-	makeLabel(row, {
+	-- [harborheist-a2ug.8] Store subtext label so refreshShop can swap
+	-- between absolute (OWNED/LOCKED) and delta (purchasable) text.
+	local subTextLabel = makeLabel(row, {
 		Size = UDim2.new(0.64, -20, 0, 30),
 		Position = UDim2.new(0, 10, 0, 30),
 		Text = itemSubText(entry),
@@ -4121,7 +4168,7 @@ local function buildShopRow(entry)
 		end
 	end)
 
-	shopRows[entry.kind .. entry.level] = { row = row, buyButton = buyButton, level = entry.level, kind = entry.kind, item = entry.item }
+	shopRows[entry.kind .. entry.level] = { row = row, buyButton = buyButton, subTextLabel = subTextLabel, level = entry.level, kind = entry.kind, item = entry.item }
 end
 
 function refreshShop()
@@ -4169,6 +4216,10 @@ function refreshShop()
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.elevated
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
 			entry.buyButton.Active = false
+			-- [harborheist-a2ug.8] absolute desc for OWNED rows
+			if entry.subTextLabel then
+				entry.subTextLabel.Text = itemSubText(entry)
+			end
 		elseif entry.level == currentLevel + 1 then
 			local affordable = state.cash >= (entry.item.cost or 0)
 			entry.affordable = affordable -- harborheist-cl05: read by the buy handler
@@ -4181,11 +4232,19 @@ function refreshShop()
 			entry.buyButton.BackgroundColor3 = affordable and Theme.color.status.good or Theme.color.surface.secondary
 			entry.buyButton.TextColor3 = affordable and Theme.color.text.ink or Theme.color.status.warn
 			entry.buyButton.Active = true
+			-- [harborheist-a2ug.8] delta subtext for the purchasable row
+			if entry.subTextLabel then
+				entry.subTextLabel.Text = itemDeltaSubText(entry, currentLevel)
+			end
 		else
 			entry.buyButton.Text = "LOCKED"
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.secondary
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
 			entry.buyButton.Active = false
+			-- [harborheist-a2ug.8] absolute desc for LOCKED rows
+			if entry.subTextLabel then
+				entry.subTextLabel.Text = itemSubText(entry)
+			end
 		end
 	end
 end
