@@ -11,6 +11,9 @@
 -- (the a843112 fix — previously inverted, causing divergence); and the
 -- supportsTextTransparency guard (the 24912eb fix — prevents TweenService
 -- errors on Frame elements).
+-- 6yp6.5 contracts ACTIVATED 2026-08-01: micro-interaction connections
+-- tracked per-interaction and auto-disconnected on Destroying (+ registry
+-- eviction) for addPress/addToggle/enableSwipeDismiss/enablePullToRefresh.
 
 local fs = require("@lune/fs")
 
@@ -249,6 +252,44 @@ return function(describe, it, expect)
 		end)
 		it("Transition:fade accepts TweenInfo via typeof guard", function()
 			expect(animSource:find('if typeof(duration) == "TweenInfo" then', 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("6yp6.5 micro-interaction connection lifecycle (Destroying cleanup)", function()
+		it("addPress stores its 3 connections in a per-interaction array", function()
+			expect(animSource:find("interaction.connections = { pressDownConn, pressUpConn, pressEndConn }", 1, true)).to.be.a("number")
+		end)
+		it("addPress evicts the registry entry on Destroying", function()
+			expect(animSource:find("button.Destroying:Connect(function()", 1, true)).to.be.a("number")
+			expect(animSource:find("self.interactions[button] = nil", 1, true)).to.be.a("number")
+		end)
+		it("addToggle stores its connection and evicts the registry entry", function()
+			expect(animSource:find("interaction.connections = { toggleConn }", 1, true)).to.be.a("number")
+			expect(animSource:find("switchFrame.Destroying:Connect(function()", 1, true)).to.be.a("number")
+			expect(animSource:find("self.interactions[switchFrame] = nil", 1, true)).to.be.a("number")
+		end)
+		it("swipe + refresh gesture connections are tracked and auto-disconnected", function()
+			expect(animSource:find("local swipeConnections = { swipeBeganConn, swipeEndedConn }", 1, true)).to.be.a("number")
+			expect(animSource:find("panel.Destroying:Connect(function()", 1, true)).to.be.a("number")
+			expect(animSource:find("local refreshConnections = { refreshBeganConn, refreshEndedConn }", 1, true)).to.be.a("number")
+			expect(animSource:find("refreshContainer.Destroying:Connect(function()", 1, true)).to.be.a("number")
+		end)
+		it("all four interaction kinds clean up via Destroying (exactly 4 handlers)", function()
+			local count = 0
+			for _ in animSource:gmatch("%.Destroying:Connect%(function%(%)") do count = count + 1 end
+			expect(count).to.equal(4)
+		end)
+		it("cleanup loop disconnects every tracked connection (mirror)", function()
+			local disconnected = {}
+			local function fakeConn(id)
+				return { Disconnect = function() table.insert(disconnected, id) end }
+			end
+			local connections = { fakeConn(1), fakeConn(2), fakeConn(3) }
+			-- Mirror of the Destroying handler loop in AnimationSystem.lua
+			for _, conn in ipairs(connections) do
+				conn:Disconnect()
+			end
+			expect(#disconnected).to.equal(3)
 		end)
 	end)
 end

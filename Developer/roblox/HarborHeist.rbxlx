@@ -18808,8 +18808,8 @@ function MicroInteraction:addPress(button, soundId, volume)
     return s
   end
 
-  -- Connect events
-  button.MouseButton1Down:Connect(function()
+  -- Connect events (tracked for Destroying cleanup — 6yp6.5)
+  local pressDownConn = button.MouseButton1Down:Connect(function()
     if not button.Active then return end
 
     -- Play sound
@@ -18830,7 +18830,7 @@ function MicroInteraction:addPress(button, soundId, volume)
     TweenService:Create(scale, interaction.tweenInfo, { Scale = interaction.scaleDown }):Play()
   end)
 
-  button.MouseButton1Up:Connect(function()
+  local pressUpConn = button.MouseButton1Up:Connect(function()
     local scale = interaction.scaleInstance
     if scale and scale.Parent then
       -- selene: allow(incorrect_standard_library_use) — Spring is a valid
@@ -18842,7 +18842,7 @@ function MicroInteraction:addPress(button, soundId, volume)
     interaction.scaleInstance = nil
   end)
 
-  button.InputEnded:Connect(function(inputObject)
+  local pressEndConn = button.InputEnded:Connect(function(inputObject)
     if inputObject.UserInputType == Enum.UserInputType.Touch or
        inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
       local scale = interaction.scaleInstance
@@ -18851,6 +18851,19 @@ function MicroInteraction:addPress(button, soundId, volume)
       end
       interaction.scaleInstance = nil
     end
+  end)
+
+  -- harborheist-review-aug2026-6yp6.5: auto-disconnect on destroy. Buttons
+  -- ARE recreated (shop/inventory/raid rows, toast action buttons) and each
+  -- orphan kept the closures AND the self.interactions registry entry — a
+  -- strong ref to the destroyed button. Destroying fires on Destroy(), so
+  -- cleanup needs no call-site cooperation.
+  interaction.connections = { pressDownConn, pressUpConn, pressEndConn }
+  button.Destroying:Connect(function()
+    for _, conn in ipairs(interaction.connections) do
+      conn:Disconnect()
+    end
+    self.interactions[button] = nil
   end)
 
   return true
@@ -18872,8 +18885,8 @@ function MicroInteraction:addToggle(switchFrame, label)
 
   self.interactions[switchFrame] = interaction
 
-  -- Toggle state change animation
-  switchFrame.Activated:Connect(function()
+  -- Toggle state change animation (tracked for Destroying cleanup — 6yp6.5)
+  local toggleConn = switchFrame.Activated:Connect(function()
     interaction.isOn = not interaction.isOn
     local targetX = interaction.isOn and 15 or -15
 
@@ -18888,6 +18901,15 @@ function MicroInteraction:addToggle(switchFrame, label)
                          TweenInfo.new(0.2, Enum.EasingStyle.Quad),
                          { TextTransparency = 0 }):Play()
     end
+  end)
+
+  -- harborheist-review-aug2026-6yp6.5: auto-disconnect + registry eviction.
+  interaction.connections = { toggleConn }
+  switchFrame.Destroying:Connect(function()
+    for _, conn in ipairs(interaction.connections) do
+      conn:Disconnect()
+    end
+    self.interactions[switchFrame] = nil
   end)
 
   return true
@@ -19051,7 +19073,7 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
     return false
   end
 
-  panel.InputBegan:Connect(function(input)
+  local swipeBeganConn = panel.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
       tracking = true
       startX = input.Position.X
@@ -19061,7 +19083,7 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
     end
   end)
 
-  panel.InputEnded:Connect(function(input)
+  local swipeEndedConn = panel.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch and tracking then
       tracking = false
       local endX = input.Position.X
@@ -19094,6 +19116,14 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
     end
   end)
 
+  -- harborheist-review-aug2026-6yp6.5: auto-disconnect on panel destroy.
+  local swipeConnections = { swipeBeganConn, swipeEndedConn }
+  panel.Destroying:Connect(function()
+    for _, conn in ipairs(swipeConnections) do
+      conn:Disconnect()
+    end
+  end)
+
   return true
 end
 
@@ -19107,7 +19137,7 @@ function GestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
   local startY = 0
   local refreshing = false
 
-  refreshContainer.InputBegan:Connect(function(input)
+  local refreshBeganConn = refreshContainer.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch then
       -- Only track if scrolled to top (standard pull-to-refresh UX)
       -- Use epsilon for floating point comparison
@@ -19121,7 +19151,7 @@ function GestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
     end
   end)
 
-  refreshContainer.InputEnded:Connect(function(input)
+  local refreshEndedConn = refreshContainer.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.Touch and tracking then
       tracking = false
       local endY = input.Position.Y
@@ -19141,6 +19171,14 @@ function GestureAnimation:enablePullToRefresh(refreshContainer, onRefresh)
           refreshing = false
         end)
       end
+    end
+  end)
+
+  -- harborheist-review-aug2026-6yp6.5: auto-disconnect on container destroy.
+  local refreshConnections = { refreshBeganConn, refreshEndedConn }
+  refreshContainer.Destroying:Connect(function()
+    for _, conn in ipairs(refreshConnections) do
+      conn:Disconnect()
     end
   end)
 
