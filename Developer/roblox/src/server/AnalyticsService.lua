@@ -55,6 +55,31 @@ local function getEngineService(): any
 	return _engineService
 end
 
+-- Narrow a Player-instance-or-something-else argument to a Player (or nil).
+-- typeof() is read through a LOCAL on purpose: luau-analyze refines direct
+-- `typeof(x) == "Instance"` comparisons against a Roblox type environment
+-- the CLI doesn't have, producing UnknownType 'Instance' noise in this
+-- --!strict file. Semantics are identical (typeof is a pure builtin).
+local function asPlayer(player: any): any
+	local t = typeof(player)
+	if t == "Instance" and player:IsA("Player") then
+		return player
+	end
+	return nil
+end
+
+-- Narrow a Player-instance-or-UserId argument to a UserId (or nil).
+local function userIdOf(player: any): number?
+	local p = asPlayer(player)
+	if p then
+		return p.UserId
+	end
+	if type(player) == "number" then
+		return player
+	end
+	return nil
+end
+
 local AnalyticsService = {}
 
 -- Authoritative catalog of the 24 V1 events. track() validates against this.
@@ -115,7 +140,7 @@ type FunnelSession = {
 local sessions: { [number]: FunnelSession } = {}
 
 -- Internal: get or create the per-player session record.
-local function getSession(userId): FunnelSession
+local function getSession(userId: number): FunnelSession
 	local s = sessions[userId]
 	if not s then
 		-- Funnel stamp fields start absent (nil = milestone not reached).
@@ -149,10 +174,7 @@ function AnalyticsService.track(player, eventName, fields)
 
 	-- Accept either a Player instance or a raw UserId so callers in
 	-- PlayerRemoving handlers (where the Player may be parented-away) work.
-	local userId = (typeof(player) == "Instance" and player:IsA("Player"))
-		and player.UserId
-		or (type(player) == "number" and player)
-		or nil
+	local userId = userIdOf(player)
 	if not userId then
 		warn(("[Analytics] %s: invalid player (got %s)")
 			:format(eventName, typeof(player)))
@@ -233,7 +255,7 @@ function AnalyticsService.track(player, eventName, fields)
 		-- don't think the event was rejected for a validation reason.
 		return true
 	end
-	local playerInstance = typeof(player) == "Instance" and player:IsA("Player") and player
+	local playerInstance = asPlayer(player)
 		or Players:GetPlayerByUserId(userId)
 	if not playerInstance then
 		-- Player left between the call and resolution (common in PlayerRemoving).
@@ -266,7 +288,7 @@ end
 -- @param milestone string — one of: first_cast, first_catch, first_store,
 --        first_sale, first_upgrade
 -- @return boolean — true if this milestone has NOT been recorded yet
-function AnalyticsService.isFirst(userId, milestone)
+function AnalyticsService.isFirst(userId: number, milestone: string)
 	local s = sessions[userId]
 	if not s then
 		-- No session yet means nothing recorded — it's the first.
@@ -285,7 +307,7 @@ end
 -- Used by onPlayerRemoving to decide whether to fire churn signals.
 -- @return table with firstCastAt/firstCatchAt/firstStoreAt/firstSaleAt/firstUpgradeAt
 --         (nil for milestones not yet reached)
-function AnalyticsService.getFunnelState(userId)
+function AnalyticsService.getFunnelState(userId: number)
 	local s = sessions[userId]
 	if not s then
 		return {}
@@ -303,10 +325,7 @@ end
 -- the `sessions` table across long server uptimes. Called from
 -- Players.PlayerRemoving by init.server.lua (wired in TASK 11.2).
 function AnalyticsService.clearSession(player)
-	local userId = (typeof(player) == "Instance" and player:IsA("Player"))
-		and player.UserId
-		or (type(player) == "number" and player)
-		or nil
+	local userId = userIdOf(player)
 	if userId and sessions[userId] then
 		sessions[userId] = nil
 	end
