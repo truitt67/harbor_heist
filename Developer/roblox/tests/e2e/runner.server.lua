@@ -1171,16 +1171,17 @@ if abuS then
 			lastRes = res -- calls may throw at notify (fake player); 6th returns cleanly
 		end
 		assertEq("19.9 spam: 6th lock call rate_limited", "rate_limited", lastRes and lastRes.reason)
+		-- These assertions depend on the lock calls above having executed
+		local spamLog = AntiExploitService.getLog(abuser.UserId)
+		assertTrue("19.9 spam: rate breach recorded in suspicious log", #spamLog >= 1)
+		if #spamLog >= 1 then
+			assertEq("19.9 spam: log entry names the action", "lock", spamLog[#spamLog].action)
+		end
 	else
 		report("19.9 spam: aquariumActivateLock seam available", false,
 			"seam is nil — _G.HARBORHEIST_TEST not exposed by server init")
 	end
-	local spamLog = AntiExploitService.getLog(abuser.UserId)
-	assertTrue("19.9 spam: rate breach recorded in suspicious log", #spamLog >= 1)
-	if #spamLog >= 1 then
-		assertEq("19.9 spam: log entry names the action", "lock", spamLog[#spamLog].action)
-	end
-	-- Unknown actions warn but ALLOW (fail-open by design)
+	-- Unknown actions warn but ALLOW (fail-open by design — independent of lock seam)
 	local unknownOk = AntiExploitService.checkRate(abuser, "definitely_not_a_real_action")
 	assertTrue("19.9 unknown rate-limit action allowed (warn-only)", unknownOk == true)
 

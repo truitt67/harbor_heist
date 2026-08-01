@@ -1,7 +1,7 @@
 --[[
 	E2E bootstrap runner for Harbor Heist (TASK 19.2+, pe9a).
 
-	Mapped ONLY in test.project.json -> ServerScriptService.RunE2E. Refuses to
+	Mapped in test.project.json and e2e_scenarios.project.json -> ServerScriptService.RunE2E. Refuses to
 	load in a production place (TestFlag absent). Builds the harness (TestLogger
 	+ the real test Player + real Remotes) and runs every scenario module under
 	ServerScriptService.E2ETests.scenarios, then prints a summary and exits
