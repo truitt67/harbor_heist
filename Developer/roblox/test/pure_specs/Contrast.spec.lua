@@ -93,7 +93,7 @@ return function(describe, it, expect)
 	describe("Comprehensive palette audit (harborheist-3aug)", function()
 		local surfaces = { "bg", "surface", "surfaceHi", "undiscovered" }
 		local textColors = { "text", "textDim", "textFaint" }
-		local statusColors = { "accent", "accentSoft", "good", "bad", "warn", "quest", "boat", "purple", "money", "claimReady", "claimReadyHi", "alert", "raidAlert" }
+		local statusColors = { "accent", "accentSoft", "good", "bad", "warn", "quest", "boat", "purple", "money", "claimReady", "claimReadyHi", "alert", "raidAlert", "discovery" }
 
 		it("every text color meets AA-normal (4.5:1) on every dark surface", function()
 			for _, fg in ipairs(textColors) do

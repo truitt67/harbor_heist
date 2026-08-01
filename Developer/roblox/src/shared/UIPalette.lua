@@ -66,6 +66,9 @@ UIPalette.colors = {
 	neutral = { r = 60, g = 70, b = 80 },
 	alert = { r = 255, g = 170, b = 80 },
 	raidAlert = { r = 255, g = 120, b = 120 },
+	-- harborheist-a2ug.2: species-discovery celebration gold — distinct from
+	-- quest (255,205,92) because discovery is a premium celebration moment.
+	discovery = { r = 255, g = 215, b = 0 },
 }
 
 --- Look up a base color by name and return a Color3.
