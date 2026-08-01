@@ -512,6 +512,35 @@ local function makeLabel(parent, props)
 	label.Parent = parent
 	return label
 end
+
+-- harborheist-kqbq.19.2: neutral minigame tap acknowledgment. Creates a
+-- brief white flash at the minigame frame's position + haptic tick on
+-- mobile. NEUTRAL by design (DECISION-C): no green/red, no zone color —
+-- the flash says "input received", not "hit/miss". Outcome stays
+-- server-authoritative. The flash self-cleans via task.delay and never
+-- interferes with the reveal card or result notification.
+local function minigameTapAck(srcFrame)
+	hapticPressEnd()
+	local flash = Instance.new("Frame")
+	flash.Name = "TapAck"
+	flash.AnchorPoint = srcFrame and srcFrame.AnchorPoint or Vector2.new(0.5, 0.5)
+	flash.Size = srcFrame and srcFrame.Size or UDim2.new(0, 200, 0, 80)
+	flash.Position = srcFrame and srcFrame.Position or UDim2.new(0.5, 0, 0.5, 0)
+	flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	flash.BackgroundTransparency = 0.85
+	flash.ZIndex = 30
+	flash.Parent = screenGui
+	if srcFrame then
+		corner(flash, Theme.corners.md)
+	end
+	TweenService:Create(flash, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+	task.delay(0.2, function()
+		if flash.Parent then
+			flash:Destroy()
+		end
+	end)
+end
+
 -- harborheist-kqbq.9: Mobile scrollbar auto-hide — bar appears during scroll,
 -- fades to transparent after ~1.2s idle. Desktop keeps the persistent thin bar.
 local function applyScrollbarAutoHide(scrollingFrame)
@@ -5432,6 +5461,7 @@ function startRaidMinigame(challenge)
 				return
 			end
 			local markerPos = raidMarker.Position.X.Scale
+			minigameTapAck(raidMinigameFrame)
 			stopRaidMinigame()
 			task.spawn(function()
 				local ok, result = pcall(function()
@@ -6414,6 +6444,10 @@ overlayInputHandlers.cast = function(input, gp)
 		local elapsed = os.clock() - (castDeadline - castOverlayDuration)
 		local accuracy = math.clamp(elapsed / castOverlayDuration, 0, 1)
 		castAwaitingInput = false -- harborheist-njqm: input received, no coach toast
+		-- harborheist-kqbq.19.2: cast tap already has bar-fill feedback
+		-- (the overlay closes + marker stops); add haptic for modality parity.
+		-- No neutral flash needed — the bar/overlay itself IS the ack.
+		hapticPressEnd()
 		stopCastOverlay()
 		Remotes.CastResult:FireServer(accuracy)
 	end
@@ -7535,6 +7569,7 @@ local function onMinigameTap()
 	local halfWidth = minigameZoneHalfWidth or 0.15
 	local hit = markerPos >= (0.5 - halfWidth) and markerPos <= (0.5 + halfWidth)
 	minigameActive = false
+	minigameTapAck(minigameFrame)
 	releaseOverlay("bite")
 	minigameFrame.Visible = false
 	setFishState("idle")

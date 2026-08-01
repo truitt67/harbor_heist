@@ -26,6 +26,7 @@
 -- a2ug.15 contracts ACTIVATED 2026-08-01: wandering-player zone re-guidance (2nd consecutive out-of-zone refusal re-arms the cue).
 -- kqbq.22.4 contracts ACTIVATED 2026-08-01: reveal card stroke pulse extended to Rare (dimmer/slower than Epic).
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
+-- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
 
 local fs = require("@lune/fs")
 
@@ -624,6 +625,36 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("dismiss still cancels revealStrokePulse (Rare pulse joins cancellation)", function()
 			expect(clientSource:find("if revealStrokePulse then", 1, true)).to.be.a("number")
 			expect(clientSource:find("revealStrokePulse:Cancel()", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.19.2 minigame tap acknowledgment (neutral flash + haptic)", function()
+		it("minigameTapAck function is defined", function()
+			expect(clientSource:find("local function minigameTapAck", 1, true)).to.be.a("number")
+		end)
+		it("tap ack uses NEUTRAL white (no outcome color leak)", function()
+			expect(clientSource:find("flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)", 1, true)).to.be.a("number")
+		end)
+		it("tap ack flash is subtle (transparency 0.85, not opaque)", function()
+			expect(clientSource:find("flash.BackgroundTransparency = 0.85", 1, true)).to.be.a("number")
+		end)
+		it("tap ack self-cleans via task.delay", function()
+			expect(clientSource:find('task.delay(0.2, function()', 1, true)).to.be.a("number")
+		end)
+		it("tap ack calls hapticPressEnd (mobile haptic)", function()
+			expect(clientSource:find("hapticPressEnd()", 1, true)).to.be.a("number")
+		end)
+		it("bite minigame calls minigameTapAck before hiding frame", function()
+			expect(clientSource:find("minigameTapAck(minigameFrame)", 1, true)).to.be.a("number")
+		end)
+		it("raid minigame calls minigameTapAck before stopRaidMinigame", function()
+			expect(clientSource:find("minigameTapAck(raidMinigameFrame)", 1, true)).to.be.a("number")
+		end)
+		it("cast tap gets hapticPressEnd (bar-fill is existing ack)", function()
+			expect(clientSource:find("hapticPressEnd()\n\t\tstopCastOverlay()", 1, true)).to.be.a("number")
+		end)
+		it("tap ack flash ZIndex is below reveal card (30 < 50)", function()
+			expect(clientSource:find("flash.ZIndex = 30", 1, true)).to.be.a("number")
 		end)
 	end)
 
