@@ -3476,9 +3476,19 @@ local function fitAquariumPanelHeight()
 end
 fitAquariumPanelHeight()
 if IS_MOBILE then
+	-- harborheist-review-aug2026-6yp6.4: track the per-camera ViewportSize
+	-- connection and disconnect the stale one before rebinding — every
+	-- CurrentCamera swap (respawn) otherwise leaked a connection that kept
+	-- re-fitting the panel against a dead camera's viewport. The workspace-
+	-- level CurrentCamera connection stays: single module-scope creation.
+	local aquariumViewportConn = nil
 	local function bindAquariumFit(cam)
+		if aquariumViewportConn then
+			aquariumViewportConn:Disconnect()
+			aquariumViewportConn = nil
+		end
 		if cam then
-			cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitAquariumPanelHeight)
+			aquariumViewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitAquariumPanelHeight)
 		end
 	end
 	bindAquariumFit(workspace.CurrentCamera)

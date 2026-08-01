@@ -33,6 +33,7 @@
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
 -- kqbq.22.2 contracts ACTIVATED 2026-08-01: single formatCash abbreviation policy + all currency/income surfaces routed through it.
 -- 6yp6.1 contracts ACTIVATED 2026-08-01: toast AbsoluteSize connection stored + disconnected in dismiss() (per-toast leak fix).
+-- 6yp6.4 contracts ACTIVATED 2026-08-01: aquarium viewport connection tracked + stale binding disconnected on camera change.
 
 local fs = require("@lune/fs")
 
@@ -1006,6 +1007,30 @@ describe("EPIC 44 client chrome source contracts", function()
 			local first = clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', 1, true)
 			expect(first).to.be.a("number")
 			expect(clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', first + 1, true) == nil).to.equal(true)
+		end)
+	end)
+
+	describe("6yp6.4 aquarium viewport connection lifecycle (stale camera binding)", function()
+		it("per-camera ViewportSize connection is tracked in a local", function()
+			expect(clientSource:find("local aquariumViewportConn = nil", 1, true)).to.be.a("number")
+		end)
+		it("rebind stores the new connection", function()
+			expect(clientSource:find('aquariumViewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitAquariumPanelHeight)', 1, true)).to.be.a("number")
+		end)
+		it("stale connection is disconnected + nil'd behind a guard", function()
+			expect(clientSource:find("if aquariumViewportConn then", 1, true)).to.be.a("number")
+			expect(clientSource:find("aquariumViewportConn:Disconnect()", 1, true)).to.be.a("number")
+			expect(clientSource:find("aquariumViewportConn = nil", 1, true)).to.be.a("number")
+		end)
+		it("disconnect runs inside bindAquariumFit before the rebind", function()
+			local bindPos = clientSource:find("local function bindAquariumFit(cam)", 1, true)
+			local disconnectPos = clientSource:find("aquariumViewportConn:Disconnect()", 1, true)
+			local rebindPos = clientSource:find('aquariumViewportConn = cam:GetPropertyChangedSignal("ViewportSize")', 1, true)
+			expect(bindPos).to.be.a("number")
+			expect(disconnectPos).to.be.a("number")
+			expect(rebindPos).to.be.a("number")
+			expect(bindPos < disconnectPos).to.equal(true)
+			expect(disconnectPos < rebindPos).to.equal(true)
 		end)
 	end)
 end)
