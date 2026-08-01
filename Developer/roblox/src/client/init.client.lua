@@ -3942,7 +3942,7 @@ local shopRows = {}
 local SHOP_CATALOG = {}
 local function addCatalog(kind, items, orderBase)
 	for level, item in ipairs(items) do
-		table.insert(SHOP_CATALOG, { kind = kind, level = level, item = item, order = orderBase + level })
+		table.insert(SHOP_CATALOG, { kind = kind, level = level, item = item, order = orderBase * 10 + level })
 	end
 end
 addCatalog("rod", GameConfig.Rods, 0)
@@ -3963,6 +3963,19 @@ addCatalog("dock", GameConfig.DockUpgradeTiers, 50)
 table.sort(SHOP_CATALOG, function(a, b)
 	return a.order < b.order
 end)
+
+local function buildSectionHeader(title, order)
+	makeLabel(shopList, {
+		Size = UDim2.new(1, -6, 0, 20),
+		Text = title,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.tertiary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+		ZIndex = 26,
+	})
+end
 
 local KIND_META = {
 	rod = { tag = "ROD", color = Theme.color.accent.base },
@@ -4154,6 +4167,11 @@ function refreshShop()
 	end
 end
 
+buildSectionHeader("RODS", -1)
+buildSectionHeader("BAIT", 99)
+buildSectionHeader("TANK", 199)
+buildSectionHeader("DEFENSE", 299)
+buildSectionHeader("DOCK", 499)
 for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
 end
