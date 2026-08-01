@@ -320,4 +320,44 @@ return function(describe, it, expect)
 			expect(configSource:find("rarity.weight > prev.weight", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Cast overlay subtitle contract (harborheist-a2ug.5)
+	-- ──────────────────────────────────────────────────────────────────
+	local clientSource = fs.readFile("src/client/init.client.lua")
+
+	describe("Source contract: cast overlay luck bonus (a2ug.5)", function()
+		it("accuracyLuckBonus has perfect > good > ok, all non-negative", function()
+			expect(MiniGame.accuracyLuckBonus.perfect).to.be.a("number")
+			expect(MiniGame.accuracyLuckBonus.good).to.be.a("number")
+			expect(MiniGame.accuracyLuckBonus.ok).to.be.a("number")
+			expect(MiniGame.accuracyLuckBonus.perfect >= 0).to.equal(true)
+			expect(MiniGame.accuracyLuckBonus.good >= 0).to.equal(true)
+			expect(MiniGame.accuracyLuckBonus.ok >= 0).to.equal(true)
+			expect(MiniGame.accuracyLuckBonus.perfect > MiniGame.accuracyLuckBonus.good).to.equal(true)
+			expect(MiniGame.accuracyLuckBonus.good > MiniGame.accuracyLuckBonus.ok).to.equal(true)
+		end)
+
+		it("subtitle string format produces expected text from config mirror", function()
+			local subtitle = string.format("PERFECT +%d LUCK  \u{2022}  GOOD +%d LUCK",
+				MiniGame.accuracyLuckBonus.perfect,
+				MiniGame.accuracyLuckBonus.good)
+			expect(subtitle).to.equal("PERFECT +25 LUCK  \u{2022}  GOOD +12 LUCK")
+		end)
+
+		it("client reads accuracyLuckBonus.perfect and .good from GameConfig", function()
+			expect(clientSource:find("GameConfig.MiniGame.accuracyLuckBonus.perfect", 1, true)).to.be.a("number")
+			expect(clientSource:find("GameConfig.MiniGame.accuracyLuckBonus.good", 1, true)).to.be.a("number")
+		end)
+
+		it("client no longer uses the vague 'CENTER HIT' subtitle", function()
+			expect(clientSource:find('"CENTER HIT', 1, true)).to.equal(nil)
+		end)
+
+		it("GameConfig source defines accuracyLuckBonus with perfect, good, ok", function()
+			expect(configSource:find("accuracyLuckBonus", 1, true)).to.be.a("number")
+			expect(configSource:find("perfect = 25", 1, true)).to.be.a("number")
+			expect(configSource:find("good = 12", 1, true)).to.be.a("number")
+		end)
+	end)
 end
