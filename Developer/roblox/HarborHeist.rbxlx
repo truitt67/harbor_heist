@@ -10931,18 +10931,17 @@ end
 local setButtonEnabled = function(button, enabled, disabledBg)
 	if enabled then
 		button.Active = true
-		local saved = button:GetAttribute("kqbq18_2_savedColors")
-		if saved then
-			button.BackgroundColor3 = saved.bg
-			button.TextColor3 = saved.fg
-			button:SetAttribute("kqbq18_2_savedColors", nil)
+		local savedBg = button:GetAttribute("kqbq18_2_savedBg")
+		if savedBg then
+			button.BackgroundColor3 = savedBg
+			button.TextColor3 = button:GetAttribute("kqbq18_2_savedFg")
+			button:SetAttribute("kqbq18_2_savedBg", nil)
+			button:SetAttribute("kqbq18_2_savedFg", nil)
 		end
 	else
-		if not button:GetAttribute("kqbq18_2_savedColors") then
-			button:SetAttribute("kqbq18_2_savedColors", {
-				bg = button.BackgroundColor3,
-				fg = button.TextColor3,
-			})
+		if not button:GetAttribute("kqbq18_2_savedBg") then
+			button:SetAttribute("kqbq18_2_savedBg", button.BackgroundColor3)
+			button:SetAttribute("kqbq18_2_savedFg", button.TextColor3)
 		end
 		button.Active = false
 		button.BackgroundColor3 = disabledBg or Theme.color.surface.elevated
@@ -14026,6 +14025,11 @@ local shopMaxLevels = {}
 local getOrCreateSummaryRow
 local refreshShop
 
+-- kqbq.15: content signature skip — avoid re-iterating shop rows on
+-- every 1 Hz state push when the visible state (ownership tiers,
+-- maxed tracks, affordability of next tier) has not changed.
+local lastShopSignature = nil
+
 -- [harborheist-a2ug.10] Per-row flash guard (like fishShakeToken) — prevents
 -- overlapping purchase-success flash tweens on the same shop row.
 local shopFlashTokens = {}
@@ -14158,6 +14162,35 @@ function refreshShop()
 			end
 		end
 	end
+	-- kqbq.15: content signature — skip the row-update + maxed-collapse
+	-- pass when the shop visible state has not changed. Cash ticks every
+	-- second but only matters at affordability boundaries, so the signature
+	-- captures per-kind: level + maxed + affordability of next tier rather
+	-- than the raw cash value.
+	local sigParts = {}
+	for _, kind in ipairs({ "rod", "bait", "aquarium", "lock", "alarm", "dock" }) do
+		local currentLevel
+		if kind == "rod" then currentLevel = state.rodLevel or 1
+		elseif kind == "bait" then currentLevel = state.baitLevel or 1
+		elseif kind == "aquarium" then currentLevel = state.upgradeLevel or 1
+		elseif kind == "lock" then currentLevel = state.lockLevel or 0
+		elseif kind == "alarm" then currentLevel = state.alarmLevel or 0
+		elseif kind == "dock" then currentLevel = state.dockLevel or 1
+		end
+		local maxLevel = shopMaxLevels[kind] or 0
+		local affordKey = "max"
+		if (currentLevel or 0) &lt; maxLevel then
+			local nextEntry = shopRows[kind .. (currentLevel + 1)]
+			local cost = nextEntry and nextEntry.item and nextEntry.item.cost or 0
+			affordKey = ((state.cash or 0) >= cost) and "Y" or "N"
+		end
+		table.insert(sigParts, kind .. ":" .. tostring(currentLevel) .. ":" .. affordKey)
+	end
+	local shopSig = table.concat(sigParts, "|")
+	if shopSig == lastShopSignature then
+		return
+	end
+	lastShopSignature = shopSig
 	for _, entry in pairs(shopRows) do
 		local currentLevel
 		if entry.kind == "rod" then
