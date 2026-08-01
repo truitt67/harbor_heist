@@ -15,6 +15,7 @@
 -- kqbq.7 contracts ACTIVATED 2026-08-01: cast overlay zone micro-labels.
 -- kqbq.8 contracts ACTIVATED 2026-08-01: mobile action-stack scroll affordance.
 -- kqbq.11 contracts ACTIVATED 2026-08-01: HUD income-line split labels (kill 5Hz RichText rebuild).
+-- kqbq.12.2 contracts ACTIVATED 2026-08-01: Esc cancels the cast overlay via Remotes.CancelCast.
 
 local fs = require("@lune/fs")
 
@@ -283,6 +284,24 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("CLAIM_GREEN_HEX constant removed", function()
 			expect(clientSource:find('CLAIM_GREEN_HEX = "32A050"', 1, true) == nil).to.equal(true)
+		end)
+	end)
+
+	describe("kqbq.12.2 Esc cast-overlay cancel (client half of CancelCast)", function()
+		it("Esc chain checks the cast overlay only after panel/prompt/onboarding", function()
+			expect(clientSource:find('dismissOnboardingPrompt(currentPromptStage)\n\t\telseif isOverlayActive("cast") then', 1, true)).to.be.a("number")
+		end)
+		it("Esc cancel clears castAwaitingInput first (no coach toast on intentional cancel)", function()
+			expect(clientSource:find("castAwaitingInput = false\n\t\t\tstopCastOverlay()", 1, true)).to.be.a("number")
+		end)
+		it("Esc cancel hides via the standard overlay-release path (stopCastOverlay)", function()
+			expect(clientSource:find("castAwaitingInput = false\n\t\t\tstopCastOverlay()\n\t\t\tRemotes.CancelCast:FireServer()", 1, true)).to.be.a("number")
+		end)
+		it("Esc cancel fires Remotes.CancelCast (server stays authoritative)", function()
+			expect(clientSource:find("Remotes.CancelCast:FireServer()", 1, true)).to.be.a("number")
+		end)
+		it("bite/raid overlays stay non-cancellable (design marker comment)", function()
+			expect(clientSource:find("non-cancellable by design", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

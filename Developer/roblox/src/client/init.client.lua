@@ -7537,6 +7537,17 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 			markSellStoreComparisonSeen()
 		elseif onboardingPrompt.Visible and currentPromptStage then
 			dismissOnboardingPrompt(currentPromptStage)
+		elseif isOverlayActive("cast") then
+			-- harborheist-kqbq.12.2: Esc bails out of a pending cast (pre-bite
+			-- wait only — the server ignores the cancel once the bite fired;
+			-- bite/raid overlays stay non-cancellable by design, kqbq.12 Q4).
+			-- Clearing castAwaitingInput keeps the follow-up CastState(false)
+			-- from showing the "no timing bonus" coach toast for an intentional
+			-- cancel; the server's CastState(false) also clears the casting
+			-- flag and re-runs stopCastOverlay (both idempotent).
+			castAwaitingInput = false
+			stopCastOverlay()
+			Remotes.CancelCast:FireServer()
 		end
 	end
 end)
