@@ -109,6 +109,7 @@ end
 
 local fishingSource = fs.readFile("src/server/FishingService.lua")
 local gameConfigSource = fs.readFile("src/shared/GameConfig.lua")
+local clientSource = fs.readFile("src/client/init.client.lua")
 
 return function(describe, it, expect)
 	-- ════════════════════════════════════════════════════════════════════
@@ -448,6 +449,56 @@ return function(describe, it, expect)
 
 		it("FishingService exposes _activeBites test seam", function()
 			expect(fishingSource:find("_activeBites", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	-- ════════════════════════════════════════════════════════════════════
+	-- Source contract: a2ug.6 discovery toast suppression + NEW DISCOVERY ribbon
+	-- ════════════════════════════════════════════════════════════════════
+	describe("Source contract: a2ug.6 discovery suppression + ribbon", function()
+		it("FishingService tracks session.catchesThisSession", function()
+			expect(fishingSource:find("session.catchesThisSession = (session.catchesThisSession or 0) + 1", 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService computes isNewDiscovery before setting collection", function()
+			expect(fishingSource:find("local isNewDiscovery = not session.profile.Collection.DiscoveredSpecies", 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService has cardEligible suppression check", function()
+			expect(fishingSource:find("local cardEligible", 1, true)).to.be.a("number")
+			expect(fishingSource:find("if not cardEligible then", 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService cardEligible mirrors client condition (Rare+ OR first catch)", function()
+			expect(fishingSource:find('fish.Rarity == "Rare" or fish.Rarity == "Epic" or fish.Rarity == "Legendary" or session.catchesThisSession == 1', 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService return includes isNewDiscovery", function()
+			expect(fishingSource:find("isNewDiscovery = isNewDiscovery or nil", 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService discovery toast only fires inside not-cardEligible branch", function()
+			expect(fishingSource:find("if not cardEligible then\n\t\t\t\tremotes.notify", 1, true)).to.be.a("number")
+		end)
+
+		it("client showRevealCard accepts isNew parameter", function()
+			expect(clientSource:find("local function showRevealCard(speciesId, rarity, value, isNew)", 1, true)).to.be.a("number")
+		end)
+
+		it("client passes result.isNewDiscovery to showRevealCard", function()
+			expect(clientSource:find("showRevealCard(result.speciesId, rarity, result.value, result.isNewDiscovery)", 1, true)).to.be.a("number")
+		end)
+
+		it("client renders NEW DISCOVERY ribbon text", function()
+			expect(clientSource:find('"NEW DISCOVERY"', 1, true)).to.be.a("number")
+		end)
+
+		it("client uses UIPalette discovery gold for ribbon", function()
+			expect(clientSource:find('UIPalette.color("discovery")', 1, true)).to.be.a("number")
+		end)
+
+		it("client has contentYOffset for layout shift", function()
+			expect(clientSource:find("local contentYOffset = isNew and 10 or 0", 1, true)).to.be.a("number")
 		end)
 	end)
 end

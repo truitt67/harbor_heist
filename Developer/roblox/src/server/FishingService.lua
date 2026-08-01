@@ -484,10 +484,26 @@ function FishingService.init(deps)
 			questService.onFishCaught(session, fish.Rarity)
 		end
 
+		-- [harborheist-a2ug.6] Ephemeral session catch counter (NOT persisted —
+		-- resets each session, matching the client catchesThisSession counter
+		-- that drives the reveal-card condition). Used to decide whether the
+		-- client will show a reveal card for this catch, so we can suppress the
+		-- duplicate discovery toast server-side.
+		session.catchesThisSession = (session.catchesThisSession or 0) + 1
+
 		-- TASK 7.1: Track species discovery
-		if not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] then
+		-- [harborheist-a2ug.6] Suppress the discovery toast when the client will
+		-- show a reveal card for this catch (Rare+ rarity OR first catch of the
+		-- session — mirrors the client card condition at onMinigameTap). The card
+		-- renders a NEW DISCOVERY ribbon for these; the toast remains the only
+		-- celebration surface for Common/Uncommon discoveries on later catches.
+		local isNewDiscovery = not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId]
+		if isNewDiscovery then
 			session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] = true
-			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), "discovery", "discovery")
+			local cardEligible = fish.Rarity == "Rare" or fish.Rarity == "Epic" or fish.Rarity == "Legendary" or session.catchesThisSession == 1
+			if not cardEligible then
+				remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), "discovery", "discovery")
+			end
 		end
 
 		-- Find rarity color for notification
@@ -506,7 +522,7 @@ function FishingService.init(deps)
 			"catch"
 		)
 		stateSync.push(session)
-		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue }
+		return { ok = true, speciesId = fish.SpeciesId, rarity = fish.Rarity, value = fish.BaseSellValue, isNewDiscovery = isNewDiscovery or nil }
 	end
 
 	remotes.SubmitCatchInput.OnServerInvoke = handleSubmitCatchInput

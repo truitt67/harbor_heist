@@ -5025,7 +5025,11 @@ local ACTIONS = {
 	{ id = "boat", label = "BOAT", short = "BOAT", key = "B", color = Theme.color.brand.boat },
 }
 
--- TASK 28.2 (hvfh.8.2): the prompt offset is DERIVED from the same
+-- [harborheist-a2ug.13] Desktop HELP chip (panel toggle, like BAG).
+-- Mobile gets a dedicated "?" button instead — see mobile section below.
+if not IS_MOBILE then
+	table.insert(ACTIONS, { id = "help", label = "HELP", short = "HELP", key = "H", color = Theme.color.accent.soft })
+end
 -- constants that build the stack/bar, so adding/removing an ACTION keeps
 -- the prompt clear with zero manual edits. Recomputed on ViewportSize
 -- change (rotation / window resize) — the previous one-shot startup
@@ -5431,6 +5435,9 @@ end
 -- FISH and BOAT are momentary actions with no panel — never highlighted.
 -- Assigned here (not declared with showPanel) because actionButtons and the
 -- panel locals are all defined above this point; see the forward decl.
+-- [harborheist-a2ug.13] helpPanel forward-declared so the HELP chip
+-- highlights while the shortcuts panel is active (like BAG/TANK).
+local helpPanel = nil
 updateActionBarIndicator = function()
 	local panelToAction = {
 		[inventoryPanel] = "store",
@@ -5438,6 +5445,7 @@ updateActionBarIndicator = function()
 		[aquariumPanel] = "aquarium",
 		[questPanel] = "quests",
 		[raidPanel] = "raid",
+		[helpPanel] = "help",
 	}
 	local activeId = activePanel and panelToAction[activePanel] or nil
 	for _, action in ipairs(ACTIONS) do
@@ -6298,7 +6306,7 @@ local revealDismissToken = 0
 -- dismiss/replacement so it never writes to a destroyed UIStroke.
 local revealStrokePulse = nil
 
-local function showRevealCard(speciesId, rarity, value)
+local function showRevealCard(speciesId, rarity, value, isNew)
 	if revealCard then
 		revealCard:Destroy()
 		revealCard = nil
@@ -6421,11 +6429,36 @@ local function showRevealCard(speciesId, rarity, value)
 		ZIndex = 52,
 	})
 
+	-- [harborheist-a2ug.6] NEW DISCOVERY ribbon + layout shift. The card
+	-- absorbs the duplicate discovery toast (suppressed server-side when the
+	-- catch is card-eligible). The ribbon sits between the rarity tag and the
+	-- fish icon; content below shifts down 10px to make room.
+	local contentYOffset = isNew and 10 or 0
+	if isNew then
+		local ribbon = Instance.new("Frame")
+		ribbon.Size = UDim2.new(0, 120, 0, 16)
+		ribbon.AnchorPoint = Vector2.new(0.5, 0)
+		ribbon.Position = UDim2.new(0.5, 0, 0, 44)
+		ribbon.BackgroundColor3 = UIPalette.color("discovery")
+		ribbon.BackgroundTransparency = 0.12
+		ribbon.ZIndex = 51
+		ribbon.Parent = card
+		corner(ribbon, Theme.corners.compact)
+		makeLabel(ribbon, {
+			Size = UDim2.new(1, 0, 1, 0),
+			Text = "NEW DISCOVERY",
+			Font = Theme.type.fonts.bold,
+			TextSize = Theme.type.sizes.xs,
+			TextColor3 = Color3.new(0, 0, 0),
+			ZIndex = 52,
+		})
+	end
+
 	-- harborheist-s0yp: rarity-tinted fish silhouette beside the species
 	-- name — the collection book's visual, earned at the reveal moment.
 	local icon = Instance.new("Frame")
 	icon.Size = UDim2.new(0, 48, 0, 48)
-	icon.Position = UDim2.new(0, 18, 0, 52)
+	icon.Position = UDim2.new(0, 18, 0, 52 + contentYOffset)
 	icon.BackgroundColor3 = Theme.color.surface.elevated
 	icon.ZIndex = 51
 	icon.Parent = card
@@ -6435,7 +6468,7 @@ local function showRevealCard(speciesId, rarity, value)
 	-- Species display name (big, right of the icon)
 	makeLabel(card, {
 		Size = UDim2.new(1, -92, 0, 30),
-		Position = UDim2.new(0, 76, 0, 54),
+		Position = UDim2.new(0, 76, 0, 54 + contentYOffset),
 		Text = displayName,
 		Font = Theme.type.fonts.head,
 		TextSize = Theme.type.sizes.lg,
@@ -6448,7 +6481,7 @@ local function showRevealCard(speciesId, rarity, value)
 	-- Sell value + income/min line (harborheist-gw38: formatCash separators)
 	makeLabel(card, {
 		Size = UDim2.new(1, -92, 0, 20),
-		Position = UDim2.new(0, 76, 0, 92),
+		Position = UDim2.new(0, 76, 0, 92 + contentYOffset),
 		Text = string.format("$%s  •  $%.1f/min", formatCash(value or 0), incomePerMin),
 		Font = Theme.type.fonts.body,
 		TextSize = Theme.type.sizes.sm,
@@ -6562,7 +6595,7 @@ local function onMinigameTap()
 		end
 		if catchesThisSession == 1
 			or rarity == "Rare" or rarity == "Epic" or rarity == "Legendary" then
-			showRevealCard(result.speciesId, rarity, result.value)
+			showRevealCard(result.speciesId, rarity, result.value, result.isNewDiscovery)
 		end
 	end
 end
@@ -6909,7 +6942,11 @@ actionButtons.boat.Activated:Connect(trySpawnBoat)
 -- H (toggle this help panel), and the discoverable help panel itself so
 -- all shortcuts are documented in-game (acceptance: "Help panel shows all
 -- shortcuts").
-local helpPanel, helpContent, helpClose = makePanel("SHORTCUTS", Theme.color.accent.base, UDim2.new(0, 360, 0, 480))
+-- [harborheist-a2ug.13] helpPanel is forward-declared above (before
+-- updateActionBarIndicator) so the HELP chip can highlight when active.
+-- helpContent and helpClose remain local to this point.
+local helpContent, helpClose
+helpPanel, helpContent, helpClose = makePanel("SHORTCUTS", Theme.color.accent.base, UDim2.new(0, 360, 0, 480))
 
 makeLabel(helpContent, {
 	Size = UDim2.new(1, 0, 0, 18),
