@@ -2671,6 +2671,13 @@ end
 
 function AntiExploitService.onPlayerRemoving(player)
 	callHistory[player] = nil
+	-- harborheist-review-aug2026-6yp6.9: suspiciousLog[userId] is intentionally
+	-- NOT cleared here. Suspicious action logs are audit data for admin
+	-- review; clearing on leave would destroy evidence of cheaters who
+	-- join→exploit→leave before review. The log is bounded by
+	-- MAX_SUSPICIOUS_PER_PLAYER, keyed by stable UserId, and resets on server
+	-- restart. AnalyticsService also tracks each action for long-term
+	-- analysis. Use clearLog(userId) for manual cleanup.
 end
 
 function AntiExploitService.clearLog(userId)
@@ -3235,6 +3242,14 @@ end
 -- aquarium proximity prompts only open the owner's panel.
 
 function AquariumService.startIncomeLoop(deps)
+	-- harborheist-review-aug2026-6yp6.9: V1 DESIGN — full-snapshot push every
+	-- income tick. Sends ~1-8KB/player/sec depending on aquarium size; the
+	-- client always has complete state (no merge logic, no delta application,
+	-- no versioning) and harborheist-os9 already skips pushes when income is
+	-- 0. Acceptable for V1 CCU targets. If CCU grows or profiling shows
+	-- bandwidth pressure, the natural split is:
+	--   income tick: push {cash, unclaimedIncome, incomePerSec} only (~100B)
+	--   action push: full snapshot (store/sell/claim/lock/raid)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
 	local questService = deps.questService
@@ -11998,6 +12013,12 @@ local function recomputeMobileToastCap()
 	MAX_VISIBLE_TOASTS_MOBILE = math.clamp(cap, 1, MAX_VISIBLE_TOASTS)
 end
 recomputeMobileToastCap()
+-- harborheist-review-aug2026-6yp6.9: V1 DESIGN — 1Hz poll instead of a
+-- ViewportSize event connection. Chosen to avoid connection lifecycle
+-- management (see 6yp6.4 for the related aquarium viewport connection fix);
+-- handles screen rotation smoothly (cap adjusts within 1s) at negligible
+-- O(1) cost per tick. If event-driven is ever desired, pair with the
+-- 6yp6.4 tracked-connection pattern.
 task.spawn(function()
 	while true do
 		recomputeMobileToastCap()

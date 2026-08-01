@@ -36,6 +36,7 @@
 -- 6yp6.4 contracts ACTIVATED 2026-08-01: aquarium viewport connection tracked + stale binding disconnected on camera change.
 -- 6yp6.2 contracts ACTIVATED 2026-08-01: scrollbar auto-hide helper returns connection handle + action-stack connection stored at module level.
 -- 6yp6.7 contracts ACTIVATED 2026-08-01: onboarding state.carried access pinned inside render()'s nil-guarded body (regression guard; finding was stale — no separate update function exists).
+-- 6yp6.9 contract ACTIVATED 2026-08-01: toast-cap 1Hz poll-vs-event V1 design comment pinned.
 
 local fs = require("@lune/fs")
 
@@ -1080,6 +1081,13 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("onboarding flag table reads through render's guarded state local", function()
 			expect(clientSource:find("local ob = state.onboarding or {}", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("6yp6.9 toast-cap poll design comment (pinned)", function()
+		it("recomputeMobileToastCap poll loop documents the poll-vs-event V1 choice", function()
+			expect(clientSource:find("V1 DESIGN — 1Hz poll instead of a", 1, true)).to.be.a("number")
+			expect(clientSource:find("ViewportSize event connection. Chosen to avoid connection lifecycle", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

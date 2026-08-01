@@ -541,6 +541,14 @@ end
 -- aquarium proximity prompts only open the owner's panel.
 
 function AquariumService.startIncomeLoop(deps)
+	-- harborheist-review-aug2026-6yp6.9: V1 DESIGN — full-snapshot push every
+	-- income tick. Sends ~1-8KB/player/sec depending on aquarium size; the
+	-- client always has complete state (no merge logic, no delta application,
+	-- no versioning) and harborheist-os9 already skips pushes when income is
+	-- 0. Acceptable for V1 CCU targets. If CCU grows or profiling shows
+	-- bandwidth pressure, the natural split is:
+	--   income tick: push {cash, unclaimedIncome, incomePerSec} only (~100B)
+	--   action push: full snapshot (store/sell/claim/lock/raid)
 	local dataManager = deps.dataManager
 	local stateSync = deps.stateSync
 	local questService = deps.questService

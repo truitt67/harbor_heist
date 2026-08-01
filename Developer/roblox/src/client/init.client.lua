@@ -2167,6 +2167,12 @@ local function recomputeMobileToastCap()
 	MAX_VISIBLE_TOASTS_MOBILE = math.clamp(cap, 1, MAX_VISIBLE_TOASTS)
 end
 recomputeMobileToastCap()
+-- harborheist-review-aug2026-6yp6.9: V1 DESIGN — 1Hz poll instead of a
+-- ViewportSize event connection. Chosen to avoid connection lifecycle
+-- management (see 6yp6.4 for the related aquarium viewport connection fix);
+-- handles screen rotation smoothly (cap adjusts within 1s) at negligible
+-- O(1) cost per tick. If event-driven is ever desired, pair with the
+-- 6yp6.4 tracked-connection pattern.
 task.spawn(function()
 	while true do
 		recomputeMobileToastCap()

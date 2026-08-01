@@ -808,5 +808,15 @@ return function(describe, it, expect)
 		it("IncomeTickSeconds is 1 in GameConfig", function()
 			expect(gameConfigSource:find("IncomeTickSeconds = 1", 1, true)).to.be.a("number")
 		end)
+		it("6yp6.9: startIncomeLoop documents the V1 full-snapshot design + delta escape hatch", function()
+			-- Design-decision comment pinned so a future agent doesn't "fix"
+			-- the snapshot push without the bandwidth context.
+			local loopPos = aqSource:find("function AquariumService.startIncomeLoop(deps)", 1, true)
+			local commentPos = aqSource:find("V1 DESIGN — full-snapshot push every", 1, true)
+			expect(loopPos).to.be.a("number")
+			expect(commentPos).to.be.a("number")
+			expect(loopPos < commentPos).to.equal(true)
+			expect(aqSource:find("income tick: push {cash, unclaimedIncome, incomePerSec} only", 1, true)).to.be.a("number")
+		end)
 	end)
 end
