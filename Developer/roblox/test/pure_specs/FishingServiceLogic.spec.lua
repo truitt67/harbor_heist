@@ -108,6 +108,8 @@ end
 -- ──────────────────────────────────────────────────────────────────────
 
 local fishingSource = fs.readFile("src/server/FishingService.lua")
+local remotesSource = fs.readFile("src/server/Remotes.lua")
+local antiExploitSource = fs.readFile("src/server/AntiExploitService.lua")
 local gameConfigSource = fs.readFile("src/shared/GameConfig.lua")
 local clientSource = fs.readFile("src/client/init.client.lua")
 
@@ -499,6 +501,63 @@ return function(describe, it, expect)
 
 		it("client has contentYOffset for layout shift", function()
 			expect(clientSource:find("local contentYOffset = isNew and 10 or 0", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	-- ════════════════════════════════════════════════════════════════════
+	-- harborheist-kqbq.12.1: CancelCast server path source contracts
+	-- ════════════════════════════════════════════════════════════════════
+	describe("Source contract: kqbq.12.1 CancelCast server path", function()
+		it("Remotes.lua registers a CancelCast RemoteEvent", function()
+			expect(remotesSource:find('"CancelCast"', 1, true)).to.be.a("number")
+		end)
+
+		it("CancelCast is grouped right after RequestCast in EVENT_NAMES", function()
+			expect(remotesSource:find('"RequestCast", "CancelCast"', 1, true)).to.be.a("number")
+		end)
+
+		it("AntiExploitService defines a cancel_cast rate bucket (5/10s)", function()
+			expect(antiExploitSource:find("cancel_cast = { maxCalls = 5, windowSeconds = 10 }", 1, true)).to.be.a("number")
+		end)
+
+		it("FishingService wires a CancelCast OnServerEvent handler", function()
+			expect(fishingSource:find("remotes.CancelCast.OnServerEvent:Connect(handleCancelCast)", 1, true)).to.be.a("number")
+		end)
+
+		it("cancel handler rate-limits with the dedicated cancel_cast bucket", function()
+			expect(fishingSource:find('antiExploit.checkRate(player, "cancel_cast")', 1, true)).to.be.a("number")
+		end)
+
+		it("cancel is non-cancellable once the bite fired (session.casting race guard)", function()
+			expect(fishingSource:find("if not session.casting then\n\t\t\treturn\n\t\tend\n\t\t-- Invalidate the pending", 1, true)).to.be.a("number")
+		end)
+
+		it("per-cast generation token is stamped at cast start", function()
+			expect(fishingSource:find("local myGen = (castGen[player] or 0) + 1", 1, true)).to.be.a("number")
+		end)
+
+		it("bite callback guards against a cancelled/superseded cast", function()
+			expect(fishingSource:find("if castGen[player] ~= myGen then\n\t\t\t\treturn\n\t\t\tend", 1, true)).to.be.a("number")
+		end)
+
+		it("cancel reuses the existing cleanup path (no forked logic)", function()
+			expect(fishingSource:find("castGen[player] = (castGen[player] or 0) + 1\n\t\t-- Reuse the existing cleanup path", 1, true)).to.be.a("number")
+		end)
+
+		it("cancel authoritatively hides the client cast overlay + notifies", function()
+			expect(fishingSource:find('remotes.CastState:FireClient(player, false, 0)\n\t\tremotes.notify(player, "Cast cancelled."', 1, true)).to.be.a("number")
+		end)
+
+		it("cancel exposes a _cancelCast E2E test seam", function()
+			expect(fishingSource:find("_cancelCast = handleCancelCast", 1, true)).to.be.a("number")
+		end)
+
+		it("cancel exposes a _castGen E2E test seam", function()
+			expect(fishingSource:find("_castGen = castGen", 1, true)).to.be.a("number")
+		end)
+
+		it("onPlayerRemoving frees the castGen key (no Player-instance leak)", function()
+			expect(fishingSource:find("castGen[player] = nil", 1, true)).to.be.a("number")
 		end)
 	end)
 end

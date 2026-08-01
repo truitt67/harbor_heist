@@ -33,6 +33,15 @@ function FishingService.init(deps)
 
 	-- Track active bite state per player (not persisted)
 	local activeBites = {} -- player -> { zoneId, rod, baitLevel, biteTime }
+	-- harborheist-kqbq.12.1: per-cast generation token. task.delay returns
+	-- void (Luau has no task.cancel for void delays), so cancelling an
+	-- in-progress cast cannot directly abort the pending bite callback.
+	-- Each cast stamps a monotonic id; the bite callback captures it and
+	-- early-returns if the id changed (cancel or supersede). This is the
+	-- mechanism that "cancels the pending bite timer" — without it a stale
+	-- callback would fire spurious CastState:false + zone-leave/"hands
+	-- full" notifies and a redundant endCast after the player cancelled.
+	local castGen = {} -- player -> monotonic cast id (nil = no active cast)
 
 	-- RELIABILITY (TASK 14.3): player-keyed table must be cleared on disconnect
 	-- or it leaks Player instances and leaves session.casting stuck true.
@@ -42,6 +51,11 @@ function FishingService.init(deps)
 			session.casting = false
 		end
 		activeBites[player] = nil
+		-- harborheist-kqbq.12.1: invalidate any in-flight bite callback
+		-- (also frees the per-player key so the table cannot leak Player
+		-- instances). The player.Parent check in the callback is the primary
+		-- guard; this is consistent defense-in-depth with the cancel path.
+		castGen[player] = nil
 	end
 
 	remotes.RequestCast.OnServerEvent:Connect(function(player)
@@ -99,6 +113,11 @@ function FishingService.init(deps)
 			return
 		end
 
+		-- harborheist-kqbq.12.1: stamp a monotonic cast id so a later
+		-- CancelCast (or a superseding cast) can invalidate the pending
+		-- task.delay bite callback by bumping this token.
+		local myGen = (castGen[player] or 0) + 1
+		castGen[player] = myGen
 		session.casting = true
 		local rod = GameConfig.Rods[session.profile.Equipment.EquippedRodLevel]
 		if not rod then
@@ -188,6 +207,14 @@ function FishingService.init(deps)
 			if not player.Parent then
 				session.casting = false
 				activeBites[player] = nil
+				return
+			end
+			-- harborheist-kqbq.12.1: cancel/supersede race guard. If the
+			-- player cancelled this cast (CancelCast bumped castGen) or
+			-- started a new one, this stale callback's captured id no longer
+			-- matches — bail before firing CastState/BiteEvent/notifies so a
+			-- cancel is clean (no "the fish got away" after Esc).
+			if castGen[player] ~= myGen then
 				return
 			end
 			session.casting = false
@@ -313,6 +340,57 @@ function FishingService.init(deps)
 			remotes.notify(player, "Good cast. +Luck on this catch.", "info", "cast")
 		end
 	end)
+
+	-- harborheist-kqbq.12.1: Esc/cancel for the cast overlay. Desktop players
+	-- expect to bail out of the current context; today RequestCast schedules a
+	-- 2-6s bite regardless, so a client-only hide would desync (BiteEvent would
+	-- arrive for a hidden overlay). The server authoritatively cancels the
+	-- pending cast: the cancel is valid ONLY during the pre-bite wait
+	-- (session.casting == true). Once the bite fires (casting flips false in
+	-- the task.delay callback above, BEFORE BiteEvent), the bite minigame is
+	-- forfeit-by-design and non-cancellable. Because task.delay is uncancelable,
+	-- "cancelling the pending bite timer" = bumping the castGen token so the
+	-- in-flight callback becomes a no-op (see the guard above). Cleanup reuses
+	-- the exact activeBites=nil + rodService.endCast(false) pattern used by the
+	-- zone-leave / hands-full / catch paths — no forked logic. No luck/rarity/
+	-- species state is touched; cancel NEVER refunds or re-rolls.
+	local function handleCancelCast(player)
+		if antiExploit then
+			local ok, reason = antiExploit.checkRate(player, "cancel_cast")
+			if not ok then
+				if reason == "rate_limited" then
+					remotes.notify(player, "Slow down! You are cancelling too fast.", "warn", "cast")
+				end
+				return
+			end
+		end
+		local session = dataManager.get(player)
+		if not session or not player.Parent then
+			return
+		end
+		-- Race guard: only cancellable while the bite is still pending. If
+		-- casting is false the bite already fired (or no cast is in progress) —
+		-- treat as non-cancellable and ignore.
+		if not session.casting then
+			return
+		end
+		-- Invalidate the pending task.delay bite callback (the "cancel the
+		-- timer" step) so it early-returns without firing BiteEvent/notifies.
+		castGen[player] = (castGen[player] or 0) + 1
+		-- Reuse the existing cleanup path (mirrors zone-leave/hands-full/catch).
+		session.casting = false
+		activeBites[player] = nil
+		if rodService then
+			rodService.endCast(player, false)
+		end
+		-- Authoritatively hide the cast overlay on the client (the client Esc
+		-- wiring in kqbq.12.2 also hides locally; this is the server source of
+		-- truth so a cancel is consistent even before 12.2 lands).
+		remotes.CastState:FireClient(player, false, 0)
+		remotes.notify(player, "Cast cancelled.", "info", "cast")
+	end
+
+	remotes.CancelCast.OnServerEvent:Connect(handleCancelCast)
 
 	-- TASK 3.3: Client submits catch input after the minigame
 	local function handleSubmitCatchInput(player, timingResult)
@@ -539,6 +617,11 @@ function FishingService.init(deps)
 		-- RemoteFunction which passes nil as the player when called from
 		-- server context via InvokeServer).
 		_submitCatch = handleSubmitCatchInput,
+		-- harborheist-kqbq.12.1: expose the cancel handler for direct E2E
+		-- invocation (bypasses OnServerEvent, which needs a real client), and
+		-- the generation token so tests can assert a cancel bumps it.
+		_cancelCast = handleCancelCast,
+		_castGen = castGen,
 	}
 end
 

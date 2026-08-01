@@ -15,7 +15,7 @@ local NOTIFY_COLORS = {
 
 local Remotes = {}
 
-local EVENT_NAMES = { "RequestCast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop", "BiteEvent", "QuestProgressChanged", "OpenQuests", "CastResult", "RaidWindowChanged" }
+local EVENT_NAMES = { "RequestCast", "CancelCast", "Notify", "StateChanged", "CastState", "OpenAquarium", "OpenShop", "BiteEvent", "QuestProgressChanged", "OpenQuests", "CastResult", "RaidWindowChanged" }
 local FUNCTION_NAMES = { "RequestStoreFish", "RequestSellFish", "RequestActivateLock", "RequestPurchaseUpgrade", "GetState", "SubmitCatchInput", "SellFish", "StoreSingleFish", "RequestClaimIncome", "SpawnBoat", "RequestCollection", "ClaimCollectionReward", "RequestToggleRaidOptIn", "GetRaidTargets", "RequestRaidAttempt", "SubmitRaidResult", "MarkOnboardingFlag" }
 
 local folder = Instance.new("Folder")
