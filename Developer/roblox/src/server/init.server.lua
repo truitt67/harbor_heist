@@ -72,6 +72,8 @@ if ServerScriptService:FindFirstChild("E2ERunner") then
 		activeBites = fishingInit._activeBites,
 		setFishingRng = fishingInit._setRng,
 		submitCatch = fishingInit._submitCatch,
+		cancelCast = fishingInit._cancelCast, -- harborheist-kqbq.12.1: cancel handler for direct E2E invocation
+		castGen = fishingInit._castGen,       -- harborheist-kqbq.12.1: generation token for cancel-state assertions
 		fishingCleanup = fishingCleanup,
 		aquariumStoreFish = AquariumService._requestStoreFish,
 		aquariumClaimIncome = AquariumService._requestClaimIncome,
