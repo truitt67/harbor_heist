@@ -26,6 +26,7 @@
 -- a2ug.15 contracts ACTIVATED 2026-08-01: wandering-player zone re-guidance (2nd consecutive out-of-zone refusal re-arms the cue).
 -- kqbq.16 contracts ACTIVATED 2026-08-01: mobile toast density (viewport-scaled visible cap, icon-only 44x44 actions, +N overflow chip).
 -- kqbq.21.1 contracts ACTIVATED 2026-08-01: bottom-sheet grab-handle pill + one-time first-open bounce hint.
+-- kqbq.22.3 contracts ACTIVATED 2026-08-01: preserve shop/collection scroll position across close/reopen (stash + 1-frame deferred clamped restore).
 -- kqbq.22.4 contracts ACTIVATED 2026-08-01: reveal card stroke pulse extended to Rare (dimmer/slower than Epic).
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
@@ -870,6 +871,30 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("bounce is 6px up-down, 2 cycles (1 repeat reversing), Sine InOut", function()
 			expect(clientSource:find("local bounce = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 1, true)", 1, true)).to.be.a("number")
 			expect(clientSource:find('{ Position = UDim2.new(0.5, 0, 1, -6) }', 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.22.3 preserve list scroll position across close/reopen", function()
+		it("stash table is keyed per panel (A->B->A restores A)", function()
+			expect(clientSource:find("local stashedScrollPositions = { shop = nil, collection = nil }", 1, true)).to.be.a("number")
+		end)
+		it("hidePanels stashes shop + collection scroll before hide", function()
+			expect(clientSource:find("stashedScrollPositions.shop = shopListRef.CanvasPosition.Y", 1, true)).to.be.a("number")
+			expect(clientSource:find("stashedScrollPositions.collection = collectionListRef.CanvasPosition.Y", 1, true)).to.be.a("number")
+		end)
+		it("restore defers one frame so AutomaticCanvasSize settles", function()
+			expect(clientSource:find('game:GetService("RunService").RenderStepped:Wait()', 1, true)).to.be.a("number")
+		end)
+		it("restore clamps to max canvas offset (no blank-view restore)", function()
+			expect(clientSource:find("local maxOffset = math.max(0, list.AbsoluteCanvasSize.Y - list.AbsoluteWindowSize.Y)", 1, true)).to.be.a("number")
+			expect(clientSource:find("math.clamp(stashedY, 0, maxOffset)", 1, true)).to.be.a("number")
+		end)
+		it("restore clears the stash after use", function()
+			expect(clientSource:find("stashedScrollPositions[stashedKey] = nil", 1, true)).to.be.a("number")
+		end)
+		it("only shop + collection are restored (other panels untouched)", function()
+			expect(clientSource:find('local stashedKey = (shopPanelRef and panel == shopPanelRef) and "shop"', 1, true)).to.be.a("number")
+			expect(clientSource:find('(collectionPanelRef and panel == collectionPanelRef) and "collection" or nil', 1, true)).to.be.a("number")
 		end)
 	end)
 end)

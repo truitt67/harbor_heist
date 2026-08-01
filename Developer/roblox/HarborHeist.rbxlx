@@ -12837,6 +12837,15 @@ local function makePanel(title, titleColor, desktopSize)
 	return panel, content, close
 end
 
+-- [harborheist-kqbq.22.3] Forward declarations — shopPanel/collectionPanel/
+-- shopList/collectionList are declared ~:3864-4301 (AFTER hidePanels and
+-- showPanel), so the stash/restore hooks can't reference them directly.
+-- Assigned once at the shop section below; the stash/restore closures
+-- resolve through these upvalues at call time (never nil at runtime — the
+-- hooks only fire on shopPanel/collectionPanel, which exist by then).
+local shopPanelRef, collectionPanelRef, shopListRef, collectionListRef = nil, nil, nil, nil
+local stashedScrollPositions = { shop = nil, collection = nil }
+
 -- Assigned to the forward-declared local (see above makePanel) so the
 -- mobile drag-to-dismiss handlers can reference it.
 hidePanels = function()
@@ -12862,6 +12871,14 @@ hidePanels = function()
 		activePanel = nil
 		if updateActionBarIndicator then
 			updateActionBarIndicator()
+		end
+		-- harborheist-kqbq.22.3: stash the scroll position of the shop /
+		-- collection lists so a close→reopen restores it (content may have
+		-- shrunk — clamped on restore, never into blank space).
+		if shopPanelRef and panel == shopPanelRef then
+			stashedScrollPositions.shop = shopListRef.CanvasPosition.Y
+		elseif collectionPanelRef and panel == collectionPanelRef then
+			stashedScrollPositions.collection = collectionListRef.CanvasPosition.Y
 		end
 		if IS_MOBILE then
 			-- harborheist-pytn: Use AnimationSystem slide transition for mobile hide
@@ -13001,6 +13018,20 @@ local function showPanel(panel)
 			panelOpening = false
 		end
 	end)
+	-- harborheist-kqbq.22.3: restore the stashed scroll position ONE FRAME
+	-- after content render — AutomaticCanvasSize settles post-layout, and a
+	-- pre-layout write is a classic no-op. Clamp to the max canvas offset so
+	-- a shrunk list (a2ug.9 collapse, a sell) never restores into blank space.
+	local stashedKey = (shopPanelRef and panel == shopPanelRef) and "shop"
+		or (collectionPanelRef and panel == collectionPanelRef) and "collection" or nil
+	local stashedY = stashedKey and stashedScrollPositions[stashedKey]
+	if stashedKey and stashedY and stashedY > 0 then
+		local list = (stashedKey == "shop") and shopListRef or collectionListRef
+		game:GetService("RunService").RenderStepped:Wait()
+		local maxOffset = math.max(0, list.AbsoluteCanvasSize.Y - list.AbsoluteWindowSize.Y)
+		list.CanvasPosition = Vector2.new(0, math.clamp(stashedY, 0, maxOffset))
+		stashedScrollPositions[stashedKey] = nil
+	end
 end
 
 backdrop.Activated:Connect(function()
@@ -14064,6 +14095,12 @@ shopList.BackgroundTransparency = 1
 shopList.ScrollBarThickness = 4
 shopList.ScrollBarImageColor3 = Theme.color.text.tertiary
 applyScrollbarAutoHide(shopList)
+-- harborheist-kqbq.22.3: bind the scroll-restore forward declarations now
+-- that all four locals exist (hidePanels/showPanel resolve through them).
+shopPanelRef = shopPanel
+shopListRef = shopList
+collectionPanelRef = collectionPanel
+collectionListRef = collectionList
 shopList.CanvasSize = UDim2.new(0, 0, 0, 0)
 shopList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 shopList.ZIndex = 26
