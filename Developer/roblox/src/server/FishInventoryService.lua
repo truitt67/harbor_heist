@@ -72,12 +72,12 @@ function FishInventoryService.init(deps)
 			-- gate pattern as wqw.6 RequestSellFish + isEligibleRaidTarget).
 			local locked = (session.lockedUntil or 0) > os.clock()
 			if locked then
-				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
 			local raidProtected = (session.profile.Aquarium.RaidProtectionUntilTimestamp or 0) > os.time()
 			if raidProtected then
-				notify(player, "Raid protection active — stored fish can't be removed right now.", Color3.fromRGB(255, 170, 80))
+				notify(player, "Raid protection active — stored fish can't be removed right now.", "warn", "lock")
 				return { ok = false, reason = "raid_protected" }
 			end
 			local storedFish = session.profile.Aquarium.StoredFish
@@ -142,7 +142,7 @@ function FishInventoryService.init(deps)
 			auditLog.logSell(player, 1, payout)
 		end
 
-		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))
+		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), "success", "economy")
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish sell (not just autosave).
 		-- Spawned so the handler returns immediately; coalesced by
@@ -210,7 +210,7 @@ function FishInventoryService.init(deps)
 		local storedFish = session.profile.Aquarium.StoredFish
 		local capacity = stateSync.getCapacity(session)
 		if #storedFish >= capacity then
-			notify(player, "Your aquarium is full! Sell some fish first.", Color3.fromRGB(255, 170, 80))
+			notify(player, "Your aquarium is full! Sell some fish first.", "warn", "economy")
 			return { ok = false, reason = "aquarium_full" }
 		end
 
@@ -231,7 +231,7 @@ function FishInventoryService.init(deps)
 		-- and invalidates via its own `if soldFromStored` block above; only the
 		-- carried SellFish path doesn't touch StoredFish/affect incomePerSec.)
 		stateSync.invalidateIncomeCache(session)
-		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), Color3.fromRGB(120, 220, 255))
+		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), "info", "economy")
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish store (not just autosave).
 		-- Spawned so the handler returns immediately; coalesced by

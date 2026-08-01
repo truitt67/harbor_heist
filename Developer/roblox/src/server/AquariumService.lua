@@ -44,15 +44,15 @@ function AquariumService.init(deps)
 		end
 		if stored == 0 then
 			if #session.carried == 0 then
-				remotes.notify(player, "You have no fish to store. Go fish!", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "You have no fish to store. Go fish!", "warn", "economy")
 			else
-				remotes.notify(player, "Your aquarium is full! Sell some fish.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Your aquarium is full! Sell some fish.", "warn", "economy")
 			end
 		else
 			remotes.notify(
 				player,
 				string.format("Stored %d fish. They now earn you cash every second!", stored),
-				Color3.fromRGB(120, 220, 255)
+				"info"
 			)
 		end
 		if auditLog and stored > 0 then
@@ -114,7 +114,7 @@ function AquariumService.init(deps)
 		if auditLog then
 			auditLog.logClaim(player, unclaimed)
 		end
-		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130), "economy")
+		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), "success", "economy")
 		stateSync.push(session)
 		-- 6sbm: checkpoint on claim, same pattern as the store path (thj.2)
 		-- above — without it, a crash/leave before the next autosave (60s)
@@ -167,10 +167,10 @@ function AquariumService.init(deps)
 		end
 		if payout <= 0 then
 			if locked and storedCount > 0 then
-				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
-			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "No fish to sell!", "warn", "economy")
 			return { ok = false }
 		end
 		local soldCount = carriedCount
@@ -189,9 +189,9 @@ function AquariumService.init(deps)
 			auditLog.logSell(player, soldCount, payout)
 		end
 		if locked then
-			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), Color3.fromRGB(130, 255, 130), "economy")
+			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), "success", "economy")
 		else
-			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130), "economy")
+			remotes.notify(player, string.format("Sold all fish for $%d!", payout), "success", "economy")
 		end
 		-- TASK 14.15 (wqw.15): stored fish were removed only when not locked,
 		-- so invalidate the cached incomePerSec in that case. Carried-only sells
@@ -242,7 +242,7 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("Lock recharging... %ds left.", math.ceil(session.lockCooldownUntil - now)),
-				Color3.fromRGB(255, 170, 80)
+				"warn"
 			)
 			return { ok = false, reason = "cooldown" }
 		end
@@ -296,13 +296,13 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("Aquarium locked for %ds! (%d free uses left)", lockDuration, defense.LockFreeUsesRemaining),
-				Color3.fromRGB(130, 255, 130)
+				"success"
 			)
 		else
 			remotes.notify(
 				player,
 				string.format("Aquarium locked for %ds. (No free uses — longer recharge)", lockDuration),
-				Color3.fromRGB(130, 255, 130)
+				"success"
 			)
 		end
 		refreshVisual(session)
@@ -323,7 +323,7 @@ function AquariumService.init(deps)
 			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
-				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80), "lock")
+				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", "warn", "lock")
 			end
 		end)
 		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
@@ -359,16 +359,16 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("You need an aquarium upgrade or %d catches to enable raids. (%d/%d catches)", GameConfig.Raid.unlockTotalCatches, totalCatches, GameConfig.Raid.unlockTotalCatches),
-				Color3.fromRGB(255, 170, 80)
+				"warn"
 			)
 			return { ok = false, reason = "new_player_protected", catches = totalCatches }
 		end
 		local newValue = not session.profile.Aquarium.RaidOptIn
 		session.profile.Aquarium.RaidOptIn = newValue
 		if newValue then
-			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", Color3.fromRGB(255, 170, 80), "raid-info")
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", "warn", "raid-info")
 		else
-			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130), "raid-info")
+			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", "success", "raid-info")
 		end
 		stateSync.push(session)
 		-- harborheist-os9: the PRD catalog event is raid_opt_in_enabled; the

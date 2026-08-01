@@ -69,14 +69,15 @@ function ShopService.init(deps)
 			return { ok = false, reason = "bad_level" }
 		end
 		if level ~= currentLevel + 1 then
-			remotes.notify(player, "Buy upgrades in order, one tier at a time!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Buy upgrades in order, one tier at a time!", "warn", "economy")
 			return { ok = false, reason = "wrong_tier" }
 		end
 		if math.floor(session.profile.Coins) < item.cost then
 			remotes.notify(
 				player,
 				string.format("Not enough cash! %s costs $%d.", item.name, item.cost),
-				Color3.fromRGB(255, 120, 120)
+			"error",
+			"economy"
 			)
 			return { ok = false, reason = "poor" }
 		end
@@ -126,7 +127,8 @@ function ShopService.init(deps)
 		remotes.notify(
 			player,
 			string.format("Purchased %s!", item.name),
-			Color3.fromRGB(130, 255, 130)
+		"success",
+		"economy"
 		)
 		-- TASK 14.15 (wqw.15): aquarium/dock upgrades change the income
 		-- multipliers, so invalidate the cached incomePerSec for those kinds.

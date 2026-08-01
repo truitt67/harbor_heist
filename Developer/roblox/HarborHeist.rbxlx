@@ -2007,7 +2007,7 @@ boatPrompt.Triggered:Connect(function(player)
 	-- have a boat" notify here since the prompt is the only UI surface where
 	-- that specific reason is surfaced (the RemoteFunction button just hides).
 	if result and not result.ok and result.reason == "already_has_boat" then
-		Remotes.notify(player, "You already have a boat!", Color3.fromRGB(255, 170, 80))
+		Remotes.notify(player, "You already have a boat!", "warn", "info")
 	end
 end)
 
@@ -2062,7 +2062,7 @@ local function onPlayerAdded(player)
 		session.dockIndex = dock.index
 		DockManager.updateAquariumVisual(dock, session, StateSync.getCapacity(session))
 	else
-		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", Color3.fromRGB(255, 170, 80))
+		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", "warn", "info")
 	end
 
 	-- RELIABILITY: Store connection so we can disconnect it later to prevent memory leaks
@@ -2099,7 +2099,7 @@ local function onPlayerAdded(player)
 	Remotes.notify(
 		player,
 		"Welcome to Harbor Heist! Fish at your dock, store fish in your aquarium, and watch the cash roll in.",
-		Color3.fromRGB(120, 220, 255)
+		"info"
 	)
 end
 
@@ -2721,15 +2721,15 @@ function AquariumService.init(deps)
 		end
 		if stored == 0 then
 			if #session.carried == 0 then
-				remotes.notify(player, "You have no fish to store. Go fish!", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "You have no fish to store. Go fish!", "warn", "economy")
 			else
-				remotes.notify(player, "Your aquarium is full! Sell some fish.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Your aquarium is full! Sell some fish.", "warn", "economy")
 			end
 		else
 			remotes.notify(
 				player,
 				string.format("Stored %d fish. They now earn you cash every second!", stored),
-				Color3.fromRGB(120, 220, 255)
+				"info"
 			)
 		end
 		if auditLog and stored > 0 then
@@ -2791,7 +2791,7 @@ function AquariumService.init(deps)
 		if auditLog then
 			auditLog.logClaim(player, unclaimed)
 		end
-		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), Color3.fromRGB(130, 255, 130), "economy")
+		remotes.notify(player, string.format("Claimed $%d in aquarium income!", unclaimed), "success", "economy")
 		stateSync.push(session)
 		-- 6sbm: checkpoint on claim, same pattern as the store path (thj.2)
 		-- above — without it, a crash/leave before the next autosave (60s)
@@ -2844,10 +2844,10 @@ function AquariumService.init(deps)
 		end
 		if payout <= 0 then
 			if locked and storedCount > 0 then
-				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
-			remotes.notify(player, "No fish to sell!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "No fish to sell!", "warn", "economy")
 			return { ok = false }
 		end
 		local soldCount = carriedCount
@@ -2866,9 +2866,9 @@ function AquariumService.init(deps)
 			auditLog.logSell(player, soldCount, payout)
 		end
 		if locked then
-			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), Color3.fromRGB(130, 255, 130), "economy")
+			remotes.notify(player, string.format("Sold %d carried fish for $%d! (Stored fish untouched — aquarium locked)", soldCount, payout), "success", "economy")
 		else
-			remotes.notify(player, string.format("Sold all fish for $%d!", payout), Color3.fromRGB(130, 255, 130), "economy")
+			remotes.notify(player, string.format("Sold all fish for $%d!", payout), "success", "economy")
 		end
 		-- TASK 14.15 (wqw.15): stored fish were removed only when not locked,
 		-- so invalidate the cached incomePerSec in that case. Carried-only sells
@@ -2919,7 +2919,7 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("Lock recharging... %ds left.", math.ceil(session.lockCooldownUntil - now)),
-				Color3.fromRGB(255, 170, 80)
+				"warn"
 			)
 			return { ok = false, reason = "cooldown" }
 		end
@@ -2973,13 +2973,13 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("Aquarium locked for %ds! (%d free uses left)", lockDuration, defense.LockFreeUsesRemaining),
-				Color3.fromRGB(130, 255, 130)
+				"success"
 			)
 		else
 			remotes.notify(
 				player,
 				string.format("Aquarium locked for %ds. (No free uses — longer recharge)", lockDuration),
-				Color3.fromRGB(130, 255, 130)
+				"success"
 			)
 		end
 		refreshVisual(session)
@@ -3000,7 +3000,7 @@ function AquariumService.init(deps)
 			if session.player.Parent and session.lockGeneration == generation then
 				refreshVisual(session)
 				stateSync.push(session)
-				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", Color3.fromRGB(255, 170, 80), "lock")
+				remotes.notify(session.player, "Your aquarium lock expired. Watch out for thieves!", "warn", "lock")
 			end
 		end)
 		return { ok = true, usedFree = hasFreeUse, freeRemaining = defense.LockFreeUsesRemaining }
@@ -3036,16 +3036,16 @@ function AquariumService.init(deps)
 			remotes.notify(
 				player,
 				string.format("You need an aquarium upgrade or %d catches to enable raids. (%d/%d catches)", GameConfig.Raid.unlockTotalCatches, totalCatches, GameConfig.Raid.unlockTotalCatches),
-				Color3.fromRGB(255, 170, 80)
+				"warn"
 			)
 			return { ok = false, reason = "new_player_protected", catches = totalCatches }
 		end
 		local newValue = not session.profile.Aquarium.RaidOptIn
 		session.profile.Aquarium.RaidOptIn = newValue
 		if newValue then
-			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", Color3.fromRGB(255, 170, 80), "raid-info")
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", "warn", "raid-info")
 		else
-			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", Color3.fromRGB(130, 255, 130), "raid-info")
+			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", "success", "raid-info")
 		end
 		stateSync.push(session)
 		-- harborheist-os9: the PRD catalog event is raid_opt_in_enabled; the
@@ -3829,7 +3829,7 @@ function BoatService.handleSpawnRequest(player)
 	-- Applies to BOTH the RemoteFunction AND the ProximityPrompt entry point.
 	local session = dataManager and dataManager.get(player)
 	if session and (session.stunUntil or 0) > os.clock() then
-		remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
+		remotes.notify(player, "You're stunned! You can't launch a boat right now.", "error", "info")
 		return { ok = false, reason = "stunned" }
 	end
 	local boatDock = worldFolderRef and worldFolderRef:FindFirstChild("BoatDock")
@@ -3850,7 +3850,7 @@ function BoatService.handleSpawnRequest(player)
 		end
 	end
 	if result.ok then
-		remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", Color3.fromRGB(120, 220, 255))
+		remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", "info", "info")
 	end
 	return result
 end
@@ -4154,7 +4154,8 @@ function CollectionService.init(deps)
 			remotes.notify(
 				session.player,
 				("Collection milestone: %s (+%d coins)"):format(target.label, coinsGranted),
-				Color3.fromRGB(255, 215, 0)
+				"reward",
+				"discovery"
 			)
 		end
 		local stateSync = deps.stateSync
@@ -5816,12 +5817,12 @@ function FishInventoryService.init(deps)
 			-- gate pattern as wqw.6 RequestSellFish + isEligibleRaidTarget).
 			local locked = (session.lockedUntil or 0) > os.clock()
 			if locked then
-				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", Color3.fromRGB(255, 170, 80))
+				notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
 			local raidProtected = (session.profile.Aquarium.RaidProtectionUntilTimestamp or 0) > os.time()
 			if raidProtected then
-				notify(player, "Raid protection active — stored fish can't be removed right now.", Color3.fromRGB(255, 170, 80))
+				notify(player, "Raid protection active — stored fish can't be removed right now.", "warn", "lock")
 				return { ok = false, reason = "raid_protected" }
 			end
 			local storedFish = session.profile.Aquarium.StoredFish
@@ -5886,7 +5887,7 @@ function FishInventoryService.init(deps)
 			auditLog.logSell(player, 1, payout)
 		end
 
-		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), Color3.fromRGB(130, 255, 130))
+		notify(player, string.format("Sold %s %s for $%d!", fish.Rarity, fish.SpeciesId, payout), "success", "economy")
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish sell (not just autosave).
 		-- Spawned so the handler returns immediately; coalesced by
@@ -5954,7 +5955,7 @@ function FishInventoryService.init(deps)
 		local storedFish = session.profile.Aquarium.StoredFish
 		local capacity = stateSync.getCapacity(session)
 		if #storedFish >= capacity then
-			notify(player, "Your aquarium is full! Sell some fish first.", Color3.fromRGB(255, 170, 80))
+			notify(player, "Your aquarium is full! Sell some fish first.", "warn", "economy")
 			return { ok = false, reason = "aquarium_full" }
 		end
 
@@ -5975,7 +5976,7 @@ function FishInventoryService.init(deps)
 		-- and invalidates via its own `if soldFromStored` block above; only the
 		-- carried SellFish path doesn't touch StoredFish/affect incomePerSec.)
 		stateSync.invalidateIncomeCache(session)
-		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), Color3.fromRGB(120, 220, 255))
+		notify(player, string.format("Stored %s %s. It now earns you cash!", fish.Rarity, fish.SpeciesId), "info", "economy")
 		stateSync.push(session)
 		-- TASK 12.2 (thj.2): persist on single-fish store (not just autosave).
 		-- Spawned so the handler returns immediately; coalesced by
@@ -6080,7 +6081,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are casting too fast.", Color3.fromRGB(255, 170, 80))
+					remotes.notify(player, "Slow down! You are casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -6107,7 +6108,7 @@ function FishingService.init(deps)
 			activeBites[player] = nil
 		end
 		if #session.carried >= GameConfig.MaxCarried then
-			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Your hands are full! Store or sell your fish first.", "warn", "cast")
 			return
 		end
 		local dock = dockManager.getDock(player)
@@ -6120,13 +6121,13 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access
 		if not ZoneDefinitions.canAccess(zoneId, session.profile.Equipment.EquippedRodLevel) then
 			local zone = ZoneDefinitions.get(zoneId)
-			remotes.notify(player, string.format("You need a better rod to fish in %s!", zone.DisplayName), Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, string.format("You need a better rod to fish in %s!", zone.DisplayName), "warn", "cast")
 			return
 		end
 
@@ -6234,7 +6235,7 @@ function FishingService.init(deps)
 				stillInZone, currentZoneId = dockManager.isInFishingZone(currentDock, player.Character)
 			end
 			if not stillInZone or currentZoneId ~= zoneId then
-				remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
+				remotes.notify(player, "You left the fishing zone... the fish got away!", "error", "missed")
 				activeBites[player] = nil
 				if rodService then
 					rodService.endCast(player, false)
@@ -6242,7 +6243,7 @@ function FishingService.init(deps)
 				return
 			end
 			if #session.carried >= GameConfig.MaxCarried then
-				remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Your hands are full! Store or sell your fish first.", "warn", "cast")
 				activeBites[player] = nil
 				if rodService then
 					rodService.endCast(player, false)
@@ -6271,7 +6272,7 @@ function FishingService.init(deps)
 							rodService.endCast(player, false)
 						end
 						if player.Parent then
-							remotes.notify(player, "The fish got away...", Color3.fromRGB(255, 120, 120))
+							remotes.notify(player, "The fish got away...", "error", "missed")
 						end
 					end
 				end)
@@ -6289,7 +6290,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast_result")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You're casting too fast.", Color3.fromRGB(255, 170, 80))
+					remotes.notify(player, "Slow down! You're casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -6339,9 +6340,9 @@ function FishingService.init(deps)
 
 		-- Feedback so the player knows their cast quality registered.
 		if tier == "perfect" then
-			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", Color3.fromRGB(134, 239, 172), "cast")
+			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", "success", "cast")
 		elseif tier == "good" then
-			remotes.notify(player, "Good cast. +Luck on this catch.", Color3.fromRGB(120, 190, 255), "cast")
+			remotes.notify(player, "Good cast. +Luck on this catch.", "info", "cast")
 		end
 	end)
 
@@ -6367,7 +6368,7 @@ function FishingService.init(deps)
 		local elapsed = os.clock() - biteData.biteTime
 		if elapsed > BITE_WINDOW_SECONDS then
 			activeBites[player] = nil
-			remotes.notify(player, "Too slow! The fish got away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "Too slow! The fish got away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -6386,7 +6387,7 @@ function FishingService.init(deps)
 		activeBites[player] = nil
 
 		if not timingResult.hit then
-			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "The fish slipped away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -6426,7 +6427,7 @@ function FishingService.init(deps)
 		end
 		effectiveZone = math.clamp(effectiveZone, baseZone, ceiling)
 		if rng:NextNumber() > effectiveZone then
-			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "The fish slipped away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -6518,7 +6519,7 @@ function FishingService.init(deps)
 		-- TASK 7.1: Track species discovery
 		if not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] then
 			session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] = true
-			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), Color3.fromRGB(255, 215, 0), "discovery")
+			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), "discovery", "discovery")
 		end
 
 		-- Find rarity color for notification
@@ -6817,7 +6818,7 @@ local function processList(session, list, scope, predicate, incrFn)
 					remotes.notify(
 						session.player,
 						string.format("%s complete: %s (+$%d)", scope, q.desc, q.reward),
-						Color3.fromRGB(255, 215, 0),
+						"reward",
 						"quest"
 					)
 				end
@@ -7702,9 +7703,9 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		"raid-victim"
 	)
 	if fenced then
-		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), Color3.fromRGB(130, 255, 130), "raid-attacker")
+		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), "success", "raid-attacker")
 	else
-		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), Color3.fromRGB(130, 255, 130), "raid-attacker")
+		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), "success", "raid-attacker")
 	end
 	if auditLog then
 		auditLog.logRaidTransfer(attacker, victim, stolenFish, true)
@@ -7758,7 +7759,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		-- No outcome event here: raid_attempted already fired at commit, and
 		-- the catalog has no attacker-side "expired" event (adding one is
 		-- analytics-scope, not this bead).
-		remotes.notify(player, "Too slow! The raid window of opportunity passed...", Color3.fromRGB(255, 120, 120), "raid-attacker")
+		remotes.notify(player, "Too slow! The raid window of opportunity passed...", "error", "raid-attacker")
 		return { ok = false, reason = "too_slow" }
 	end
 	if type(markerPosition) ~= "number" then
@@ -7787,7 +7788,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	if duration > 0 then
 		local minNeeded = position * duration
 		if elapsed < (minNeeded - NETWORK_GRACE) then
-			remotes.notify(player, "Too fast! Play the minigame fairly.", Color3.fromRGB(255, 120, 120), "raid-attacker")
+			remotes.notify(player, "Too fast! Play the minigame fairly.", "error", "raid-attacker")
 			return { ok = false, reason = "too_fast" }
 		end
 	end
@@ -7810,7 +7811,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	local victimSession = victim and dataManager.get(victim)
 	local function failOutcome(reason)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100), "raid-victim")
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), "warn", "raid-victim")
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
@@ -7855,7 +7856,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	end
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
-		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120), "raid-attacker")
+		remotes.notify(player, "Heist failed! The fish slipped away...", "error", "raid-attacker")
 		return failOutcome("missed")
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
@@ -7940,7 +7941,7 @@ local function watchRaidZone(zone: BasePart)
 		local now = os.clock()
 		if (now - (lastNotifyAt[plr] or 0)) > 5 then
 			lastNotifyAt[plr] = now
-			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", Color3.fromRGB(255, 120, 120), "raid-info")
+			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", "error", "raid-info")
 		end
 	end)
 	zone.TouchEnded:Connect(function(hit)
@@ -8720,7 +8721,7 @@ return RodService
       <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">ShopService</string>
-          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+          <string name="Source">local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local ShopService = {}
@@ -8791,14 +8792,15 @@ function ShopService.init(deps)
 			return { ok = false, reason = "bad_level" }
 		end
 		if level ~= currentLevel + 1 then
-			remotes.notify(player, "Buy upgrades in order, one tier at a time!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Buy upgrades in order, one tier at a time!", "warn", "economy")
 			return { ok = false, reason = "wrong_tier" }
 		end
-		if math.floor(session.profile.Coins) < item.cost then
+		if math.floor(session.profile.Coins) &lt; item.cost then
 			remotes.notify(
 				player,
 				string.format("Not enough cash! %s costs $%d.", item.name, item.cost),
-				Color3.fromRGB(255, 120, 120)
+			"error",
+			"economy"
 			)
 			return { ok = false, reason = "poor" }
 		end
@@ -8848,7 +8850,8 @@ function ShopService.init(deps)
 		remotes.notify(
 			player,
 			string.format("Purchased %s!", item.name),
-			Color3.fromRGB(130, 255, 130)
+		"success",
+		"economy"
 		)
 		-- TASK 14.15 (wqw.15): aquarium/dock upgrades change the income
 		-- multipliers, so invalidate the cached incomePerSec for those kinds.
@@ -8892,8 +8895,7 @@ function ShopService.init(deps)
 	ShopService._requestPurchaseUpgrade = handlePurchaseUpgrade
 end
 
-return ShopService
-]]></string>
+return ShopService</string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="29">
@@ -13588,7 +13590,7 @@ local shopRows = {}
 local SHOP_CATALOG = {}
 local function addCatalog(kind, items, orderBase)
 	for level, item in ipairs(items) do
-		table.insert(SHOP_CATALOG, { kind = kind, level = level, item = item, order = orderBase + level })
+		table.insert(SHOP_CATALOG, { kind = kind, level = level, item = item, order = orderBase * 10 + level })
 	end
 end
 addCatalog("rod", GameConfig.Rods, 0)
@@ -13609,6 +13611,19 @@ addCatalog("dock", GameConfig.DockUpgradeTiers, 50)
 table.sort(SHOP_CATALOG, function(a, b)
 	return a.order &lt; b.order
 end)
+
+local function buildSectionHeader(title, order)
+	makeLabel(shopList, {
+		Size = UDim2.new(1, -6, 0, 20),
+		Text = title,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.tertiary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		LayoutOrder = order,
+		ZIndex = 26,
+	})
+end
 
 local KIND_META = {
 	rod = { tag = "ROD", color = Theme.color.accent.base },
@@ -13800,6 +13815,11 @@ function refreshShop()
 	end
 end
 
+buildSectionHeader("RODS", -1)
+buildSectionHeader("BAIT", 99)
+buildSectionHeader("TANK", 199)
+buildSectionHeader("DEFENSE", 299)
+buildSectionHeader("DOCK", 499)
 for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
 end

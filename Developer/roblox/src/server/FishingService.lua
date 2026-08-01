@@ -49,7 +49,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are casting too fast.", Color3.fromRGB(255, 170, 80))
+					remotes.notify(player, "Slow down! You are casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -76,7 +76,7 @@ function FishingService.init(deps)
 			activeBites[player] = nil
 		end
 		if #session.carried >= GameConfig.MaxCarried then
-			remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Your hands are full! Store or sell your fish first.", "warn", "cast")
 			return
 		end
 		local dock = dockManager.getDock(player)
@@ -89,13 +89,13 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access
 		if not ZoneDefinitions.canAccess(zoneId, session.profile.Equipment.EquippedRodLevel) then
 			local zone = ZoneDefinitions.get(zoneId)
-			remotes.notify(player, string.format("You need a better rod to fish in %s!", zone.DisplayName), Color3.fromRGB(255, 170, 80))
+			remotes.notify(player, string.format("You need a better rod to fish in %s!", zone.DisplayName), "warn", "cast")
 			return
 		end
 
@@ -203,7 +203,7 @@ function FishingService.init(deps)
 				stillInZone, currentZoneId = dockManager.isInFishingZone(currentDock, player.Character)
 			end
 			if not stillInZone or currentZoneId ~= zoneId then
-				remotes.notify(player, "You left the fishing zone... the fish got away!", Color3.fromRGB(255, 120, 120))
+				remotes.notify(player, "You left the fishing zone... the fish got away!", "error", "missed")
 				activeBites[player] = nil
 				if rodService then
 					rodService.endCast(player, false)
@@ -211,7 +211,7 @@ function FishingService.init(deps)
 				return
 			end
 			if #session.carried >= GameConfig.MaxCarried then
-				remotes.notify(player, "Your hands are full! Store or sell your fish first.", Color3.fromRGB(255, 170, 80))
+				remotes.notify(player, "Your hands are full! Store or sell your fish first.", "warn", "cast")
 				activeBites[player] = nil
 				if rodService then
 					rodService.endCast(player, false)
@@ -240,7 +240,7 @@ function FishingService.init(deps)
 							rodService.endCast(player, false)
 						end
 						if player.Parent then
-							remotes.notify(player, "The fish got away...", Color3.fromRGB(255, 120, 120))
+							remotes.notify(player, "The fish got away...", "error", "missed")
 						end
 					end
 				end)
@@ -258,7 +258,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast_result")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You're casting too fast.", Color3.fromRGB(255, 170, 80))
+					remotes.notify(player, "Slow down! You're casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -308,9 +308,9 @@ function FishingService.init(deps)
 
 		-- Feedback so the player knows their cast quality registered.
 		if tier == "perfect" then
-			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", Color3.fromRGB(134, 239, 172), "cast")
+			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", "success", "cast")
 		elseif tier == "good" then
-			remotes.notify(player, "Good cast. +Luck on this catch.", Color3.fromRGB(120, 190, 255), "cast")
+			remotes.notify(player, "Good cast. +Luck on this catch.", "info", "cast")
 		end
 	end)
 
@@ -336,7 +336,7 @@ function FishingService.init(deps)
 		local elapsed = os.clock() - biteData.biteTime
 		if elapsed > BITE_WINDOW_SECONDS then
 			activeBites[player] = nil
-			remotes.notify(player, "Too slow! The fish got away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "Too slow! The fish got away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -355,7 +355,7 @@ function FishingService.init(deps)
 		activeBites[player] = nil
 
 		if not timingResult.hit then
-			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "The fish slipped away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -395,7 +395,7 @@ function FishingService.init(deps)
 		end
 		effectiveZone = math.clamp(effectiveZone, baseZone, ceiling)
 		if rng:NextNumber() > effectiveZone then
-			remotes.notify(player, "The fish slipped away...", Color3.fromRGB(255, 120, 120))
+			remotes.notify(player, "The fish slipped away...", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -487,7 +487,7 @@ function FishingService.init(deps)
 		-- TASK 7.1: Track species discovery
 		if not session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] then
 			session.profile.Collection.DiscoveredSpecies[fish.SpeciesId] = true
-			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), Color3.fromRGB(255, 215, 0), "discovery")
+			remotes.notify(player, string.format("New species discovered: %s!", fish.SpeciesId), "discovery", "discovery")
 		end
 
 		-- Find rarity color for notification

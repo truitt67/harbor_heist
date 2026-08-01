@@ -105,7 +105,7 @@ local function processList(session, list, scope, predicate, incrFn)
 					remotes.notify(
 						session.player,
 						string.format("%s complete: %s (+$%d)", scope, q.desc, q.reward),
-						Color3.fromRGB(255, 215, 0),
+						"reward",
 						"quest"
 					)
 				end

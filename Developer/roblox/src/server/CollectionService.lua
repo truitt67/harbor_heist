@@ -278,7 +278,8 @@ function CollectionService.init(deps)
 			remotes.notify(
 				session.player,
 				("Collection milestone: %s (+%d coins)"):format(target.label, coinsGranted),
-				Color3.fromRGB(255, 215, 0)
+				"reward",
+				"discovery"
 			)
 		end
 		local stateSync = deps.stateSync

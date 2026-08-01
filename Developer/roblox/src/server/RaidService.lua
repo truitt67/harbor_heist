@@ -747,9 +747,9 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		"raid-victim"
 	)
 	if fenced then
-		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), Color3.fromRGB(130, 255, 130), "raid-attacker")
+		remotes.notify(attacker, string.format("Heist success (%s)! Aquarium full — fenced the %s %s for $%d.", tier, stolenFish.Rarity, stolenFish.SpeciesId, stolenFish.BaseSellValue), "success", "raid-attacker")
 	else
-		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), Color3.fromRGB(130, 255, 130), "raid-attacker")
+		remotes.notify(attacker, string.format("Heist success (%s)! You stole a %s %s from %s!", tier, stolenFish.Rarity, stolenFish.SpeciesId, victim.DisplayName), "success", "raid-attacker")
 	end
 	if auditLog then
 		auditLog.logRaidTransfer(attacker, victim, stolenFish, true)
@@ -803,7 +803,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		-- No outcome event here: raid_attempted already fired at commit, and
 		-- the catalog has no attacker-side "expired" event (adding one is
 		-- analytics-scope, not this bead).
-		remotes.notify(player, "Too slow! The raid window of opportunity passed...", Color3.fromRGB(255, 120, 120), "raid-attacker")
+		remotes.notify(player, "Too slow! The raid window of opportunity passed...", "error", "raid-attacker")
 		return { ok = false, reason = "too_slow" }
 	end
 	if type(markerPosition) ~= "number" then
@@ -832,7 +832,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	if duration > 0 then
 		local minNeeded = position * duration
 		if elapsed < (minNeeded - NETWORK_GRACE) then
-			remotes.notify(player, "Too fast! Play the minigame fairly.", Color3.fromRGB(255, 120, 120), "raid-attacker")
+			remotes.notify(player, "Too fast! Play the minigame fairly.", "error", "raid-attacker")
 			return { ok = false, reason = "too_fast" }
 		end
 	end
@@ -855,7 +855,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	local victimSession = victim and dataManager.get(victim)
 	local function failOutcome(reason)
 		if victim then
-			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), Color3.fromRGB(255, 200, 100), "raid-victim")
+			remotes.notify(victim, string.format("%s tried to raid your aquarium and failed!", player.DisplayName), "warn", "raid-victim")
 			if analytics then
 				pcall(function()
 					analytics.track(victim, "raid_defended", { defended = true, attacker_id = player.UserId })
@@ -900,7 +900,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	end
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
-		remotes.notify(player, "Heist failed! The fish slipped away...", Color3.fromRGB(255, 120, 120), "raid-attacker")
+		remotes.notify(player, "Heist failed! The fish slipped away...", "error", "raid-attacker")
 		return failOutcome("missed")
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
@@ -985,7 +985,7 @@ local function watchRaidZone(zone: BasePart)
 		local now = os.clock()
 		if (now - (lastNotifyAt[plr] or 0)) > 5 then
 			lastNotifyAt[plr] = now
-			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", Color3.fromRGB(255, 120, 120), "raid-info")
+			remotes.notify(plr, "You entered RAID WATERS — you are opted in to raids while you stay here!", "error", "raid-info")
 		end
 	end)
 	zone.TouchEnded:Connect(function(hit)

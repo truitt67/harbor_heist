@@ -447,7 +447,7 @@ function BoatService.handleSpawnRequest(player)
 	-- Applies to BOTH the RemoteFunction AND the ProximityPrompt entry point.
 	local session = dataManager and dataManager.get(player)
 	if session and (session.stunUntil or 0) > os.clock() then
-		remotes.notify(player, "You're stunned! You can't launch a boat right now.", Color3.fromRGB(255, 120, 120))
+		remotes.notify(player, "You're stunned! You can't launch a boat right now.", "error", "info")
 		return { ok = false, reason = "stunned" }
 	end
 	local boatDock = worldFolderRef and worldFolderRef:FindFirstChild("BoatDock")
@@ -468,7 +468,7 @@ function BoatService.handleSpawnRequest(player)
 		end
 	end
 	if result.ok then
-		remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", Color3.fromRGB(120, 220, 255))
+		remotes.notify(player, "Boat launched! Drive to other docks and pull up to their aquarium.", "info", "info")
 	end
 	return result
 end
