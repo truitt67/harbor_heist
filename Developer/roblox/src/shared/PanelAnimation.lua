@@ -159,7 +159,10 @@ function PanelAnimation:open(panel, options)
     panel.BackgroundTransparency = 1
     
     activeTweens[panel] = {fadeTween}
-    fadeTween.Completed:Connect(function(playbackState)
+    -- harborheist-review-aug2026-6yp6.6: :Once (not :Connect) — Completed
+    -- fires exactly once per tween with its terminal state, so :Once gives
+    -- correct one-shot semantics and auto-disconnects after the fire.
+    fadeTween.Completed:Once(function(playbackState)
       if playbackState ~= Enum.PlaybackState.Completed then
         return
       end
@@ -219,7 +222,7 @@ function PanelAnimation:open(panel, options)
   activeTweens[panel] = {fadeTween, scaleTween}
   
   -- Set up completion callback (only fires on natural completion, not cancellation)
-  fadeTween.Completed:Connect(function(playbackState)
+  fadeTween.Completed:Once(function(playbackState)
     if playbackState ~= Enum.PlaybackState.Completed then
       return
     end
@@ -296,7 +299,7 @@ function PanelAnimation:close(panel, options)
     end
     
     activeTweens[panel] = {fadeTween}
-    fadeTween.Completed:Connect(function(playbackState)
+    fadeTween.Completed:Once(function(playbackState)
       if playbackState ~= Enum.PlaybackState.Completed then
         return
       end
@@ -361,7 +364,7 @@ function PanelAnimation:close(panel, options)
   activeTweens[panel] = {fadeTween, scaleTween}
   
   -- Set up completion callback (only fires on natural completion, not cancellation)
-  fadeTween.Completed:Connect(function(playbackState)
+  fadeTween.Completed:Once(function(playbackState)
     if playbackState ~= Enum.PlaybackState.Completed then
       return
     end
