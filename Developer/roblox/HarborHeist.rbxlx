@@ -10090,26 +10090,6 @@ local function stroke(parent, transparency, color, thickness)
 	return s
 end
 
-local function padding(parent, all)
-	local p = Instance.new("UIPadding")
-	p.PaddingTop = UDim.new(0, all)
-	p.PaddingBottom = UDim.new(0, all)
-	p.PaddingLeft = UDim.new(0, all)
-	p.PaddingRight = UDim.new(0, all)
-	p.Parent = parent
-	return p
-end
-
-local function vGradient(parent, topColor, bottomColor)
-	-- DEPRECATED: Use Gradients.apply() with named presets for new code.
-	-- This function remains for backward compatibility with existing call sites.
-	local g = Instance.new("UIGradient")
-	g.Rotation = 90
-	g.Color = ColorSequence.new(topColor, bottomColor)
-	g.Parent = parent
-	return g
-end
-
 local function makeLabel(parent, props)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
@@ -10270,72 +10250,7 @@ local function playSound(soundId, volume, speed)
 	SoundService:PlayLocalSound(s)
 	Debris:AddItem(s, 6)
 end
--- Micro-interaction: quick squash on press, spring back on release.
--- hoverGlow (optional, desktop): a white-wash Frame makeButton created —
--- MouseEnter fades it in for a color-lift affordance that never fights
--- dynamic BackgroundColor3 owners (claim/lock/sell buttons).
-local function pressFeedback(button, hoverGlow)
-	local scale = Instance.new("UIScale")
-	scale.Parent = button
-	button.MouseButton1Down:Connect(function()
-		-- R3 audit #11: disabled buttons (Active=false — shop OWNED, raid
-		-- UNAVAILABLE) still receive Button1Down; without this gate, dead
-		-- buttons squash and imply interactivity they don't have.
-		if not button.Active then
-			return
-		end
-		playSound(SOUNDS.buttonTick, 0.3) -- harborheist-6qyq: every button ticks
-		TweenService:Create(scale, EASE_FAST, { Scale = 0.96 }):Play()
-	end)
-	button.MouseButton1Up:Connect(function()
-		TweenService:Create(scale, EASE_POP, { Scale = 1 }):Play()
-	end)
-	button.MouseLeave:Connect(function()
-		TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
-		if hoverGlow then
-			TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 1 }):Play()
-		end
-	end)
-	-- R3 audit #1: on touch, Button1Up/MouseLeave are unreliable when the
-	-- finger slides off the button — the squash could stick at 0.96,
-	-- leaving the button visibly shrunk forever. InputEnded covers touch
-	-- release/cancel anywhere.
-	button.InputEnded:Connect(function(inputObject)
-		if inputObject.UserInputType == Enum.UserInputType.Touch
-			or inputObject.UserInputType == Enum.UserInputType.MouseButton1 then
-			TweenService:Create(scale, EASE_FAST, { Scale = 1 }):Play()
-		end
-	end)
-	if not IS_MOBILE then
-		button.MouseEnter:Connect(function()
-			-- R3 audit #11: no hover-grow on disabled buttons either.
-			if not button.Active then
-				return
-			end
-			-- R4 polish #1: pointing-hand cursor — the universal desktop
-			-- "this is clickable" affordance (official SystemCursors asset).
-			playerMouse.Icon = "rbxasset://SystemCursors/PointingHand"
-			TweenService:Create(scale, EASE_FAST, { Scale = 1.025 }):Play()
-			if hoverGlow then
-				TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 0.9 }):Play()
-			end
-		end)
-		button.MouseLeave:Connect(function()
-			playerMouse.Icon = ""
-		end)
-		-- Fresh-eyes fix: MouseLeave does NOT fire when a button is
-		-- destroyed mid-hover (list rebuild under the cursor, panel swap) —
-		-- without this the pointing-hand cursor sticks for the rest of the
-		-- session. Over-clears in the rare case another button is hovered
-		-- when this one dies; that self-heals on the next MouseEnter, which
-		-- is the better failure side (arrow > phantom hand).
-		button.Destroying:Connect(function()
-			if playerMouse.Icon == "rbxasset://SystemCursors/PointingHand" then
-				playerMouse.Icon = ""
-			end
-		end)
-	end
-end
+-- (harborheist-au38) pressFeedback removed: complete but unused function.
 
 -- ============================================================
 -- Context Menu System (harborheist-vasr)
@@ -10953,65 +10868,10 @@ local function createSkeletonRows(parent, config)
 	parent.LoadingSpinner = spinner
 end
 
--- EPIC 31: Loading state helper for async data fetches
-local function showLoading(parent, isLoading)
-	if isLoading then
-		parent.Loading = true
-		createSkeletonRows(parent, { rows = 4 })
-	else
-		parent.Loading = false
-		for _, child in ipairs(parent:GetChildren()) do
-			if child.Name:find("SkeletonRow") or child.Name == "LoadingSpinner" then
-				child:Destroy()
-			end
-		end
-	end
-end
+-- (harborheist-au38) showLoading + showEmptyState removed: were only called
+-- by the now-removed refreshPanelState. No other call sites in the codebase.
 
--- EPIC 31: Empty state display for panels with no data
-local function showEmptyState(parent, message)
-	for _, child in ipairs(parent:GetChildren()) do
-		if not child:IsA("UIListLayout") then
-			child:Destroy()
-		end
-	end
-	
-	local emptyFrame = Instance.new("Frame")
-	emptyFrame.Size = UDim2.new(1, 0, 1, 0)
-	emptyFrame.BackgroundColor3 = Theme.color.surface.primary
-	emptyFrame.BackgroundTransparency = 0.98
-	emptyFrame.ZIndex = 100
-	emptyFrame.Parent = parent
-	
-	local emptyLabel = Instance.new("TextLabel")
-	emptyLabel.Size = UDim2.new(1, -32, 0, 64)
-	emptyLabel.Position = UDim2.new(0.5, -16, 0.5, -32)
-	emptyLabel.AnchorPoint = Vector2.new(0.5, 0.5)
-	emptyLabel.Text = message or "No data available"
-	emptyLabel.Font = Theme.type.fonts.body
-	emptyLabel.TextSize = IS_MOBILE and Theme.type.sizes.sm or Theme.type.sizes.md
-	emptyLabel.TextColor3 = Theme.color.text.tertiary
-	emptyLabel.BackgroundTransparency = 1
-	emptyLabel.ZIndex = 101
-	emptyLabel.Parent = emptyFrame
-	
-	corner(emptyFrame, Theme.corners.lg)
-end
-
--- EPIC 31: Refresh state for panels with async data
-local function refreshPanelState(parent, isLoading, hasData)
-	if isLoading then
-		showLoading(parent, true)
-	elseif hasData == false then
-		showEmptyState(parent, "No items to display")
-	else
-		for _, child in ipairs(parent:GetChildren()) do
-			if not child:IsA("UIListLayout") then
-				child:Destroy()
-			end
-		end
-	end
-end
+-- (harborheist-au38) refreshPanelState removed: complete but unused function.
 
 -- ============================================================
 -- harborheist-i39g.1: Fake elevation/shadow system.
@@ -11683,7 +11543,8 @@ local toastQueue = {}
 -- Forward declaration: showToastDirect calls drainToastQueue (line 517)
 -- before it's defined, causing a runtime error.
 local drainToastQueue
-local dismissToast
+-- (harborheist-au38) dismissToast forward declaration removed: the upvalue was
+-- assigned but never read. Per-call local dismiss() is used by all consumers.
 
 local function showToastDirect(message, color, category, actions)
 	toastOrder += 1
@@ -11815,9 +11676,8 @@ local function showToastDirect(message, color, category, actions)
 		activeToastCount -= 1
 		drainToastQueue()
 	end
-	-- Upvalue alias kept for the forward declaration at the top of the toast
-	-- section; all internal consumers below use the per-call local.
-	dismissToast = dismiss
+	-- (harborheist-au38) dismissToast = dismiss assignment removed: the upvalue
+	-- was never read after assignment. All consumers use the per-call local.
 	-- Render action buttons if provided (max 2 per toast, right-aligned)
 	if actions then
 		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
@@ -16933,33 +16793,7 @@ end)
 -- an overlay opened before its handler section executed. Exactly one
 -- connection serves all timed overlays; the four former per-overlay
 -- listeners (cast, raid, bite GuiObject, bite tap-anywhere) are gone.
--- ============================================================
--- ============================================================
--- Button loading helper (harborheist-7h69.7): reusable function to
--- show a loading state on any button while an async operation completes.
--- Usage: withLoading(button, callback) where callback is the async operation.
--- ============================================================
-local function withLoading(button, callback)
-	local originalText = button.Text or ""
-	button.Text = "Loading..."
-	button.Active = false
-	
-	-- Execute the async operation and restore state on completion
-	task.spawn(function()
-		local ok, err = pcall(callback)
-		
-		if ok then
-			-- Success: restore text and re-enable
-			button.Text = originalText
-			button.Active = true
-		else
-			-- Error: show error toast and restore button
-			showNotification("Operation failed: " .. tostring(err), Theme.color.status.bad)
-			button.Text = originalText
-			button.Active = true
-		end
-	end)
-end
+-- (harborheist-au38) withLoading removed: complete but unused function.
 
 -- harborheist-keza: removed dead toast history code (addToHistory,
 -- getHistory, clearHistory, toastHistory table, setmetatable). The write
