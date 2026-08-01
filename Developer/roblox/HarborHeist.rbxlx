@@ -1743,10 +1743,12 @@ DESIGN NOTES:
   new code should read from, NOT these flat values directly:
       Theme.color.surface.secondary   instead of  UIPalette.colors.surface
       Theme.color.text.primary        instead of  UIPalette.colors.text
-- Tuned gradient variants (e.g. the mid-surface #1A2639 used by
-  GradientLibrary's "surface.default" preset) live in GradientLibrary,
-  not here — they are visual-polish interpolations between base colors,
-  documented inline at each preset.
+- Gradient interpolations (e.g. lightened tokens via Color3:Lerp) are
+  computed in GradientLibrary at require time from these base tokens —
+  they are not stored here. The one formerly-tuned RGB value
+  (surfaceMid = 26,38,57) was promoted INTO this palette in
+  harborheist-kqbq.22.5 so it remains the single source of truth;
+  GradientLibrary now derives every preset from palette tokens only.
 - Colors are stored as RGB integer triples (not Color3) so this module
   has zero Roblox-instance dependencies and can be required by any
   context (pure-Luau specs included). Consumers call UIPalette.color(name)
@@ -10313,7 +10315,9 @@ local function minigameTapAck(srcFrame)
 	flash.Position = srcFrame and srcFrame.Position or UDim2.new(0.5, 0, 0.5, 0)
 	flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	flash.BackgroundTransparency = 0.85
-	flash.ZIndex = 30
+	-- kqbq.19.2 review fix: render ABOVE the source frame (OVERLAY_Z_BASE=40)
+	-- so the flash overlays the minigame while it's still visible, not behind it.
+	flash.ZIndex = (srcFrame and srcFrame.ZIndex or OVERLAY_Z_BASE) + 1
 	flash.Parent = screenGui
 	if srcFrame then
 		corner(flash, Theme.corners.md)
@@ -11905,9 +11909,10 @@ local function updateToastOverflowChip()
 end
 
 -- harborheist-kqbq.16: 1Hz viewport poll — scales the mobile visible cap
--- so the stack (max-toast height + layout padding + overflow chip) stays
--- under ~30% of viewport height. Recomputed on rotation/resize; desktop
--- is untouched (maxVisibleToasts ignores MAX_VISIBLE_TOASTS_MOBILE).
+-- so the toast stack alone (max-toast height + layout padding) stays under
+-- ~30% of viewport height; the overflow chip adds ~24px beyond that target
+-- when the queue is non-empty. Recomputed on rotation/resize; desktop is
+-- untouched (maxVisibleToasts ignores MAX_VISIBLE_TOASTS_MOBILE).
 local function recomputeMobileToastCap()
 	if not IS_MOBILE then
 		return
@@ -12109,20 +12114,28 @@ local function showToastDirect(message, color, category, actions)
 		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
 		-- mobile touch-target minimum. On mobile they grow to 44px and the
 		-- toast min height rises to 52px so ClipsDescendants can't shave them.
+		-- harborheist-kqbq.16: on mobile the buttons shrink from 64px text
+		-- pills to compact 44x44 pills (still the 44px touch-target law on
+		-- both axes; keep the label short — it's the button's glyph) and sit
+		-- inline-right. Text is narrowed to clear the buttons; desktop is
+		-- unchanged.
 		if IS_MOBILE then
-			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, MIN_TOAST_H_MOBILE_ACTIONS))
+			-- Button loop caps at 2 — narrow the text for at most 2 buttons
+			-- even if a caller passes more (they won't render).
+			text.Size = UDim2.new(1, -32 - (math.min(#actions, 2) * 48), 0, 0)
 		end
 		for i, action in ipairs(actions) do
 			if i > 2 then break end -- max 2 action buttons per toast
 			local btn = makeButton(toast, {
-				Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24),
-				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
+				Size = UDim2.new(0, IS_MOBILE and 44 or 64, 0, IS_MOBILE and 44 or 24),
+				Position = UDim2.new(1, IS_MOBILE and (-52 - (i-1)*48) or -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
 				TextSize = IS_MOBILE and Theme.type.sizes.xxs or Theme.type.sizes.xs,
 				BackgroundColor3 = Theme.color.surface.elevated,
 				TextColor3 = color,
-				CornerRadius = Theme.corners.sm,
+				CornerRadius = IS_MOBILE and Theme.corners.pill or Theme.corners.sm,
 				ZIndex = 60 + i,
 			})
 			btn.Activated:Connect(function()
@@ -12142,7 +12155,8 @@ local function showToastDirect(message, color, category, actions)
 		-- height rises to 52px (no clipping), and the message narrows so
 		-- its first lines don't run underneath the button.
 		if IS_MOBILE then
-			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			-- kqbq.16: the 52 constant is single-sourced (MIN_TOAST_H_MOBILE_ACTIONS).
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, MIN_TOAST_H_MOBILE_ACTIONS))
 			text.Size = UDim2.new(1, -80, 0, 0)
 		end
 		local closeBtn = makeButton(toast, {
@@ -15688,6 +15702,16 @@ else
 	local BAR_GAP = 8
 	local BAR_SIDE_MARGIN = 36
 	local BAR_SHORT_VIEWPORT = 700
+	-- harborheist-kqbq.13: ultra-wide action-bar rebalance. At &lt;= 1920px the
+	-- bar is pixel-unchanged; above it, button width scales up modestly
+	-- (+1px per BAR_WIDE_BUMP_STEP of viewport, capped at BAR_WIDE_BTN_BUMP)
+	-- and the total bar width is capped at BAR_WIDE_CAP of the viewport so the
+	-- bottom-center bar stays anchored instead of floating as a tiny cluster
+	-- on vast strips. Key chips/labels scale with the button (fontScale below).
+	local BAR_WIDE_VIEWPORT = 1920
+	local BAR_WIDE_BTN_BUMP = 12
+	local BAR_WIDE_BUMP_STEP = 64
+	local BAR_WIDE_CAP = 0.40
 
 	local function barWidthFor(btnW)
 		return #ACTIONS * btnW + (#ACTIONS - 1) * BAR_GAP
@@ -15762,6 +15786,14 @@ else
 		if viewportW &lt; fullW + 2 * BAR_SIDE_MARGIN then
 			btnW = math.floor((viewportW - 2 * BAR_SIDE_MARGIN - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
 			btnW = math.max(BAR_BTN_W_MIN, math.min(BAR_BTN_W, btnW))
+		elseif viewportW > BAR_WIDE_VIEWPORT then
+			-- kqbq.13: scale buttons up modestly above 1920px, then cap the
+			-- total bar width at ~40% of the viewport. Standard widths
+			-- (&lt;= 1920px) hit neither branch, so btnW stays BAR_BTN_W.
+			local bump = math.min(BAR_WIDE_BTN_BUMP, math.floor((viewportW - BAR_WIDE_VIEWPORT) / BAR_WIDE_BUMP_STEP))
+			btnW = BAR_BTN_W + bump
+			local maxByCap = math.floor((BAR_WIDE_CAP * viewportW - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
+			btnW = math.min(btnW, maxByCap)
 		end
 		local useShort = viewportW &lt; BAR_SHORT_VIEWPORT
 		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)

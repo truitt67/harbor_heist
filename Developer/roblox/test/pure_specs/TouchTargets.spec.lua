@@ -34,15 +34,20 @@ return function(describe, it, expect)
 	end
 
 	describe("Mobile touch targets >= 44px (harborheist-rk2h)", function()
-		it("toast action buttons keep a 44px mobile height branch", function()
-			has("Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24)", "toast action button size")
+		it("toast action buttons keep a 44px mobile size branch (kqbq.16 icon-only)", function()
+			-- kqbq.16: mobile action buttons are icon-only 44x44 (was 64x44
+			-- text pills) — still WCAG 44px on BOTH axes now.
+			has("Size = UDim2.new(0, IS_MOBILE and 44 or 64, 0, IS_MOBILE and 44 or 24)", "toast action button size")
 		end)
 		it("persistent toast close button keeps 44px mobile size branches", function()
 			has("Size = UDim2.new(0, IS_MOBILE and 44 or 20, 0, IS_MOBILE and 44 or 20)",
 				"toast close button size")
 		end)
 		it("toast min-height bump stays so enlarged buttons aren't clipped", function()
-			local n = count("toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))")
+			-- kqbq.16: the 52 constant is single-sourced to
+			-- MIN_TOAST_H_MOBILE_ACTIONS. Both bump call sites (action
+			-- buttons + persistent close button) must use the token.
+			local n = count("toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, MIN_TOAST_H_MOBILE_ACTIONS))")
 			if n < 2 then
 				error(string.format(
 					"toast min-height bump: expected 2 call sites (action buttons + close button), found %d",

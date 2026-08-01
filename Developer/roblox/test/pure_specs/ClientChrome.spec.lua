@@ -24,6 +24,7 @@
 -- kqbq.17.3 contracts ACTIVATED 2026-08-01: panel-open input gating (backdrop tap suppressed during 0.28s open animation).
 -- kqbq.10 contracts ACTIVATED 2026-08-01: desktop hover tooltips (ACTION_INFO single source, shared instance, keyboard parity).
 -- a2ug.15 contracts ACTIVATED 2026-08-01: wandering-player zone re-guidance (2nd consecutive out-of-zone refusal re-arms the cue).
+-- kqbq.16 contracts ACTIVATED 2026-08-01: mobile toast density (viewport-scaled visible cap, icon-only 44x44 actions, +N overflow chip).
 -- kqbq.22.4 contracts ACTIVATED 2026-08-01: reveal card stroke pulse extended to Rare (dimmer/slower than Epic).
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
@@ -811,6 +812,38 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("old direct backdrop.Activated:Connect(hidePanels) is removed", function()
 			expect(clientSource:find("backdrop.Activated:Connect(hidePanels)", 1, true) == nil).to.equal(true)
+		end)
+	end)
+
+	describe("kqbq.16 mobile toast density", function()
+		it("mobile visible cap is viewport-scaled and clamped 1..3", function()
+			expect(clientSource:find("local MAX_VISIBLE_TOASTS_MOBILE = 3", 1, true)).to.be.a("number")
+			expect(clientSource:find("MAX_VISIBLE_TOASTS_MOBILE = math.clamp(cap, 1, MAX_VISIBLE_TOASTS)", 1, true)).to.be.a("number")
+		end)
+		it("stack budget is ~30% of viewport height", function()
+			expect(clientSource:find("local cap = math.floor(viewportH * 0.3 / (maxToastH + toastLayout.Padding.Offset))", 1, true)).to.be.a("number")
+		end)
+		it("visible-count consumers go through maxVisibleToasts()", function()
+			expect(clientSource:find("if activeToastCount < maxVisibleToasts() then", 1, true)).to.be.a("number")
+			expect(clientSource:find("while activeToastCount < maxVisibleToasts() and #toastQueue > 0 do", 1, true)).to.be.a("number")
+		end)
+		it("52px actions min-height is single-sourced", function()
+			expect(clientSource:find("local MIN_TOAST_H_MOBILE_ACTIONS = 52", 1, true)).to.be.a("number")
+		end)
+		it("mobile action buttons are icon-only 44x44 (touch-target preserved)", function()
+			expect(clientSource:find("Size = UDim2.new(0, IS_MOBILE and 44 or 64, 0, IS_MOBILE and 44 or 24)", 1, true)).to.be.a("number")
+			expect(clientSource:find("CornerRadius = IS_MOBILE and Theme.corners.pill or Theme.corners.sm", 1, true)).to.be.a("number")
+		end)
+		it("mobile action toasts narrow the text so it clears the buttons (capped at 2 rendered buttons)", function()
+			expect(clientSource:find("text.Size = UDim2.new(1, -32 - (math.min(#actions, 2) * 48), 0, 0)", 1, true)).to.be.a("number")
+		end)
+		it("overflow indicator reports queued backlog on mobile", function()
+			expect(clientSource:find('toastOverflowChip.Text = string.format("+%d more", queued)', 1, true)).to.be.a("number")
+			expect(clientSource:find("if IS_MOBILE and queued > 0 then", 1, true)).to.be.a("number")
+		end)
+		it("overflow chip is pinned below the stack and refreshed on queue/drain", function()
+			expect(clientSource:find("toastOverflowChip.LayoutOrder = 1e9", 1, true)).to.be.a("number")
+			expect(clientSource:find("updateToastOverflowChip()", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

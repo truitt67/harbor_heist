@@ -499,12 +499,15 @@ without persistent visual clutter.
 stack) auto-hide their scrollbars after 3s of idle. Scrollbars fade in on
 scroll, fade out when idle. Eliminates visual clutter on small screens.
 
-### Toast Density (kqbq.16, planned)
+### Toast Density (kqbq.16)
 
 Mobile toasts carry a 52px min-height (to fit 44x44 action buttons) and stack
-up to 3. Compact mobile toast layout planned: icon-only 44x44 inline-right
-actions, tighter padding, viewport-relative stack cap (~30% of height) with
-+N overflow indicator.
+up to 3. Compact mobile toast layout: action buttons become icon-only 44x44
+inline-right (touch-target preserved on both axes; label is the button glyph),
+the message text narrows to clear the buttons, and a 1Hz viewport poll scales
+the visible cap so the stack stays under ~30% of viewport height (clamped
+1..3). A small `+N more` overflow chip under the stack reports the queued
+backlog on mobile, refreshed on every enqueue/drain. Desktop is unchanged.
 
 ---
 

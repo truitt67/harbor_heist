@@ -2021,10 +2021,19 @@ local carryLabel = makeLabel(carryPill, {
 -- FIFO queue w/ severity jump, category chip (color + label).
 -- ============================================================
 local MAX_VISIBLE_TOASTS = 3
+-- harborheist-kqbq.16: mobile toast density — on short landscape phones a
+-- 3-toast stack of 52px min-height toasts covers a big share of the
+-- viewport. Scale the visible cap down on mobile when the stack would
+-- exceed ~30% of viewport height (1Hz viewport poll below adjusts this).
+local MAX_VISIBLE_TOASTS_MOBILE = 3
+local function maxVisibleToasts()
+	return IS_MOBILE and MAX_VISIBLE_TOASTS_MOBILE or MAX_VISIBLE_TOASTS
+end
 -- R3 audit #2: cap the backlog so a raid flurry can't queue 40 stale toasts
 -- that surface one-by-one over the next 2 minutes.
 local MAX_TOAST_QUEUE = 8
 local MIN_TOAST_H = IS_MOBILE and 40 or 42
+local MIN_TOAST_H_MOBILE_ACTIONS = 52 -- 44px action button + 4px vertical margins
 local TOAST_LIFETIME = 3.6
 local TOAST_FADE = Theme.motion.toastFade.duration
 local TOAST_CATEGORIES = {
@@ -2082,6 +2091,58 @@ toastLayout.Parent = toastHost
 local toastOrder = 0
 local activeToastCount = 0
 local toastQueue = {}
+
+-- harborheist-kqbq.16: mobile overflow indicator — when the queue holds
+-- more toasts than the (possibly viewport-reduced) visible cap, a small
+-- chip under the stack reports the backlog. Severity ordering is the
+-- queue's job (SEVERE jump in showNotification) — the indicator only
+-- counts, never reorders. LayoutOrder 1e9 pins it below every toast.
+local toastOverflowChip = makeLabel(toastHost, {
+	Size = UDim2.new(0, 0, 0, 18),
+	Text = "",
+	Font = Theme.type.fonts.med,
+	TextSize = Theme.type.sizes.xxs,
+	TextColor3 = Theme.color.text.secondary,
+	TextTransparency = 0.2,
+	AutomaticSize = Enum.AutomaticSize.X,
+	ZIndex = 55,
+	Visible = false,
+})
+toastOverflowChip.LayoutOrder = 1e9
+toastOverflowChip.Name = "ToastOverflowChip"
+
+local function updateToastOverflowChip()
+	local queued = #toastQueue
+	if IS_MOBILE and queued > 0 then
+		toastOverflowChip.Text = string.format("+%d more", queued)
+		toastOverflowChip.Visible = true
+	else
+		toastOverflowChip.Visible = false
+	end
+end
+
+-- harborheist-kqbq.16: 1Hz viewport poll — scales the mobile visible cap
+-- so the toast stack alone (max-toast height + layout padding) stays under
+-- ~30% of viewport height; the overflow chip adds ~24px beyond that target
+-- when the queue is non-empty. Recomputed on rotation/resize; desktop is
+-- untouched (maxVisibleToasts ignores MAX_VISIBLE_TOASTS_MOBILE).
+local function recomputeMobileToastCap()
+	if not IS_MOBILE then
+		return
+	end
+	local cam = workspace.CurrentCamera
+	local viewportH = cam and cam.ViewportSize.Y or 800
+	local maxToastH = MIN_TOAST_H_MOBILE_ACTIONS + 54
+	local cap = math.floor(viewportH * 0.3 / (maxToastH + toastLayout.Padding.Offset))
+	MAX_VISIBLE_TOASTS_MOBILE = math.clamp(cap, 1, MAX_VISIBLE_TOASTS)
+end
+recomputeMobileToastCap()
+task.spawn(function()
+	while true do
+		recomputeMobileToastCap()
+		task.wait(1)
+	end
+end)
 
 -- Forward declaration: showToastDirect calls drainToastQueue (line 517)
 -- before it's defined, causing a runtime error.
@@ -2266,20 +2327,28 @@ local function showToastDirect(message, color, category, actions)
 		-- harborheist-rk2h: action buttons were 24px tall — below the 44px
 		-- mobile touch-target minimum. On mobile they grow to 44px and the
 		-- toast min height rises to 52px so ClipsDescendants can't shave them.
+		-- harborheist-kqbq.16: on mobile the buttons shrink from 64px text
+		-- pills to compact 44x44 pills (still the 44px touch-target law on
+		-- both axes; keep the label short — it's the button's glyph) and sit
+		-- inline-right. Text is narrowed to clear the buttons; desktop is
+		-- unchanged.
 		if IS_MOBILE then
-			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, MIN_TOAST_H_MOBILE_ACTIONS))
+			-- Button loop caps at 2 — narrow the text for at most 2 buttons
+			-- even if a caller passes more (they won't render).
+			text.Size = UDim2.new(1, -32 - (math.min(#actions, 2) * 48), 0, 0)
 		end
 		for i, action in ipairs(actions) do
 			if i > 2 then break end -- max 2 action buttons per toast
 			local btn = makeButton(toast, {
-				Size = UDim2.new(0, 64, 0, IS_MOBILE and 44 or 24),
-				Position = UDim2.new(1, -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
+				Size = UDim2.new(0, IS_MOBILE and 44 or 64, 0, IS_MOBILE and 44 or 24),
+				Position = UDim2.new(1, IS_MOBILE and (-52 - (i-1)*48) or -75 - (i-1)*68, 0.5, IS_MOBILE and -22 or -12),
 				Text = action.label or "",
 				Font = Theme.type.fonts.med,
 				TextSize = IS_MOBILE and Theme.type.sizes.xxs or Theme.type.sizes.xs,
 				BackgroundColor3 = Theme.color.surface.elevated,
 				TextColor3 = color,
-				CornerRadius = Theme.corners.sm,
+				CornerRadius = IS_MOBILE and Theme.corners.pill or Theme.corners.sm,
 				ZIndex = 60 + i,
 			})
 			btn.Activated:Connect(function()
@@ -2299,7 +2368,8 @@ local function showToastDirect(message, color, category, actions)
 		-- height rises to 52px (no clipping), and the message narrows so
 		-- its first lines don't run underneath the button.
 		if IS_MOBILE then
-			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, 52))
+			-- kqbq.16: the 52 constant is single-sourced (MIN_TOAST_H_MOBILE_ACTIONS).
+			toastMinSize.MinSize = Vector2.new(0, math.max(MIN_TOAST_H, MIN_TOAST_H_MOBILE_ACTIONS))
 			text.Size = UDim2.new(1, -80, 0, 0)
 		end
 		local closeBtn = makeButton(toast, {
@@ -2318,10 +2388,11 @@ end
 
 -- Assign to the forward-declared local
 drainToastQueue = function()
-	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
+	while activeToastCount < maxVisibleToasts() and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
 		showToastDirect(pending.message, pending.color, pending.category, pending.actions)
 	end
+	updateToastOverflowChip()
 end
 
 -- harborheist-keza: removed forward declaration of addToHistory (function removed — dead code).
@@ -2351,7 +2422,7 @@ local function showNotification(message, color, category, actions)
 	if stinger then
 		playSound(stinger.id, stinger.volume, stinger.speed)
 	end
-	if activeToastCount < MAX_VISIBLE_TOASTS then
+	if activeToastCount < maxVisibleToasts() then
 		showToastDirect(message, color, category, actions)
 	else
 		local entry = { message = message, color = color, category = category, actions = actions }
@@ -2377,6 +2448,7 @@ local function showNotification(message, color, category, actions)
 			end
 		end
 	end
+	updateToastOverflowChip()
 end
 
 -- harborheist-egvu: one moment — finish the minigame first. Panels opening
