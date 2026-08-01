@@ -351,10 +351,11 @@ function DockManager.buildAll(parent)
 	return docks
 end
 
-function DockManager.claim(player)
+local function claim(player)
 	for _, dock in ipairs(docks) do
-		if dock.owner == nil then
+		if dock.owner == nil and dock.aquarium then
 			dock.owner = player
+			
 			-- harborheist-review-aug2026-6yp6.8: FindFirstChild + nil guards,
 			-- matching release()'s defensive pattern (was direct indexing —
 			-- crashes if a future change rebuilds the aquarium model).
@@ -363,7 +364,7 @@ function DockManager.claim(player)
 				local sign = aquariumBase:FindFirstChild("InfoSign")
 				if sign then
 					local ownerLabel = sign:FindFirstChild("OwnerLabel")
-					if ownerLabel then
+					if ownerLabel and player.DisplayName then
 						ownerLabel.Text = player.DisplayName .. "'s Aquarium"
 					end
 				end
@@ -378,7 +379,7 @@ function DockManager.claim(player)
 	return nil
 end
 
-function DockManager.release(player)
+local function release(player)
 	-- RELIABILITY: Clean up dock when player leaves to reset state.
 	-- N7: clear ALL docks whose owner == player, not just the first — a
 	-- double-claim (double-fired onPlayerAdded, rejoin race) can leave a
@@ -386,6 +387,7 @@ function DockManager.release(player)
 	for _, dock in ipairs(docks) do
 		if dock.owner == player then
 			dock.owner = nil
+			
 			-- SECURITY: Verify sign exists before accessing children
 			local aquariumBase = dock.aquarium.PrimaryPart
 			if aquariumBase then
@@ -405,14 +407,16 @@ function DockManager.release(player)
 					prompt.Enabled = false
 				end
 			end
+			
 			-- TASK 12.3: release fish display models back to the global pool instead
 			-- of destroying them, so the next aquarium update can reuse them.
-			local fishDisplay = dock.aquarium:FindFirstChild("FishDisplay")
+			local fishDisplay = dock.aquarium and dock.aquarium:FindFirstChild("FishDisplay")
 			if fishDisplay then
 				for _, child in ipairs(fishDisplay:GetChildren()) do
 					releaseModel(child)
 				end
 			end
+			
 			-- TASK 6.4: clear cosmetic dock décor so a re-claimed dock resets
 			-- to the next owner's tier (rebuilt on their join/store refresh).
 			local dockDecor = dock.model and dock.model:FindFirstChild("DockDecor")
@@ -425,6 +429,7 @@ function DockManager.release(player)
 			if dockDecor then
 				dockDecor:ClearAllChildren()
 			end
+			
 			-- N7: no early return — keep scanning so any other dock this player
 			-- may own from a double-claim race is also released.
 		end
