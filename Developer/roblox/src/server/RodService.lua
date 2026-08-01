@@ -257,7 +257,7 @@ local function clearCastFX(player)
 	end
 end
 
-function RodService.startCast(player, dock, castTime)
+function RodService.startCast(player, dock, _)  -- harborheist-6u6e: castTime unused
 	clearCastFX(player)
 	local record = rods[player]
 	if not record then
@@ -429,7 +429,7 @@ function RodService.onPlayerRemoving(player)
 	RodService.unequip(player)
 end
 
-function RodService.init(deps)
+function RodService.init(_)
 	-- Reserved for future dependency wiring; rod visuals are driven directly
 	-- by FishingService (startCast/endCast, ydf6), ShopService (re-equip on
 	-- rod purchase), and the character lifecycle in init.server.lua.

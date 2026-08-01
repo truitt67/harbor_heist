@@ -1879,7 +1879,6 @@ return ZoneDefinitions
         <token name="RunContext">0</token>
         <string name="Source">local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
@@ -1967,7 +1966,9 @@ end
 GameConfig.validate()
 
 Remotes.GetState.OnServerInvoke = function(player)
-	local ok, reason = AntiExploitService.checkRate(player, "get_state")
+	-- harborheist-6u6e: reason intentionally not captured — silently rejecting
+	-- rate-limited GetState requests avoids leaking anti-exploit patterns.
+	local ok = AntiExploitService.checkRate(player, "get_state")
 	if not ok then
 		return nil
 	end
@@ -5518,7 +5519,7 @@ local function buildLampPost(parent, cframe)
 end
 
 local function buildPlanter(parent, cframe)
-	local box = makePart({
+	makePart({ -- harborheist-6u6e: box variable was never referenced
 		Name = "PlanterBox",
 		Size = Vector3.new(1.6, 1, 1.6),
 		CFrame = cframe,
@@ -5749,7 +5750,6 @@ return DockManager
 	as convenience wrappers. This service adds the granular per-fish API.
 ]]
 
-local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local FishInstance = require(game:GetService("ReplicatedStorage").Shared.FishInstance)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
@@ -8508,7 +8508,7 @@ local function clearCastFX(player)
 	end
 end
 
-function RodService.startCast(player, dock, castTime)
+function RodService.startCast(player, dock, _)  -- harborheist-6u6e: castTime unused
 	clearCastFX(player)
 	local record = rods[player]
 	if not record then
@@ -8680,7 +8680,7 @@ function RodService.onPlayerRemoving(player)
 	RodService.unequip(player)
 end
 
-function RodService.init(deps)
+function RodService.init(_)
 	-- Reserved for future dependency wiring; rod visuals are driven directly
 	-- by FishingService (startCast/endCast, ydf6), ShopService (re-equip on
 	-- rod purchase), and the character lifecycle in init.server.lua.
@@ -9489,7 +9489,7 @@ function WorldBuilder.buildDecorations(parent)
 		light.Parent = lamp
 	end
 
-	for i = 1, 5 do
+	for _ = 1, 5 do
 		makePart({
 			Name = "Crate",
 			Size = Vector3.new(3, 3, 3),

@@ -492,7 +492,7 @@ local function buildLampPost(parent, cframe)
 end
 
 local function buildPlanter(parent, cframe)
-	local box = makePart({
+	makePart({ -- harborheist-6u6e: box variable was never referenced
 		Name = "PlanterBox",
 		Size = Vector3.new(1.6, 1, 1.6),
 		CFrame = cframe,

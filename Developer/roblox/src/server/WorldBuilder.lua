@@ -435,7 +435,7 @@ function WorldBuilder.buildDecorations(parent)
 		light.Parent = lamp
 	end
 
-	for i = 1, 5 do
+	for _ = 1, 5 do
 		makePart({
 			Name = "Crate",
 			Size = Vector3.new(3, 3, 3),

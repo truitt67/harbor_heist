@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local ServerScriptService = game:GetService("ServerScriptService")
 local GameConfig = require(ReplicatedStorage.Shared.GameConfig)
 
@@ -88,7 +87,9 @@ end
 GameConfig.validate()
 
 Remotes.GetState.OnServerInvoke = function(player)
-	local ok, reason = AntiExploitService.checkRate(player, "get_state")
+	-- harborheist-6u6e: reason intentionally not captured — silently rejecting
+	-- rate-limited GetState requests avoids leaking anti-exploit patterns.
+	local ok = AntiExploitService.checkRate(player, "get_state")
 	if not ok then
 		return nil
 	end

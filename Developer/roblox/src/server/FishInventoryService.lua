@@ -9,7 +9,6 @@
 	as convenience wrappers. This service adds the granular per-fish API.
 ]]
 
-local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local FishInstance = require(game:GetService("ReplicatedStorage").Shared.FishInstance)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
