@@ -27,6 +27,7 @@
 -- kqbq.16 contracts ACTIVATED 2026-08-01: mobile toast density (viewport-scaled visible cap, icon-only 44x44 actions, +N overflow chip).
 -- kqbq.21.1 contracts ACTIVATED 2026-08-01: bottom-sheet grab-handle pill + one-time first-open bounce hint.
 -- kqbq.22.3 contracts ACTIVATED 2026-08-01: preserve shop/collection scroll position across close/reopen (stash + 1-frame deferred clamped restore).
+-- kqbq.19.1 contracts ACTIVATED 2026-08-01: bite zone visual-language unified with cast/raid (ZONE micro-label; colors/track/marker already shared).
 -- kqbq.22.4 contracts ACTIVATED 2026-08-01: reveal card stroke pulse extended to Rare (dimmer/slower than Epic).
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
@@ -895,6 +896,28 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("only shop + collection are restored (other panels untouched)", function()
 			expect(clientSource:find('local stashedKey = (shopPanelRef and panel == shopPanelRef) and "shop"', 1, true)).to.be.a("number")
 			expect(clientSource:find('(collectionPanelRef and panel == collectionPanelRef) and "collection" or nil', 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.19.1 minigame zone visual-language unification", function()
+		it("bite target zone shares the cast/raid zone vocabulary (good band style)", function()
+			expect(clientSource:find("targetZone.BackgroundColor3 = Theme.color.status.good", 1, true)).to.be.a("number")
+			expect(clientSource:find("targetZone.BackgroundTransparency = 0.45", 1, true)).to.be.a("number")
+			expect(clientSource:find("stroke(targetZone, 0.5, Theme.color.status.good, 1.5)", 1, true)).to.be.a("number")
+		end)
+		it("bite marker + glow match the unified makeOverlayFrame values", function()
+			expect(clientSource:find("biteMarker.Size = UDim2.new(0, 5, 1, 6)", 1, true)).to.be.a("number")
+			expect(clientSource:find("biteMarkerGlow.Size = UDim2.new(0, 18, 1, 10)", 1, true)).to.be.a("number")
+			expect(clientSource:find("biteMarkerGlow.BackgroundTransparency = 0.50", 1, true)).to.be.a("number")
+		end)
+		it("bite zone carries a ZONE micro-label (was the unlabeled outlier)", function()
+			expect(clientSource:find('Text = "ZONE",', 1, true)).to.be.a("number")
+			expect(clientSource:find("TextColor3 = Theme.color.text.tertiary,\n\tTextTransparency = 0.45,", 1, true)).to.be.a("number")
+		end)
+		it("bite bar track matches the unified track style", function()
+			expect(clientSource:find("barTrack.BackgroundColor3 = Theme.color.surface.secondary", 1, true)).to.be.a("number")
+			expect(clientSource:find("corner(barTrack, Theme.corners.roomy)", 1, true)).to.be.a("number")
+			expect(clientSource:find("stroke(barTrack, 0.85)", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

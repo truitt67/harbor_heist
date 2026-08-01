@@ -7330,6 +7330,24 @@ targetZone.Parent = barTrack
 corner(targetZone, Theme.corners.sm)
 stroke(targetZone, 0.5, Theme.color.status.good, 1.5)
 
+-- harborheist-kqbq.19.1: bite was the outlier — cast/raid label their zones
+-- (PERFECT/GOOD micro-labels, kqbq.7) but bite's single target zone was
+-- unlabeled. ZONE label above the zone center matches the cast/raid label
+-- style so all three overlays speak one visual vocabulary.
+makeLabel(barTrack, {
+	Size = UDim2.new(0, 50, 0, 14),
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 0, 2),
+	Text = "ZONE",
+	Font = Theme.type.fonts.bold,
+	TextSize = Theme.type.sizes.xxs,
+	TextColor3 = Theme.color.text.tertiary,
+	TextTransparency = 0.45,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex = OVERLAY_Z_MARKER,
+	Active = false,
+})
+
 -- The moving marker (bite minigame)
 -- Renamed from 'marker' to 'biteMarker' to avoid shadowing the cast overlay marker.
 local biteMarker = Instance.new("Frame")
