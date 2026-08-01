@@ -355,9 +355,23 @@ function DockManager.claim(player)
 	for _, dock in ipairs(docks) do
 		if dock.owner == nil then
 			dock.owner = player
-			local sign = dock.aquarium.PrimaryPart.InfoSign
-			sign.OwnerLabel.Text = player.DisplayName .. "'s Aquarium"
-			dock.aquarium.PrimaryPart.AquariumPrompt.Enabled = true
+			-- harborheist-review-aug2026-6yp6.8: FindFirstChild + nil guards,
+			-- matching release()'s defensive pattern (was direct indexing —
+			-- crashes if a future change rebuilds the aquarium model).
+			local aquariumBase = dock.aquarium.PrimaryPart
+			if aquariumBase then
+				local sign = aquariumBase:FindFirstChild("InfoSign")
+				if sign then
+					local ownerLabel = sign:FindFirstChild("OwnerLabel")
+					if ownerLabel then
+						ownerLabel.Text = player.DisplayName .. "'s Aquarium"
+					end
+				end
+				local prompt = aquariumBase:FindFirstChild("AquariumPrompt")
+				if prompt then
+					prompt.Enabled = true
+				end
+			end
 			return dock
 		end
 	end
@@ -615,7 +629,10 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 	end)
 
 	local rng = Random.new(dock.index * 1000 + #stored)
-	local display = dock.aquarium.FishDisplay
+	-- harborheist-review-aug2026-6yp6.8: FindFirstChild + nil guards (was
+	-- direct indexing; a missing FishDisplay means nothing to render into).
+	local display = dock.aquarium:FindFirstChild("FishDisplay")
+	if not display then return end
 
 	-- TASK 12.3: pool fish models instead of destroying/recreating them on
 	-- every store/sell refresh. Move currently displayed models back to the
@@ -624,7 +641,10 @@ function DockManager.updateAquariumVisual(dock, session, capacity)
 		releaseModel(child)
 	end
 
-	local waterCFrame = dock.aquarium.Water.CFrame
+	-- 6yp6.8: guarded Water lookup — the origin fallback is defensive-only;
+	-- buildAll always creates Water, so this path means broken structure.
+	local waterPart = dock.aquarium:FindFirstChild("Water")
+	local waterCFrame = waterPart and waterPart.CFrame or CFrame.new(0, 0, 0)
 	local shown = math.min(#validFish, GameConfig.Aquarium.maxVisibleFish)
 
 	-- SECURITY: validFish entries are pre-validated above; render via the
