@@ -5578,6 +5578,9 @@ end
 -- must not know the server delay (anti-exploit), and an ETA affordance
 -- would mislead.
 local waitingDotsLoop = nil
+-- Original footnote text captured before the dots animation demotes it,
+-- so stopWaitingDots restores the actual key glyph instead of a literal.
+local waitingDotsFootnoteText = nil
 
 local function startWaitingDots()
 	if waitingDotsLoop then
@@ -5585,6 +5588,9 @@ local function startWaitingDots()
 	end
 	local lbl = actionButtons.fish_label or actionButtons.fish
 	local footnote = actionButtons.fish_footnote
+	if footnote then
+		waitingDotsFootnoteText = footnote.Text
+	end
 	waitingDotsLoop = task.spawn(function()
 		local step = 0
 		while fishState == "waiting" do
@@ -5609,8 +5615,9 @@ local function stopWaitingDots()
 		waitingDotsLoop = nil
 	end
 	local footnote = actionButtons.fish_footnote
-	if footnote then
-		footnote.Text = "F"
+	if footnote and waitingDotsFootnoteText then
+		footnote.Text = waitingDotsFootnoteText
+		waitingDotsFootnoteText = nil
 	end
 	-- Desktop hero text is restored by renderFishButton (idempotent).
 end
@@ -5992,7 +5999,16 @@ local function render()
 		if dismissedPrompts.firstCast then
 			-- Already dismissed — hide prompt
 		elseif casting then
-			dismissOnboardingPrompt("firstCast")
+			-- Player started casting: the cast guidance has served its
+			-- purpose. harborheist-a2ug.4 fix: mark firstCast dismissed
+			-- WITHOUT hiding the widget when a2ug.4's firstWait prompt owns
+			-- it — the old unconditional dismissOnboardingPrompt("firstCast")
+			-- killed the firstWait prompt within 1s of it appearing.
+			dismissedPrompts.firstCast = true
+			if currentPromptStage == "firstCast" then
+				currentPromptStage = nil
+				onboardingPrompt.Visible = false
+			end
 		elseif currentPromptStage ~= "firstWait" then
 			showOnboardingPrompt("firstCast",
 				IS_MOBILE and "Tap FISH while standing in the glowing zone!" or "Press F to cast into the glowing zone at your dock!",
@@ -7092,7 +7108,10 @@ end)
 Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
 	if isCasting then
-		fishState = "waiting"
+		-- harborheist-a2ug.4 fix: route through setFishState (was a raw
+		-- assignment that silently bypassed the waiting-dots loop and the
+		-- firstWait prompt hook — both only fire inside setFishState).
+		setFishState("waiting")
 		-- N16: read the server-authoritative hit-zone bounds (3rd arg).
 		-- hitZoneStart/hitZoneEnd = outer "good" zone; goodStart/goodEnd =
 		-- inner "perfect" zone. Falls back to hardcoded defaults if absent
@@ -7182,8 +7201,10 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		-- clear the waiting state — never bite-ready (a BiteEvent may be
 		-- arriving in this same deferred callback right after this; clearing
 		-- bite-ready here would lose the bite). render() below re-renders.
+		-- harborheist-a2ug.4 fix: setFishState, not a raw assignment — the
+		-- raw write left the dots loop running and the firstWait prompt up.
 		if fishState == "waiting" then
-			fishState = "idle"
+			setFishState("idle")
 		end
 		stopCastOverlay()
 	end

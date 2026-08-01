@@ -5781,8 +5781,8 @@ function FishInventoryService.init(deps)
 	end
 
 	-- Helper: notify client
-	local function notify(player, msg, color)
-		remotes.notify(player, msg, color)
+	local function notify(player, msg, color, category)
+		remotes.notify(player, msg, color, category)
 	end
 
 	-- ════════════════════════════════════════════════════════════════════════
@@ -6121,7 +6121,7 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn")
+			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn", "zone")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access
@@ -7549,7 +7549,7 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		remotes.notify(
 			targetPlayer,
 			string.format("ALARM! %s is trying to steal from your aquarium!", player.DisplayName),
-			Color3.fromRGB(255, 150, 100),
+			"warn",
 			"raid-victim"
 		)
 	end
@@ -7674,7 +7674,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		remotes.notify(
 			attacker,
 			string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
-			Color3.fromRGB(255, 100, 100),
+			"error",
 			"raid-attacker"
 		)
 		victimNoteSuffix = string.format(" Your alarm stunned them for %ds.", alarmConfig.stunDuration)
@@ -7699,7 +7699,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			GameConfig.Raid.defenderProtectionSeconds,
 			victimNoteSuffix or ""
 		),
-		Color3.fromRGB(255, 100, 100),
+		"error",
 		"raid-victim"
 	)
 	if fenced then
@@ -8221,6 +8221,7 @@ local NOTIFY_COLORS = {
 	success = UIPalette.color("money"),
 	info = UIPalette.color("accentSoft"),
 	discovery = UIPalette.color("discovery"),
+	reward = UIPalette.color("discovery"),
 }
 
 local Remotes = {}
@@ -8255,7 +8256,7 @@ folder.Parent = ReplicatedStorage
 -- so unmigrated call sites silently drop the 3rd arg until the client-visual
 -- half of 24.3 consumes it.
 -- color can be a Color3 (legacy) or a semantic string key
--- ("warn", "error", "success", "info", "discovery") resolved via
+-- ("warn", "error", "success", "info", "discovery", "reward") resolved via
 -- NOTIFY_COLORS built from UIPalette. Unknown keys fall back to
 -- accentSoft + a one-time warn().
 function Remotes.notify(player, message, color, category)
@@ -8721,7 +8722,7 @@ return RodService
       <Item class="ModuleScript" referent="28">
         <Properties>
           <string name="Name">ShopService</string>
-          <string name="Source">local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local ShopService = {}
@@ -8795,12 +8796,12 @@ function ShopService.init(deps)
 			remotes.notify(player, "Buy upgrades in order, one tier at a time!", "warn", "economy")
 			return { ok = false, reason = "wrong_tier" }
 		end
-		if math.floor(session.profile.Coins) &lt; item.cost then
+		if math.floor(session.profile.Coins) < item.cost then
 			remotes.notify(
 				player,
 				string.format("Not enough cash! %s costs $%d.", item.name, item.cost),
-			"error",
-			"economy"
+				"error",
+				"economy"
 			)
 			return { ok = false, reason = "poor" }
 		end
@@ -8850,8 +8851,8 @@ function ShopService.init(deps)
 		remotes.notify(
 			player,
 			string.format("Purchased %s!", item.name),
-		"success",
-		"economy"
+			"success",
+			"economy"
 		)
 		-- TASK 14.15 (wqw.15): aquarium/dock upgrades change the income
 		-- multipliers, so invalidate the cached incomePerSec for those kinds.
@@ -8895,7 +8896,8 @@ function ShopService.init(deps)
 	ShopService._requestPurchaseUpgrade = handlePurchaseUpgrade
 end
 
-return ShopService</string>
+return ShopService
+]]></string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="29">
@@ -11518,7 +11520,7 @@ local TOAST_CATEGORIES = {
 	["raid-victim"] = "RAID!", ["raid-attacker"] = "RAID",
 	["raid-info"] = "RAID", lock = "LOCK", economy = "ECON",
 	discovery = "NEW!", cast = "CAST", missed = "MISS",
-	datastore = "SAVE", info = "INFO",
+	datastore = "SAVE", info = "INFO", zone = "ZONE",
 }
 local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
 
@@ -11540,7 +11542,7 @@ local CATEGORY_TO_VARIANT = {
 	["raid-victim"] = "critical", ["raid-attacker"] = "warning",
 	["raid-info"] = "info", lock = "info", economy = "info",
 	discovery = "info", cast = "info", missed = "warning",
-	datastore = "critical", info = "info",
+	datastore = "critical", info = "info", zone = "warning",
 }
 
 -- Host geometry is consumed by the onboarding prompt clamp (TASK 28.2,
@@ -14730,7 +14732,7 @@ if IS_MOBILE then
 			TextSize = Theme.type.sizes.md,
 			TextColor3 = action.color,
 		})
-		makeLabel(btn, {
+		local footnoteLabel = makeLabel(btn, {
 			Size = UDim2.new(1, 0, 0, 16),
 			Position = UDim2.new(0, 0, 1, -20),
 			Text = action.key,
@@ -14740,9 +14742,13 @@ if IS_MOBILE then
 		})
 		actionButtons[action.id] = btn
 		actionButtons[action.id .. "_label"] = heroLabel
+		-- harborheist-a2ug.4: capture the key footnote so the bite-wait
+		-- affordance can animate it ("WAIT", "WAIT.", ...) during fishState
+		-- == "waiting" — the footnote's "F" is only a cross-platform hint
+		-- (m32r), so demoting it while waiting is safe.
+		actionButtons[action.id .. "_footnote"] = footnoteLabel
 		mobileStackButtons[i] = { holder = holder, hero = heroLabel }
 	end
-
 	-- harborheist-hqn1 + harborheist-xrfp: fit the stack to the viewport height.
 	-- The fixed 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
 	-- short landscape phones (~375px) pushed the top buttons (QUEST/RAID/
@@ -15210,9 +15216,89 @@ local function renderFishButton()
 	ensureFishPulse(pulseMode, baseTrans, pulseMode == "fast" and 0.4 or 0.3)
 end
 
+-- ============================================================
+-- harborheist-a2ug.4: bite-wait engagement affordance.
+-- The 2-6s server-picked bite delay (FishingService BITE_MIN/MAX_DELAY
+-- 2.0/6.0) used to read as a dead button: static "WAITING" on desktop,
+-- a bare "..." on mobile. While fishState == "waiting", animate the
+-- ellipsis so the button visibly lives: desktop hero "WAITING" cycles
+-- dots; mobile hero stays "..." and the key footnote (its "F" is only
+-- a cross-platform hint, m32r) animates "WAIT", "WAIT.", "WAIT..",
+-- "WAIT...". Deliberately NOT a progress bar / countdown — the client
+-- must not know the server delay (anti-exploit), and an ETA affordance
+-- would mislead.
+local waitingDotsLoop = nil
+-- Original footnote text captured before the dots animation demotes it,
+-- so stopWaitingDots restores the actual key glyph instead of a literal.
+local waitingDotsFootnoteText = nil
+
+local function startWaitingDots()
+	if waitingDotsLoop then
+		return
+	end
+	local lbl = actionButtons.fish_label or actionButtons.fish
+	local footnote = actionButtons.fish_footnote
+	if footnote then
+		waitingDotsFootnoteText = footnote.Text
+	end
+	waitingDotsLoop = task.spawn(function()
+		local step = 0
+		while fishState == "waiting" do
+			local dots = string.rep(".", step % 4)
+			if IS_MOBILE then
+				-- Hero "..." already reads as waiting; animate the footnote.
+				if footnote then
+					footnote.Text = "WAIT" .. dots
+				end
+			elseif lbl then
+				lbl.Text = "WAITING" .. dots
+			end
+			step += 1
+			task.wait(0.4)
+		end
+	end)
+end
+
+local function stopWaitingDots()
+	if waitingDotsLoop then
+		task.cancel(waitingDotsLoop)
+		waitingDotsLoop = nil
+	end
+	local footnote = actionButtons.fish_footnote
+	if footnote and waitingDotsFootnoteText then
+		footnote.Text = waitingDotsFootnoteText
+		waitingDotsFootnoteText = nil
+	end
+	-- Desktop hero text is restored by renderFishButton (idempotent).
+end
+
+-- First-wait expectation setting: a first-timer has no idea how long a
+-- bite takes. Show one contextual prompt on their first-ever cast;
+-- dismissedPrompts is session-scoped, so it never nags twice in a
+-- session, and HasCaughtFirstFish gates it out permanently after.
+local firstWaitArmed = false
+
 local function setFishState(newState)
+	local previous = fishState
 	fishState = newState
 	renderFishButton()
+	if newState == "waiting" then
+		startWaitingDots()
+		if previous ~= "waiting"
+			and not firstWaitArmed
+			and not (state and state.onboarding and state.onboarding.HasCaughtFirstFish)
+		then
+			firstWaitArmed = true
+			showOnboardingPrompt("firstWait",
+				"A fish usually bites within a few seconds — stay ready!",
+				Theme.color.status.warn)
+		end
+	else
+		stopWaitingDots()
+		if previous == "waiting" and firstWaitArmed and currentPromptStage == "firstWait" then
+			dismissOnboardingPrompt("firstWait")
+		end
+	end
 end
 
 -- ============================================================
@@ -15557,11 +15643,23 @@ local function render()
 	local ob = state.onboarding or {}
 	if not ob.HasCaughtFirstFish then
 		-- Stage 1: player hasn't caught anything yet.
+		-- harborheist-a2ug.4: a2ug.4's firstWait prompt may be the visible
+		-- stage right now; the rescue below must not clobber it with the
+		-- firstCast text on the next 1Hz push.
 		if dismissedPrompts.firstCast then
 			-- Already dismissed — hide prompt
 		elseif casting then
-			dismissOnboardingPrompt("firstCast")
-		else
+			-- Player started casting: the cast guidance has served its
+			-- purpose. harborheist-a2ug.4 fix: mark firstCast dismissed
+			-- WITHOUT hiding the widget when a2ug.4's firstWait prompt owns
+			-- it — the old unconditional dismissOnboardingPrompt("firstCast")
+			-- killed the firstWait prompt within 1s of it appearing.
+			dismissedPrompts.firstCast = true
+			if currentPromptStage == "firstCast" then
+				currentPromptStage = nil
+				onboardingPrompt.Visible = false
+			end
+		elseif currentPromptStage ~= "firstWait" then
 			showOnboardingPrompt("firstCast",
 				IS_MOBILE and "Tap FISH while standing in the glowing zone!" or "Press F to cast into the glowing zone at your dock!",
 				Theme.color.status.good)
@@ -16660,7 +16758,10 @@ end)
 Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 	casting = isCasting
 	if isCasting then
-		fishState = "waiting"
+		-- harborheist-a2ug.4 fix: route through setFishState (was a raw
+		-- assignment that silently bypassed the waiting-dots loop and the
+		-- firstWait prompt hook — both only fire inside setFishState).
+		setFishState("waiting")
 		-- N16: read the server-authoritative hit-zone bounds (3rd arg).
 		-- hitZoneStart/hitZoneEnd = outer "good" zone; goodStart/goodEnd =
 		-- inner "perfect" zone. Falls back to hardcoded defaults if absent
@@ -16750,8 +16851,10 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		-- clear the waiting state — never bite-ready (a BiteEvent may be
 		-- arriving in this same deferred callback right after this; clearing
 		-- bite-ready here would lose the bite). render() below re-renders.
+		-- harborheist-a2ug.4 fix: setFishState, not a raw assignment — the
+		-- raw write left the dots loop running and the firstWait prompt up.
 		if fishState == "waiting" then
-			fishState = "idle"
+			setFishState("idle")
 		end
 		stopCastOverlay()
 	end
@@ -17893,9 +17996,9 @@ return Gradients
         <Item class="ModuleScript" referent="37">
           <Properties>
             <string name="Name">KeyboardNav</string>
-            <string name="Source"><![CDATA[--[[
+            <string name="Source">--[[
 	KeyboardNav.lua - Keyboard navigation system for Harbor Heist
-	EPIC 32: Accessibility & Mobile UX
+	EPIC 32: Accessibility &amp; Mobile UX
 	
 	Provides Tab/Shift+Tab navigation through UI elements with visual focus
 	indicators. Enter/Space activation is handled natively by the Roblox engine
@@ -17981,7 +18084,7 @@ function KeyboardNav:Register(element, tabOrder, onActivate)
 	
 	-- Sort by tab order
 	table.sort(focusableElements, function(a, b)
-		return a.tabOrder < b.tabOrder
+		return a.tabOrder &lt; b.tabOrder
 	end)
 	
 	-- Clean up when element is destroyed
@@ -18043,7 +18146,7 @@ function KeyboardNav:FocusPrevious()
 	
 	-- Move to previous (wrap around)
 	currentFocusIndex = currentFocusIndex - 1
-	if currentFocusIndex < 1 then
+	if currentFocusIndex &lt; 1 then
 		currentFocusIndex = #focusableElements
 	end
 	
@@ -18057,7 +18160,7 @@ end
 	@return nil
 ]]
 function KeyboardNav:ActivateFocused()
-	if currentFocusIndex < 1 or currentFocusIndex > #focusableElements then
+	if currentFocusIndex &lt; 1 or currentFocusIndex > #focusableElements then
 		return
 	end
 	
@@ -18105,7 +18208,7 @@ end
 	@return nil
 ]]
 function KeyboardNav:ApplyFocus()
-	if currentFocusIndex < 1 or currentFocusIndex > #focusableElements then
+	if currentFocusIndex &lt; 1 or currentFocusIndex > #focusableElements then
 		return
 	end
 	
@@ -18129,7 +18232,7 @@ function KeyboardNav:ApplyFocus()
 			local viewHeight = scrollFrame.AbsoluteWindowSize.Y
 			local elementTop = entry.element.AbsolutePosition.Y - scrollFrame.AbsolutePosition.Y + canvasY
 			local elementBottom = elementTop + entry.element.AbsoluteSize.Y
-			if elementTop < canvasY then
+			if elementTop &lt; canvasY then
 				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementTop)
 			elseif elementBottom > canvasY + viewHeight then
 				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementBottom - viewHeight)
@@ -18139,7 +18242,9 @@ function KeyboardNav:ApplyFocus()
 end
 
 --[[
-	Enable keyboard navigation (start listening for Tab/Enter/Space).
+	Enable keyboard navigation (start listening for Tab/Shift+Tab).
+	Enter/Space activation is handled natively by the engine via
+	GuiService.SelectedObject (see ApplyFocus).
 	
 	@return nil
 ]]
@@ -18184,7 +18289,7 @@ end
 	@return GuiButton? - The focused element, or nil if none
 ]]
 function KeyboardNav:GetFocusedElement()
-	if currentFocusIndex < 1 or currentFocusIndex > #focusableElements then
+	if currentFocusIndex &lt; 1 or currentFocusIndex > #focusableElements then
 		return nil
 	end
 	return focusableElements[currentFocusIndex].element
@@ -18196,17 +18301,20 @@ end
 	@return nil
 ]]
 function KeyboardNav:ClearAll()
+	local selected = GuiService.SelectedObject
 	for _, entry in ipairs(focusableElements) do
 		if entry.stroke then
 			entry.stroke:Destroy()
+		end
+		if entry.element == selected then
+			GuiService.SelectedObject = nil
 		end
 	end
 	focusableElements = {}
 	currentFocusIndex = 0
 end
 
-return KeyboardNav
-]]></string>
+return KeyboardNav</string>
           </Properties>
         </Item>
       </Item>
