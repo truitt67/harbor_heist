@@ -11464,9 +11464,33 @@ local incomeLabel = makeLabel(hud, {
 	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
 	TextColor3 = Theme.color.text.secondary,
 	TextXAlignment = Enum.TextXAlignment.Left,
-	-- TASK 24.1 (hvfh.4.1): RichText so the claimable "ready" segment can be
-	-- tinted claim-green (and pulsed) without a second label or layout change.
 	RichText = true,
+})
+-- harborheist-kqbq.11: split the "ready" segment into its own label so the
+-- 5Hz pulse can tween TextTransparency directly (zero string allocation)
+-- instead of rebuilding the entire RichText line every 0.2s.
+incomeLabel.Visible = false -- superseded by incomeRateLabel + readyLabel
+local incomeRateLabel = makeLabel(hud, {
+	Size = UDim2.new(0, 0, 0, 16),
+	AutomaticSize = Enum.AutomaticSize.X,
+	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
+	Text = "+$0.0/min",
+	Font = Theme.type.fonts.med,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
+	TextColor3 = Theme.color.text.secondary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+})
+local readyLabel = makeLabel(hud, {
+	Size = UDim2.new(0, 0, 0, 16),
+	AutomaticSize = Enum.AutomaticSize.X,
+	Position = UDim2.new(0, 14, 1, IS_MOBILE and -22 or -26),
+	Text = "",
+	Font = Theme.type.fonts.bold,
+	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
+	TextColor3 = Color3.fromRGB(50, 160, 80),
+	TextTransparency = 1,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Visible = false,
 })
 
 -- TASK 24.1 (hvfh.4.1): the whole HUD card opens the aquarium panel. Labels
@@ -11506,10 +11530,9 @@ end
 
 -- TASK 24.1 (hvfh.4.1): dual-purpose income line — rate always shown, plus a
 -- claim-green "$N ready" segment while unclaimed income exists. One line: no
--- HUD height change, no carryPill shift. #32A050 == Color3.fromRGB(50,160,80),
--- the claimButton green used in render().
-local CLAIM_GREEN_HEX = "32A050"
-
+-- HUD height change, no carryPill shift. Color3.fromRGB(50,160,80) is the
+-- claimButton green used in render() — now set directly on readyLabel
+-- (harborheist-kqbq.11: RichText hex string no longer needed).
 -- TASK 22.3 (hvfh.2.3): adaptive income-rate formatting. Formats the SAME
 -- authoritative snapshot value (state.incomePerSec) — NEVER re-derive income
 -- client-side (R2.2/dt9.2, see note near render()). Sub-0.1/sec rates (a
@@ -11528,32 +11551,29 @@ local function formatIncomeRate(ratePerSec)
 	end
 end
 
-local function updateIncomeLine(readyTransparency)
+local function updateIncomeLine()
 	local ready = state and state.unclaimedIncome or 0
+	incomeRateLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
 	if ready > 0 then
-		-- One notch smaller on the 178px mobile card so rate + ready fit on
-		-- one line (the no-layout-shift path; 6+ digit ready values may still
-		-- clip on mobile — accepted tradeoff, recorded in the bead).
-		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
-		incomeLabel.Text = string.format(
-			'%s  •  &lt;font color="#%s" transparency="%.2f">&lt;b>$%s ready&lt;/b>&lt;/font>',
-			formatIncomeRate(state.incomePerSec), CLAIM_GREEN_HEX, readyTransparency or 0, formatCash(ready)
-		)
+		readyLabel.Text = string.format("  •  $%s ready", formatCash(ready))
+		-- Position readyLabel after the rate text using TextBounds measurement
+		local rateW = incomeRateLabel.TextBounds.X
+		readyLabel.Position = UDim2.new(0, 14 + rateW, 1, IS_MOBILE and -22 or -26)
+		readyLabel.Visible = true
 	else
-		incomeLabel.TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm
-		incomeLabel.Text = formatIncomeRate(state and state.incomePerSec or 0)
+		readyLabel.Visible = false
 	end
 end
 
--- Slow pulse on the "ready" segment only (font transparency attribute), ~5Hz
--- updates on a 2.4s cycle; sleeps cheaply when there is nothing to claim.
--- render() owns the plain-rate line whenever ready == 0.
+-- harborheist-kqbq.11: pulse readyLabel.TextTransparency directly (zero
+-- string allocation on the 5Hz path). 2.4s Sine triangle, same curve as
+-- the old RichText alpha — just driven via a property instead of a rebuild.
 task.spawn(function()
 	while true do
 		if state and (state.unclaimedIncome or 0) > 0 then
 			local phase = (os.clock() % 2.4) / 2.4
 			local alpha = 0.05 + 0.5 * (1 - math.abs(phase * 2 - 1))
-			updateIncomeLine(alpha)
+			readyLabel.TextTransparency = alpha
 			task.wait(0.2)
 		else
 			task.wait(0.5)
