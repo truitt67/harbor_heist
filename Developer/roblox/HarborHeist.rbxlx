@@ -12011,7 +12011,10 @@ local function showToastDirect(message, color, category, actions)
 	toast.ZIndex = 56
 	toast.Parent = wrap
 	corner(toast, Theme.corners.md)
-	toast:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	-- harborheist-review-aug2026-6yp6.1: store the connection so dismiss()
+	-- can disconnect it — previously orphaned per toast, leaking the closure
+	-- and its captured wrap/toast refs for the rest of the session.
+	local sizeConn = toast:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
 		wrap.Size = UDim2.new(1, 0, 0, math.max(MIN_TOAST_H, toast.AbsoluteSize.Y))
 	end)
 	local tStroke = stroke(toast, 1)
@@ -12137,6 +12140,13 @@ local function showToastDirect(message, color, category, actions)
 	local function dismiss()
 		if dismissed then return end
 		dismissed = true
+		-- harborheist-review-aug2026-6yp6.1: kill the AbsoluteSize tracker
+		-- before the fade — after wrap:Destroy() it would hold refs to dead
+		-- instances. Guarded so a double-dismiss can't re-disconnect.
+		if sizeConn then
+			sizeConn:Disconnect()
+			sizeConn = nil
+		end
 		if toast.Parent then
 			-- kqbq.17.2: toast dismiss uses Theme.motion.toastFade (0.4s Quad In).
 			local fade = TweenInfo.new(TOAST_FADE, Theme.motion.toastFade.style, Theme.motion.toastFade.direction)

@@ -32,6 +32,7 @@
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
 -- kqbq.22.2 contracts ACTIVATED 2026-08-01: single formatCash abbreviation policy + all currency/income surfaces routed through it.
+-- 6yp6.1 contracts ACTIVATED 2026-08-01: toast AbsoluteSize connection stored + disconnected in dismiss() (per-toast leak fix).
 
 local fs = require("@lune/fs")
 
@@ -977,6 +978,34 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("raid loot notification routes through formatCash", function()
 			expect(clientSource:find("formatCash(result.value or 0)", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("6yp6.1 toast AbsoluteSize connection lifecycle (per-toast leak fix)", function()
+		it("AbsoluteSize connection is stored in a local", function()
+			expect(clientSource:find('local sizeConn = toast:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()', 1, true)).to.be.a("number")
+		end)
+		it("dismiss() disconnects the connection behind a nil guard", function()
+			expect(clientSource:find("if sizeConn then", 1, true)).to.be.a("number")
+			expect(clientSource:find("sizeConn:Disconnect()", 1, true)).to.be.a("number")
+		end)
+		it("connection local is nil'd after disconnect (closure GC)", function()
+			expect(clientSource:find("sizeConn = nil", 1, true)).to.be.a("number")
+		end)
+		it("disconnect runs inside dismiss() before the fade tween", function()
+			local dismissPos = clientSource:find("local function dismiss()", 1, true)
+			local disconnectPos = clientSource:find("sizeConn:Disconnect()", 1, true)
+			local fadePos = clientSource:find("TweenService:Create(toast, fade, { BackgroundTransparency = 1 })", 1, true)
+			expect(dismissPos).to.be.a("number")
+			expect(disconnectPos).to.be.a("number")
+			expect(fadePos).to.be.a("number")
+			expect(dismissPos < disconnectPos).to.equal(true)
+			expect(disconnectPos < fadePos).to.equal(true)
+		end)
+		it("exactly one toast AbsoluteSize connection exists (the stored one)", function()
+			local first = clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', 1, true)
+			expect(first).to.be.a("number")
+			expect(clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', first + 1, true) == nil).to.equal(true)
 		end)
 	end)
 end)
