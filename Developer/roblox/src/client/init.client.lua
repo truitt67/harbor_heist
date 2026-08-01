@@ -4014,6 +4014,10 @@ end
 
 local refreshShop
 
+-- [harborheist-a2ug.10] Per-row flash guard (like fishShakeToken) — prevents
+-- overlapping purchase-success flash tweens on the same shop row.
+local shopFlashTokens = {}
+
 local function buildShopRow(entry)
 	local rowH = IS_MOBILE and 74 or 66
 	local row = Instance.new("Frame")
@@ -4094,6 +4098,25 @@ local function buildShopRow(entry)
 		end
 		local result = Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
 		if result and result.ok then
+			-- [harborheist-a2ug.10] Purchase-success flash: surface.secondary
+			-- → good → back over two chained tweens (EASE_FAST + EASE_OUT).
+			-- Flash is on the row Frame, not the buyButton, so it survives the
+			-- button-state flip from refreshShop. No sound (would fight the
+			-- server economy toast stinger); visual + haptic only.
+			local rowKey = entry.kind .. entry.level
+			shopFlashTokens[rowKey] = (shopFlashTokens[rowKey] or 0) + 1
+			local token = shopFlashTokens[rowKey]
+			hapticSuccess()
+			task.spawn(function()
+				local tween1 = TweenService:Create(row, EASE_FAST, { BackgroundColor3 = Theme.color.status.good })
+				tween1:Play()
+				tween1.Completed:Wait()
+				if token ~= shopFlashTokens[rowKey] then
+					return
+				end
+				local tween2 = TweenService:Create(row, EASE_OUT, { BackgroundColor3 = Theme.color.surface.secondary })
+				tween2:Play()
+			end)
 			refreshShop()
 		end
 	end)

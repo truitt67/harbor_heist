@@ -594,4 +594,35 @@ return function(describe, it, expect)
 			expect(playerProfileSource:find("OwnedRodLevels = { 1 }", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: purchase-success flash (a2ug.10)
+	-- ──────────────────────────────────────────────────────────────────
+	local clientSource = fs.readFile("src/client/init.client.lua")
+
+	describe("Source contract: purchase-success flash (a2ug.10)", function()
+		it("shopFlashTokens guard table exists", function()
+			expect(clientSource:find("shopFlashTokens", 1, true)).to.be.a("number")
+			expect(clientSource:find("token ~= shopFlashTokens[rowKey]", 1, true)).to.be.a("number")
+		end)
+
+		it("flash calls hapticSuccess on successful purchase", function()
+			-- hapticSuccess should appear in the result.ok branch
+			local okIdx = clientSource:find("if result and result.ok then", 1, true)
+			expect(okIdx).to.be.a("number")
+			local hapticIdx = clientSource:find("hapticSuccess", okIdx, true)
+			expect(hapticIdx).to.be.a("number")
+		end)
+
+		it("flash uses chained EASE_FAST then EASE_OUT tweens on row Frame", function()
+			local okIdx = clientSource:find("if result and result.ok then", 1, true)
+			local tween1Idx = clientSource:find("EASE_FAST", okIdx, true)
+			local tween2Idx = clientSource:find("EASE_OUT", tween1Idx, true)
+			expect(tween1Idx).to.be.a("number")
+			expect(tween2Idx).to.be.a("number")
+			-- Flash targets row.BackgroundColor3 (not buyButton)
+			local rowBgIdx = clientSource:find("BackgroundColor3 = Theme.color.status.good", okIdx, true)
+			expect(rowBgIdx).to.be.a("number")
+		end)
+	end)
 end
