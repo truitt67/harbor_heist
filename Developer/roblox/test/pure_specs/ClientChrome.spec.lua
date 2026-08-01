@@ -13,6 +13,7 @@
 -- kqbq.6 contracts ACTIVATED 2026-08-01: marker glow 18px / 0.50 transparency.
 -- kqbq.9 contracts ACTIVATED 2026-08-01: mobile scrollbar auto-hide on idle.
 -- kqbq.7 contracts ACTIVATED 2026-08-01: cast overlay zone micro-labels.
+-- kqbq.8 contracts ACTIVATED 2026-08-01: mobile action-stack scroll affordance.
 
 local fs = require("@lune/fs")
 
@@ -211,6 +212,36 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("both labels are non-interactive", function()
 			expect(clientSource:find("Active = false", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.8 mobile action-stack scroll affordance", function()
+		it("stackFade frame exists", function()
+			expect(clientSource:find('stackFade.Name = "StackFade"', 1, true)).to.be.a("number")
+		end)
+		it("stackFade is non-interactive (Active=false)", function()
+			expect(clientSource:find("stackFade.Active = false", 1, true)).to.be.a("number")
+		end)
+		it("stackFade has UIGradient with 90 rotation", function()
+			expect(clientSource:find("fadeGrad.Rotation = 90", 1, true)).to.be.a("number")
+		end)
+		it("stackFade is 24px tall", function()
+			expect(clientSource:find("0, 24", 1, true) == nil).to.equal(false) -- 24 exists in the size
+		end)
+		it("fade transparency sequence exists", function()
+			expect(clientSource:find("NumberSequenceKeypoint.new(0, 0.84)", 1, true)).to.be.a("number")
+		end)
+		it("stackNudged flag for one-time nudge", function()
+			expect(clientSource:find("local stackNudged = false", 1, true)).to.be.a("number")
+		end)
+		it("CanvasPosition watcher exists", function()
+			expect(clientSource:find('stack:GetPropertyChangedSignal("CanvasPosition")', 1, true)).to.be.a("number")
+		end)
+		it("scroll nudge moves 8px", function()
+			expect(clientSource:find("origY + 8", 1, true)).to.be.a("number")
+		end)
+		it("fade hides at scroll bottom", function()
+			expect(clientSource:find("stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

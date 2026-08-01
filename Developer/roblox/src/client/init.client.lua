@@ -5379,6 +5379,28 @@ if IS_MOBILE then
 	stack.ScrollingEnabled = false
 	stack.ScrollBarThickness = 0
 	stack.Parent = screenGui
+	-- harborheist-kqbq.8: bottom-edge fade gradient shown ONLY when the
+	-- stack is scrollable and not scrolled to the bottom. Non-interactive
+	-- (Active=false) so it never intercepts touch input.
+	local stackFade = Instance.new("Frame")
+	stackFade.Name = "StackFade"
+	stackFade.AnchorPoint = Vector2.new(1, 1)
+	stackFade.BackgroundTransparency = 1
+	stackFade.BorderSizePixel = 0
+	stackFade.Active = false
+	stackFade.ZIndex = 30
+	stackFade.Visible = false
+	stackFade.Parent = screenGui
+	local fadeGrad = Instance.new("UIGradient")
+	fadeGrad.Rotation = 90
+	fadeGrad.Color = ColorSequence.new(Theme.color.surface.primary)
+	fadeGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.84),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	fadeGrad.Parent = stackFade
+	local stackFadeShown = false
+	local stackNudged = false
 
 	local stackLayout = Instance.new("UIListLayout")
 	stackLayout.FillDirection = Enum.FillDirection.Vertical
@@ -5473,6 +5495,9 @@ if IS_MOBILE then
 				stack.CanvasSize = UDim2.new(0, 0, 0, contentH)
 				stack.ScrollingEnabled = true
 				stack.ScrollingDirection = Enum.ScrollingDirection.Y
+			-- harborheist-kqbq.8: position the fade at the stack's bottom edge
+			stackFade.Size = UDim2.new(0, btnSize + 4, 0, 24)
+			stackFade.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
 			end
 		else
 			-- Normal scaling (fits within viewport)
@@ -5492,9 +5517,36 @@ if IS_MOBILE then
 				stack.CanvasSize = UDim2.new(0, 0, 0, 0)
 				stack.ScrollingEnabled = false
 			end
+		-- harborheist-kqbq.8: update fade visibility based on scroll state
+		local atBottom = stack.CanvasPosition.Y >= (stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y) - 1
+		if not stack.ScrollingEnabled or atBottom then
+			stackFade.Visible = false
+			stackFadeShown = false
+		else
+			stackFade.Visible = true
+			stackFadeShown = true
 		end
 	end
+	end
 	layoutMobileStack()
+	-- harborheist-kqbq.8: watch scroll position to hide fade at bottom
+	stack:GetPropertyChangedSignal("CanvasPosition"):Connect(function()
+		if not stack.ScrollingEnabled then return end
+		local atBottom = stack.CanvasPosition.Y >= (stack.CanvasSize.Y.Offset - stack.AbsoluteSize.Y) - 1
+		if atBottom and stackFadeShown then
+			stackFade.Visible = false
+			stackFadeShown = false
+		elseif not atBottom and not stackFadeShown then
+			stackFade.Visible = true
+			stackFadeShown = true
+			-- harborheist-kqbq.8: one-time 8px scroll nudge on first scrollable
+			if not stackNudged then
+				stackNudged = true
+				local origY = stack.CanvasPosition.Y
+				TweenService:Create(stack, EASE_FAST, { CanvasPosition = Vector2.new(0, origY + 8) }):Play()
+			end
+		end
+	end)
 
 	local stackViewportConn
 	local function bindStackViewport(cam)
