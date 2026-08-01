@@ -12,6 +12,7 @@
 -- kqbq.5 contracts ACTIVATED 2026-08-01: toast accent bar 6px + soft glow frame.
 -- kqbq.6 contracts ACTIVATED 2026-08-01: marker glow 18px / 0.50 transparency.
 -- kqbq.9 contracts ACTIVATED 2026-08-01: mobile scrollbar auto-hide on idle.
+-- kqbq.7 contracts ACTIVATED 2026-08-01: cast overlay zone micro-labels.
 
 local fs = require("@lune/fs")
 
@@ -171,6 +172,45 @@ describe("EPIC 44 client chrome source contracts", function()
 			local count = 0
 			for _ in clientSource:gmatch("applyScrollbarAutoHide%(") do count = count + 1 end
 			expect(count).to.equal(7) -- 1 definition check + 6 calls
+		end)
+	end)
+
+	describe("kqbq.7 cast overlay zone micro-labels", function()
+		it("perfectLabel is defined", function()
+			expect(clientSource:find("local perfectLabel = makeLabel", 1, true)).to.be.a("number")
+		end)
+		it("perfectLabel text is PERFECT", function()
+			expect(clientSource:find('Text = "PERFECT"', 1, true)).to.be.a("number")
+		end)
+		it("goodLabel is defined", function()
+			expect(clientSource:find("local goodLabel = makeLabel", 1, true)).to.be.a("number")
+		end)
+		it("goodLabel text is GOOD", function()
+			expect(clientSource:find('Text = "GOOD"', 1, true)).to.be.a("number")
+		end)
+		it("castCountSession counter exists", function()
+			expect(clientSource:find("local castCountSession = 0", 1, true)).to.be.a("number")
+		end)
+		it("progressive disclosure threshold is 5 casts", function()
+			expect(clientSource:find("castCountSession <= 5", 1, true)).to.be.a("number")
+		end)
+		it("full alpha is 0.05 for first casts", function()
+			expect(clientSource:find("and 0.05 or 0.45", 1, true)).to.be.a("number")
+		end)
+		it("settled alpha is 0.45 after 5 casts", function()
+			expect(clientSource:find("0.05 or 0.45", 1, true)).to.be.a("number")
+		end)
+		it("mobile guard hides goodLabel when zone too narrow", function()
+			expect(clientSource:find("goodWidth > 0.25", 1, true)).to.be.a("number")
+		end)
+		it("perfectLabel tracks perfect zone center", function()
+			expect(clientSource:find("perfectLabel.Position = UDim2.new", 1, true)).to.be.a("number")
+		end)
+		it("goodLabel tracks good zone center", function()
+			expect(clientSource:find("goodLabel.Position = UDim2.new", 1, true)).to.be.a("number")
+		end)
+		it("both labels are non-interactive", function()
+			expect(clientSource:find("Active = false", 1, true)).to.be.a("number")
 		end)
 	end)
 end)

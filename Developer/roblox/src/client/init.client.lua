@@ -5772,6 +5772,38 @@ local castOverlay, castTitle, timingBar, hitZoneFrame, perfectZoneFrame, castSub
 
 local markTween = nil
 
+-- harborheist-kqbq.7: zone micro-labels so first-timers learn the timing bar.
+-- PERFECT label sits above the perfect zone center; GOOD label sits at the
+-- good zone edge. Progressive disclosure: full alpha for first ~5 casts,
+-- then settle to 0.45 so veterans keep a subtle reminder without clutter.
+local castCountSession = 0
+local perfectLabel = makeLabel(timingBar, {
+	Size = UDim2.new(0, 60, 0, 14),
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 0, 2),
+	Text = "PERFECT",
+	Font = Theme.type.fonts.bold,
+	TextSize = Theme.type.sizes.xxs,
+	TextColor3 = Theme.color.text.primary,
+	TextTransparency = 1,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex = OVERLAY_Z_MARKER,
+	Active = false,
+})
+local goodLabel = makeLabel(timingBar, {
+	Size = UDim2.new(0, 50, 0, 12),
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -2),
+	Text = "GOOD",
+	Font = Theme.type.fonts.bold,
+	TextSize = Theme.type.sizes.xxs,
+	TextColor3 = Theme.color.text.tertiary,
+	TextTransparency = 1,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex = OVERLAY_Z_MARKER,
+	Active = false,
+})
+
 local function stopCastOverlay()
 	castOverlay.Visible = false
 	releaseOverlay("cast")
@@ -7574,6 +7606,27 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			perfectZoneFrame.Visible = true
 		else
 			perfectZoneFrame.Visible = false
+		end
+		-- harborheist-kqbq.7: update zone micro-labels to track resized bounds.
+		castCountSession += 1
+		local labelAlpha = castCountSession <= 5 and 0.05 or 0.45
+		-- PERFECT label tracks perfect zone center (in track-space fractions).
+		if castHitZone.perfectStart_ and castHitZone.perfectEnd_ then
+			local pCenter2 = (castHitZone.perfectStart_ + castHitZone.perfectEnd_) / 2
+			perfectLabel.Position = UDim2.new(pCenter2, 0, 0, 2)
+			perfectLabel.TextTransparency = labelAlpha
+			perfectLabel.Visible = true
+		else
+			perfectLabel.Visible = false
+		end
+		-- GOOD label tracks good zone center; hide on mobile if zone too narrow.
+		local goodLabelShown = not IS_MOBILE or goodWidth > 0.25
+		if goodLabelShown then
+			goodLabel.Position = UDim2.new(goodStart + goodWidth / 2, 0, 1, -2)
+			goodLabel.TextTransparency = labelAlpha
+			goodLabel.Visible = true
+		else
+			goodLabel.Visible = false
 		end
 
 		local duration = castTime or 4
