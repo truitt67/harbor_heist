@@ -19,10 +19,12 @@ DESIGN NOTES:
   new code should read from, NOT these flat values directly:
       Theme.color.surface.secondary   instead of  UIPalette.colors.surface
       Theme.color.text.primary        instead of  UIPalette.colors.text
-- Tuned gradient variants (e.g. the mid-surface #1A2639 used by
-  GradientLibrary's "surface.default" preset) live in GradientLibrary,
-  not here — they are visual-polish interpolations between base colors,
-  documented inline at each preset.
+- Gradient interpolations (e.g. lightened tokens via Color3:Lerp) are
+  computed in GradientLibrary at require time from these base tokens —
+  they are not stored here. The one formerly-tuned RGB value
+  (surfaceMid = 26,38,57) was promoted INTO this palette in
+  harborheist-kqbq.22.5 so it remains the single source of truth;
+  GradientLibrary now derives every preset from palette tokens only.
 - Colors are stored as RGB integer triples (not Color3) so this module
   has zero Roblox-instance dependencies and can be required by any
   context (pure-Luau specs included). Consumers call UIPalette.color(name)

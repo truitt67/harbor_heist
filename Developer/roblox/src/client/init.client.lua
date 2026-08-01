@@ -528,7 +528,9 @@ local function minigameTapAck(srcFrame)
 	flash.Position = srcFrame and srcFrame.Position or UDim2.new(0.5, 0, 0.5, 0)
 	flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 	flash.BackgroundTransparency = 0.85
-	flash.ZIndex = 30
+	-- kqbq.19.2 review fix: render ABOVE the source frame (OVERLAY_Z_BASE=40)
+	-- so the flash overlays the minigame while it's still visible, not behind it.
+	flash.ZIndex = (srcFrame and srcFrame.ZIndex or OVERLAY_Z_BASE) + 1
 	flash.Parent = screenGui
 	if srcFrame then
 		corner(flash, Theme.corners.md)
