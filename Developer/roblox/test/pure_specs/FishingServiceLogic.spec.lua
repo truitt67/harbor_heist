@@ -452,6 +452,12 @@ return function(describe, it, expect)
 		it("FishingService exposes _activeBites test seam", function()
 			expect(fishingSource:find("_activeBites", 1, true)).to.be.a("number")
 		end)
+
+		it("FishingService has biteFired guard to reject pre-bite catch submits (6qps)", function()
+			expect(fishingSource:find("biteFired = false", 1, true)).to.be.a("number")
+			expect(fishingSource:find("biteFired = true", 1, true)).to.be.a("number")
+			expect(fishingSource:find('reason = "bite_not_fired"', 1, true)).to.be.a("number")
+		end)
 	end)
 
 	-- ════════════════════════════════════════════════════════════════════

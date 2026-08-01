@@ -195,6 +195,13 @@ function FishingService.init(deps)
 			castDeadline = castDeadline,
 			luckBonus = 0,
 			castResultReceived = false,
+			-- harborheist-6qps: guard flag — set true when the bite callback
+			-- fires BiteEvent. handleSubmitCatchInput checks this to reject a
+			-- catch submitted before the bite occurs (a forged client could
+			-- submit immediately after CastState(true) without waiting for the
+			-- bite; the catch would process against a future-dated biteTime,
+			-- passing the elapsed-window check with a negative value).
+			biteFired = false,
 		}
 
 		-- ydf6: rod FX — swing, bobber flight + splash, line beam from rod tip.
@@ -250,6 +257,7 @@ function FishingService.init(deps)
 			local biteData = activeBites[player]
 			if biteData then
 				biteData.biteTime = os.clock() -- reset to actual bite moment
+				biteData.biteFired = true -- harborheist-6qps: mark bite as live
 				remotes.BiteEvent:FireClient(player, zoneId, BITE_WINDOW_SECONDS)
 
 				-- If the player never responds to the bite (AFK / ignored it),
@@ -408,6 +416,19 @@ function FishingService.init(deps)
 		local biteData = activeBites[player]
 		if not biteData then
 			return { ok = false, reason = "no_active_bite" }
+		end
+
+		-- harborheist-6qps: reject a catch submitted before the bite fires.
+		-- The bite callback sets biteFired=true right before BiteEvent. A
+		-- forged client could submit SubmitCatchInput immediately after
+		-- CastState(true) — biteTime is still os.clock()+biteDelay (in the
+		-- future), so the elapsed check below passes with a negative value.
+		-- While session.casting stays true until the callback clears it (so
+		-- there's no speed advantage), processing a catch before the bite
+		-- is a logical error. Reject silently — a legitimate client can't
+		-- reach this path (the bite minigame isn't shown until BiteEvent).
+		if not biteData.biteFired then
+			return { ok = false, reason = "bite_not_fired" }
 		end
 
 		-- Validate timing: player must respond within the bite window

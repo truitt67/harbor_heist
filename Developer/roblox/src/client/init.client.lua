@@ -1953,7 +1953,6 @@ local function animateCashTo(target)
 			ZIndex = 5,
 		})
 		-- kqbq.17.1 rejection log: 0.8s float is intentional (cash gains are readable info).
-		-- kqbq.17.1 rejection log: 0.8s float is intentional (cash gains are readable info).
 		TweenService:Create(gain, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 			Position = UDim2.new(1, -110, 0, -10),
 			TextTransparency = 1,

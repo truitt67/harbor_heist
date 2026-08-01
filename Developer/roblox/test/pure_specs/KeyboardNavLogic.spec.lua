@@ -357,5 +357,13 @@ return function(describe, it, expect)
 		it("ActivateFocused is retained for backward compatibility", function()
 			expect(navSource:find("function KeyboardNav:ActivateFocused()", 1, true)).to.be.a("number")
 		end)
+
+		it("Disable disconnects the input connection (6qps)", function()
+			expect(navSource:find("inputConnection:Disconnect()", 1, true)).to.be.a("number")
+		end)
+
+		it("Enable stores the input connection before Connect (6qps)", function()
+			expect(navSource:find("inputConnection = UserInputService.InputBegan:Connect", 1, true)).to.be.a("number")
+		end)
 	end)
 end

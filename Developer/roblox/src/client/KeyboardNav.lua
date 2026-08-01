@@ -31,6 +31,11 @@ local focusableElements = {} -- array of {element, tabOrder, stroke}
 local currentFocusIndex = 0
 local isEnabled = false
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+-- harborheist-6qps: store the InputBegan connection so Disable() can
+-- disconnect it. Without this, each Enable/Disable cycle leaks a connection
+-- on UserInputService (the old connection's guard `if not isEnabled then
+-- return end` prevents functional issues, but the closure stays in memory).
+local inputConnection = nil
 
 --[[
 	Register a UI element as focusable via keyboard navigation.
@@ -252,11 +257,17 @@ end
 ]]
 function KeyboardNav:Enable()
 	if isMobile or isEnabled then return end
-	
+
 	isEnabled = true
-	
+
+	-- harborheist-6qps: disconnect any stale connection before creating a
+	-- new one (defensive — Enable is currently called once, but this
+	-- prevents a future leak if Enable/Disable cycling is added).
+	if inputConnection then
+		inputConnection:Disconnect()
+	end
 	-- Listen for Tab and Shift+Tab (Enter/Space handled natively by engine)
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	inputConnection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if not isEnabled then return end
 		if gameProcessed then return end -- Let game handle it first
 		
@@ -281,6 +292,12 @@ end
 ]]
 function KeyboardNav:Disable()
 	isEnabled = false
+	-- harborheist-6qps: disconnect the input connection on disable so
+	-- repeated Enable/Disable cycles don't accumulate idle connections.
+	if inputConnection then
+		inputConnection:Disconnect()
+		inputConnection = nil
+	end
 	self:ClearFocus()
 	currentFocusIndex = 0
 end
