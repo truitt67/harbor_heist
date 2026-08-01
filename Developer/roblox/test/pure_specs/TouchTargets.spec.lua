@@ -120,4 +120,25 @@ return function(describe, it, expect)
 			has("[helpPanel] = \"help\"", "helpPanel in panelToAction map")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: kqbq.4 ripple color luminance derivation
+	-- ──────────────────────────────────────────────────────────────────
+	describe("Source contract: kqbq.4 ripple luminance", function()
+		it("ripple no longer hardcodes white BackgroundColor3", function()
+			expect(src:find("ripple.BackgroundColor3 = Color3.fromRGB(255, 255, 255)", 1, true)).to.equal(nil)
+		end)
+
+		it("ripple computes button luminance at press time", function()
+			expect(src:find("local lum = 0.299 * btnColor.R + 0.587 * btnColor.G + 0.114 * btnColor.B", 1, true)).to.be.a("number")
+		end)
+
+		it("ripple branches on luminance threshold", function()
+			expect(src:find("lum > 0.55", 1, true)).to.be.a("number")
+		end)
+
+		it("ripple uses Theme.color.text.ink for light buttons", function()
+			expect(src:find("Theme.color.text.ink", 1, true)).to.be.a("number")
+		end)
+	end)
 end
