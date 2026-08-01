@@ -12727,15 +12727,20 @@ local function makePanel(title, titleColor, desktopSize)
 	Gradients.apply(panel, "surface.default")
 
 	if IS_MOBILE then
+		-- harborheist-kqbq.21.1: grab-handle pill that signals draggability.
+		-- kqbq.21.1 spec: 36x4, text.tertiary at ~0.5 alpha, corners.pill,
+		-- centered at the top edge inside the drag zone. Mobile-only (the
+		-- IS_MOBILE branch), decorative (a Frame never intercepts the drag).
 		local grabber = Instance.new("Frame")
-		grabber.Size = UDim2.new(0, 44, 0, 4)
+		grabber.Name = "GrabHandle"
+		grabber.Size = UDim2.new(0, 36, 0, 4)
 		grabber.AnchorPoint = Vector2.new(0.5, 0)
 		grabber.Position = UDim2.new(0.5, 0, 0, 8)
 		grabber.BackgroundColor3 = Theme.color.text.tertiary
-		grabber.BackgroundTransparency = 0.4
+		grabber.BackgroundTransparency = 0.5
 		grabber.ZIndex = 26
 		grabber.Parent = panel
-		corner(grabber, Theme.corners.hairline)
+		corner(grabber, Theme.corners.pill)
 
 		-- R4 polish (mobile): drag-to-dismiss — THE bottom-sheet pattern.
 		-- The grabber was decorative; now the header strip is a drag surface.
@@ -12897,6 +12902,13 @@ hidePanels = function()
 	end)
 end
 
+-- [harborheist-kqbq.21.1] One-time first-open hint: on the FIRST panel open
+-- of a session, the sheet does a subtle 6px up-down bounce (2 cycles, Sine
+-- InOut) after the entrance settles — teaches drag-to-dismiss without a
+-- word. Fires once per session; never on desktop (bottom-sheet pattern is
+-- mobile-only).
+local panelBounceHintShown = false
+
 local function showPanel(panel)
 	if activePanel == panel then
 		hidePanels()
@@ -12955,6 +12967,16 @@ local function showPanel(panel)
 		-- harborheist-pytn: Use AnimationSystem slide transition for mobile show
 		panel.Position = UDim2.new(0.5, 0, 1.35, 0)
 		Anim:slide(panel, "up", EASE_POP)
+		-- harborheist-kqbq.21.1: one-time first-open bounce hint — 6px
+		-- up-down, 2 cycles, Sine InOut, fired after the entrance settles.
+		-- Teaches drag-to-dismiss without a word. Once per session.
+		if not panelBounceHintShown then
+			panelBounceHintShown = true
+			task.delay(Theme.motion.pop.duration, function()
+				local bounce = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 1, true)
+				TweenService:Create(panel, bounce, { Position = UDim2.new(0.5, 0, 1, -6) }):Play()
+			end)
+		end
 	else
 		-- harborheist-pytn: Use AnimationSystem scale and fade transitions for desktop show
 		-- harborheist-0ci3: re-apply the layout-mode base size first — the

@@ -25,6 +25,7 @@
 -- kqbq.10 contracts ACTIVATED 2026-08-01: desktop hover tooltips (ACTION_INFO single source, shared instance, keyboard parity).
 -- a2ug.15 contracts ACTIVATED 2026-08-01: wandering-player zone re-guidance (2nd consecutive out-of-zone refusal re-arms the cue).
 -- kqbq.16 contracts ACTIVATED 2026-08-01: mobile toast density (viewport-scaled visible cap, icon-only 44x44 actions, +N overflow chip).
+-- kqbq.21.1 contracts ACTIVATED 2026-08-01: bottom-sheet grab-handle pill + one-time first-open bounce hint.
 -- kqbq.22.4 contracts ACTIVATED 2026-08-01: reveal card stroke pulse extended to Rare (dimmer/slower than Epic).
 -- kqbq.22.5 contracts ACTIVATED 2026-08-01: GradientLibrary palette reconciliation + HUD gradient seam fix.
 -- kqbq.19.2 contracts ACTIVATED 2026-08-01: minigame tap acknowledgment (neutral flash + haptic on bite/raid/cast).
@@ -844,6 +845,31 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("overflow chip is pinned below the stack and refreshed on queue/drain", function()
 			expect(clientSource:find("toastOverflowChip.LayoutOrder = 1e9", 1, true)).to.be.a("number")
 			expect(clientSource:find("updateToastOverflowChip()", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.21.1 bottom-sheet grab-handle affordance + first-open hint", function()
+		it("grab-handle pill matches the spec (36x4, tertiary 0.5, pill corner)", function()
+			expect(clientSource:find('grabber.Name = "GrabHandle"', 1, true)).to.be.a("number")
+			expect(clientSource:find("grabber.Size = UDim2.new(0, 36, 0, 4)", 1, true)).to.be.a("number")
+			expect(clientSource:find("grabber.BackgroundColor3 = Theme.color.text.tertiary", 1, true)).to.be.a("number")
+			expect(clientSource:find("grabber.BackgroundTransparency = 0.5", 1, true)).to.be.a("number")
+			expect(clientSource:find("corner(grabber, Theme.corners.pill)", 1, true)).to.be.a("number")
+		end)
+		it("handle is decorative (a Frame — never intercepts the drag)", function()
+			expect(clientSource:find('local grabber = Instance.new("Frame")', 1, true)).to.be.a("number")
+		end)
+		it("one-time bounce hint guard is session-scoped", function()
+			expect(clientSource:find("local panelBounceHintShown = false", 1, true)).to.be.a("number")
+			expect(clientSource:find("if not panelBounceHintShown then", 1, true)).to.be.a("number")
+			expect(clientSource:find("panelBounceHintShown = true", 1, true)).to.be.a("number")
+		end)
+		it("bounce fires after the entrance settles (pop.duration delay)", function()
+			expect(clientSource:find("task.delay(Theme.motion.pop.duration, function()", 1, true)).to.be.a("number")
+		end)
+		it("bounce is 6px up-down, 2 cycles (1 repeat reversing), Sine InOut", function()
+			expect(clientSource:find("local bounce = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 1, true)", 1, true)).to.be.a("number")
+			expect(clientSource:find('{ Position = UDim2.new(0.5, 0, 1, -6) }', 1, true)).to.be.a("number")
 		end)
 	end)
 end)
