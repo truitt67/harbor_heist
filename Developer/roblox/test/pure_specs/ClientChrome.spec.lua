@@ -35,6 +35,7 @@
 -- 6yp6.1 contracts ACTIVATED 2026-08-01: toast AbsoluteSize connection stored + disconnected in dismiss() (per-toast leak fix).
 -- 6yp6.4 contracts ACTIVATED 2026-08-01: aquarium viewport connection tracked + stale binding disconnected on camera change.
 -- 6yp6.2 contracts ACTIVATED 2026-08-01: scrollbar auto-hide helper returns connection handle + action-stack connection stored at module level.
+-- 6yp6.7 contracts ACTIVATED 2026-08-01: onboarding state.carried access pinned inside render()'s nil-guarded body (regression guard; finding was stale — no separate update function exists).
 
 local fs = require("@lune/fs")
 
@@ -1053,6 +1054,32 @@ describe("EPIC 44 client chrome source contracts", function()
 			local count = 0
 			for _ in clientSource:gmatch("applyScrollbarAutoHide%(") do count = count + 1 end
 			expect(count).to.equal(7)
+		end)
+	end)
+
+	describe("6yp6.7 onboarding state access pinned inside render()'s nil guard", function()
+		-- Review finding claimed an unguarded state.carried access; verified
+		-- 2026-08-01: the onboarding block is inline in render() which guards
+		-- state at entry. These contracts pin that invariant so a future
+		-- refactor extracting the block into an unguarded function breaks CI.
+		it("render() guards state at entry", function()
+			local renderPos = clientSource:find("local function render()", 1, true)
+			expect(renderPos).to.be.a("number")
+			local guardPos = clientSource:find("if not state then", renderPos, true)
+			expect(guardPos).to.be.a("number")
+			-- The guard must be immediate — within a few lines of the header.
+			expect(guardPos - renderPos < 100).to.equal(true)
+		end)
+		it("onboarding state.carried access sits after the render guard", function()
+			local guardPos = clientSource:find("local function render()", 1, true)
+			local carriedPos = clientSource:find("if state.carried > 0 then", 1, true)
+			expect(carriedPos).to.be.a("number")
+			expect(guardPos < carriedPos).to.equal(true)
+			-- Exactly one such access — no unguarded twin elsewhere.
+			expect(clientSource:find("if state.carried > 0 then", carriedPos + 1, true) == nil).to.equal(true)
+		end)
+		it("onboarding flag table reads through render's guarded state local", function()
+			expect(clientSource:find("local ob = state.onboarding or {}", 1, true)).to.be.a("number")
 		end)
 	end)
 end)
