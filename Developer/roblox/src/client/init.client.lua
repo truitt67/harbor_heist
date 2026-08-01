@@ -2118,7 +2118,7 @@ end
 drainToastQueue = function()
 	while activeToastCount < MAX_VISIBLE_TOASTS and #toastQueue > 0 do
 		local pending = table.remove(toastQueue, 1)
-		showToastDirect(pending.message, pending.color, pending.category)
+		showToastDirect(pending.message, pending.color, pending.category, pending.actions)
 	end
 end
 
@@ -2141,7 +2141,7 @@ local function showNotification(message, color, category, actions)
 	if activeToastCount < MAX_VISIBLE_TOASTS then
 		showToastDirect(message, color, category, actions)
 	else
-		local entry = { message = message, color = color, category = category }
+		local entry = { message = message, color = color, category = category, actions = actions }
 		if SEVERE_CATEGORIES[category] then
 			table.insert(toastQueue, 1, entry)
 		else
