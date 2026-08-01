@@ -10248,11 +10248,13 @@ local function makeOverlayFrame(name, titleText, subtitleText)
 	corner(marker, Theme.corners.thin)
 
 	local markerGlow = Instance.new("Frame")
-	markerGlow.Size = UDim2.new(0, 15, 1, 10)
+	-- harborheist-kqbq.6: brightened glow — 18px wide, 0.50 transparency
+	-- (was 15px / 0.75) so the timing marker is readable at a glance.
+	markerGlow.Size = UDim2.new(0, 18, 1, 10)
 	markerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
 	markerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
 	markerGlow.BackgroundColor3 = Theme.color.accent.soft
-	markerGlow.BackgroundTransparency = 0.75
+	markerGlow.BackgroundTransparency = 0.50
 	markerGlow.ZIndex = OVERLAY_Z_ZONE
 	markerGlow.Parent = marker
 	corner(markerGlow, Theme.corners.sm)
@@ -11651,13 +11653,23 @@ local function showToastDirect(message, color, category, actions)
 	toastMaxSize.Parent = toast
 	toast.ClipsDescendants = true
 	local accentBar = Instance.new("Frame")
-	accentBar.Size = UDim2.new(0, 4, 1, -14)
+	accentBar.Size = UDim2.new(0, 6, 1, -14)
 	accentBar.Position = UDim2.new(0, 8, 0, 7)
 	accentBar.BackgroundColor3 = color
 	accentBar.BackgroundTransparency = 1
 	accentBar.ZIndex = 57
 	accentBar.Parent = toast
 	corner(accentBar, Theme.corners.hairline)
+	-- harborheist-kqbq.5: soft category glow behind the accent bar — 10px
+	-- wide (2px out each side), 0.85 transparency, sits below the bar (Z 56).
+	local accentGlow = Instance.new("Frame")
+	accentGlow.Size = UDim2.new(0, 10, 1, -10)
+	accentGlow.Position = UDim2.new(0, 6, 0, 5)
+	accentGlow.BackgroundColor3 = color
+	accentGlow.BackgroundTransparency = 1
+	accentGlow.ZIndex = 56
+	accentGlow.Parent = toast
+	corner(accentGlow, Theme.corners.thin)
 	local chip = makeLabel(toast, {
 		Size = UDim2.new(0, 80, 0, 16),
 		Position = UDim2.new(0, 18, 0, 4),
@@ -11690,6 +11702,7 @@ local function showToastDirect(message, color, category, actions)
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
 	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()
+	TweenService:Create(accentGlow, EASE_OUT, { BackgroundTransparency = 0.85 }):Play()
 	TweenService:Create(chip, EASE_OUT, { TextTransparency = 0 }):Play()
 	TweenService:Create(text, EASE_OUT, { TextTransparency = 0 }):Play()
 	-- R4 polish: spring pop on entrance — the comment header promises
@@ -11727,6 +11740,7 @@ local function showToastDirect(message, color, category, actions)
 			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
 			TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
 			TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(accentGlow, fade, { BackgroundTransparency = 1 }):Play()
 			TweenService:Create(chip, fade, { TextTransparency = 1 }):Play()
 			local t = TweenService:Create(text, fade, { TextTransparency = 1 })
 			t:Play()
@@ -16111,11 +16125,11 @@ biteMarker.Parent = barTrack
 corner(biteMarker, Theme.corners.thin)
 
 local biteMarkerGlow = Instance.new("Frame")
-biteMarkerGlow.Size = UDim2.new(0, 15, 1, 10)
+biteMarkerGlow.Size = UDim2.new(0, 18, 1, 10)
 biteMarkerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
 biteMarkerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
 biteMarkerGlow.BackgroundColor3 = Theme.color.accent.soft
-biteMarkerGlow.BackgroundTransparency = 0.75
+biteMarkerGlow.BackgroundTransparency = 0.50
 biteMarkerGlow.ZIndex = OVERLAY_Z_ZONE
 biteMarkerGlow.Parent = biteMarker
 corner(biteMarkerGlow, Theme.corners.sm)
