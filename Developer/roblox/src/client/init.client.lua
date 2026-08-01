@@ -2146,6 +2146,33 @@ local function showToastDirect(message, color, category, actions)
 	local textBottomPad = Instance.new("UIPadding")
 	textBottomPad.PaddingBottom = UDim.new(0, Theme.spacing.sm)
 	textBottomPad.Parent = text
+	-- harborheist-kqbq.18.3: overflow fade-edge when toast text exceeds the
+	-- 3-line cap. TextBounds.Y gives the full wrapped height synchronously;
+	-- if it exceeds the visible text area (toast max height - Y offset -
+	-- bottom padding), we add a gradient fade at the text bottom so the
+	-- player sees content was truncated (not silently clipped).
+	local maxTextH = MIN_TOAST_H + 54 - 20 - Theme.spacing.sm
+	if text.TextBounds.Y > maxTextH then
+		local fadeEdge = Instance.new("Frame")
+		fadeEdge.Name = "TextFadeEdge"
+		fadeEdge.Size = UDim2.new(1, -32, 0, 12)
+		fadeEdge.Position = UDim2.new(0, 22, 1, -Theme.spacing.sm - 12)
+		fadeEdge.AnchorPoint = Vector2.new(0, 0)
+		fadeEdge.BackgroundColor3 = Theme.color.surface.primary
+		fadeEdge.BackgroundTransparency = 1
+		fadeEdge.ZIndex = 59
+		fadeEdge.Parent = toast
+		local fadeGrad = Instance.new("UIGradient")
+		fadeGrad.Rotation = 90
+		fadeGrad.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.5, 0.5),
+			NumberSequenceKeypoint.new(1, 0),
+		})
+		fadeGrad.Color = ColorSequence.new(Theme.color.surface.primary)
+		fadeGrad.Parent = fadeEdge
+		TweenService:Create(fadeEdge, EASE_OUT, { BackgroundTransparency = 0 }):Play()
+	end
 	TweenService:Create(toast, EASE_OUT, { BackgroundTransparency = 0.12 }):Play()
 	TweenService:Create(tStroke, EASE_OUT, { Transparency = 0.82 }):Play()
 	TweenService:Create(accentBar, EASE_OUT, { BackgroundTransparency = 0 }):Play()

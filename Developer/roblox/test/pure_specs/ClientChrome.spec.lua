@@ -19,6 +19,7 @@
 -- kqbq.11 contracts ACTIVATED 2026-08-01: HUD income-line split labels (kill 5Hz RichText rebuild).
 -- kqbq.12.2 contracts ACTIVATED 2026-08-01: Esc cancels the cast overlay via Remotes.CancelCast.
 -- kqbq.14 contracts ACTIVATED 2026-08-01: empty-state icon tiles (GradientLibrary, category glyphs).
+-- kqbq.18.2 contracts ACTIVATED 2026-08-01: uniform disabled treatment (setButtonEnabled helper + debounce/claim/lock fixes).
 
 local fs = require("@lune/fs")
 
@@ -440,6 +441,34 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("showPanel desktop scale passes EASE_POP", function()
 			expect(clientSource:find("Anim:scale(panel, fit, EASE_POP)", 1, true)).to.be.a("number")
+		end)
+	end)
+
+	describe("kqbq.18.3 toast text overflow fade-edge", function()
+		it("maxTextH overflow threshold computed", function()
+			expect(clientSource:find("maxTextH = MIN_TOAST_H", 1, true)).to.be.a("number")
+		end)
+		it("TextFadeEdge frame created", function()
+			expect(clientSource:find('fadeEdge.Name = "TextFadeEdge"', 1, true)).to.be.a("number")
+		end)
+		it("fade-edge positioned at bottom of toast", function()
+			expect(clientSource:find("fadeEdge.Position = UDim2.new(0, 22, 1", 1, true)).to.be.a("number")
+		end)
+		it("fade-edge has UIGradient with 90 rotation", function()
+			expect(clientSource:find("fadeGrad.Rotation = 90", 1, true)).to.be.a("number")
+		end)
+		it("fade gradient transparency goes 1 to 0", function()
+			expect(clientSource:find("NumberSequenceKeypoint.new(0, 1)", 1, true)).to.be.a("number")
+			expect(clientSource:find("NumberSequenceKeypoint.new(1, 0)", 1, true)).to.be.a("number")
+		end)
+		it("fade-edge at ZIndex 59 (above text at 57)", function()
+			expect(clientSource:find("fadeEdge.ZIndex = 59", 1, true)).to.be.a("number")
+		end)
+		it("overflow check uses TextBounds.Y", function()
+			expect(clientSource:find("text.TextBounds.Y > maxTextH", 1, true)).to.be.a("number")
+		end)
+		it("fade-edge fade-in uses EASE_OUT", function()
+			expect(clientSource:find("fadeEdge, EASE_OUT", 1, true)).to.be.a("number")
 		end)
 	end)
 	end)
