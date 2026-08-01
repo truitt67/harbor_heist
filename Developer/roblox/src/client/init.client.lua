@@ -5841,6 +5841,16 @@ else
 	local BAR_GAP = 8
 	local BAR_SIDE_MARGIN = 36
 	local BAR_SHORT_VIEWPORT = 700
+	-- harborheist-kqbq.13: ultra-wide action-bar rebalance. At <= 1920px the
+	-- bar is pixel-unchanged; above it, button width scales up modestly
+	-- (+1px per BAR_WIDE_BUMP_STEP of viewport, capped at BAR_WIDE_BTN_BUMP)
+	-- and the total bar width is capped at BAR_WIDE_CAP of the viewport so the
+	-- bottom-center bar stays anchored instead of floating as a tiny cluster
+	-- on vast strips. Key chips/labels scale with the button (fontScale below).
+	local BAR_WIDE_VIEWPORT = 1920
+	local BAR_WIDE_BTN_BUMP = 12
+	local BAR_WIDE_BUMP_STEP = 64
+	local BAR_WIDE_CAP = 0.40
 
 	local function barWidthFor(btnW)
 		return #ACTIONS * btnW + (#ACTIONS - 1) * BAR_GAP
@@ -5915,6 +5925,14 @@ else
 		if viewportW < fullW + 2 * BAR_SIDE_MARGIN then
 			btnW = math.floor((viewportW - 2 * BAR_SIDE_MARGIN - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
 			btnW = math.max(BAR_BTN_W_MIN, math.min(BAR_BTN_W, btnW))
+		elseif viewportW > BAR_WIDE_VIEWPORT then
+			-- kqbq.13: scale buttons up modestly above 1920px, then cap the
+			-- total bar width at ~40% of the viewport. Standard widths
+			-- (<= 1920px) hit neither branch, so btnW stays BAR_BTN_W.
+			local bump = math.min(BAR_WIDE_BTN_BUMP, math.floor((viewportW - BAR_WIDE_VIEWPORT) / BAR_WIDE_BUMP_STEP))
+			btnW = BAR_BTN_W + bump
+			local maxByCap = math.floor((BAR_WIDE_CAP * viewportW - (#ACTIONS - 1) * BAR_GAP) / #ACTIONS + 0.5)
+			btnW = math.min(btnW, maxByCap)
 		end
 		local useShort = viewportW < BAR_SHORT_VIEWPORT
 		local fontScale = (btnW - BAR_BTN_W_MIN) / (BAR_BTN_W - BAR_BTN_W_MIN)
