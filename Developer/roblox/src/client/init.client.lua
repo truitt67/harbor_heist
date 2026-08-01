@@ -220,32 +220,11 @@ local FONT_BOLD = Enum.Font.GothamBold
 local FONT_MED = Enum.Font.GothamMedium
 local FONT_BODY = Enum.Font.Gotham
 
-local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
--- harborheist-2wuo.1: Back -> Spring for the "pop" easing (scale-in
--- reveals, button bounce-back). Spring gives physics-based overshoot that
--- feels more natural than Back's synthetic curve. NOT applied to EASE_FAST
--- (Quad) or EASE_IN (Quad) — those control fades and exit acceleration
--- where Spring overshoot would cause flicker or feel wrong.
--- selene: allow(incorrect_standard_library_use) — Spring is a valid
--- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
--- 0.31's roblox std is stale.
-local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out)
-local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
--- harborheist-kqbq.2: dedicated press-down easing — front-loaded (Quad Out)
--- so motion is visible on frame 1; 0.10s is a tactile snap, not a gentle dip.
--- Depth 0.94 (set at the press site) makes the compression read as a click.
-local EASE_PRESS = TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
--- harborheist-kqbq.3: desktop hover is an invitation, not a press — runs at
--- 0.2s (deliberate) so it is perceptually distinct from the 0.10s press snap.
-local EASE_HOVER = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
--- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
--- paths (mobile slide, desktop shrink) used decelerating easings — the
--- slowest, most visible part of the exit was the tail.
-local EASE_IN = TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-
 -- ============================================================
 -- Design tokens (harborheist-uabg.7): canonical foundation for
 -- spacing, typography, color, radii, shadows and button variants.
+-- harborheist-kqbq.17.2: motion tokens now live in Theme.motion
+-- (single source for all easing/duration values).
 --
 -- DEFINITION-only pass. Existing call sites still read the flat
 -- `UI` / `FONT_*` palette above and are NOT migrated here — that is
@@ -287,6 +266,25 @@ local Theme = {
 		ghost = { bg = UI.surface, text = UI.textDim, strokeColor = UI.stroke, strokeTransparency = 0.85 },
 		danger = { bg = UI.bad, text = UI.ink, strokeColor = nil, strokeTransparency = 1 },
 	},
+	-- harborheist-kqbq.17.2: Theme.motion — single source for every
+	-- duration/easing token in the client. EASE_* aliases are built
+	-- from these values; Anim:* transitions receive the built presets.
+	-- RULE: no TweenInfo.new literals outside Theme.motion without a
+	-- code-comment justification (see rejection log, kqbq.17.1).
+	motion = {
+		easeOut = { duration = 0.22, style = Enum.EasingStyle.Quint, direction = Enum.EasingDirection.Out },
+		-- selene: allow(incorrect_standard_library_use) — Spring is a valid
+		-- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+		-- 0.31's roblox std is stale.
+		pop = { duration = 0.28, style = Enum.EasingStyle.Spring, direction = Enum.EasingDirection.Out },
+		fast = { duration = 0.12, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.Out },
+		pressIn = { duration = 0.10, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.Out },
+		hoverOut = { duration = 0.20, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.Out },
+		ripple = { duration = 0.35, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.Out },
+		flashTail = { duration = 0.45, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
+		toastFade = { duration = 0.40, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
+		easeIn = { duration = 0.16, style = Enum.EasingStyle.Quad, direction = Enum.EasingDirection.In },
+	},
 }
 
 -- Variant radii are assigned AFTER the constructor: a table constructor
@@ -296,6 +294,26 @@ local Theme = {
 for _, variant in pairs(Theme.buttonVariants) do
 	variant.radius = Theme.corners.md
 end
+
+-- ============================================================
+-- harborheist-kqbq.17.2: Motion presets derived from Theme.motion
+-- (single source). EASE_* are thin aliases; canonical values live
+-- in Theme.motion above. New motion: add a Theme.motion token and
+-- alias here — do NOT construct TweenInfo.new inline at call sites.
+-- ============================================================
+local EASE_OUT = TweenInfo.new(Theme.motion.easeOut.duration, Theme.motion.easeOut.style, Theme.motion.easeOut.direction)
+-- selene: allow(incorrect_standard_library_use) — Spring is a valid
+-- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
+-- 0.31's roblox std is stale.
+local EASE_POP = TweenInfo.new(Theme.motion.pop.duration, Theme.motion.pop.style, Theme.motion.pop.direction)
+local EASE_FAST = TweenInfo.new(Theme.motion.fast.duration, Theme.motion.fast.style, Theme.motion.fast.direction)
+local EASE_PRESS = TweenInfo.new(Theme.motion.pressIn.duration, Theme.motion.pressIn.style, Theme.motion.pressIn.direction)
+local EASE_HOVER = TweenInfo.new(Theme.motion.hoverOut.duration, Theme.motion.hoverOut.style, Theme.motion.hoverOut.direction)
+local EASE_RIPPLE = TweenInfo.new(Theme.motion.ripple.duration, Theme.motion.ripple.style, Theme.motion.ripple.direction)
+-- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
+-- paths (mobile slide, desktop shrink) used decelerating easings — the
+-- slowest, most visible part of the exit was the tail.
+local EASE_IN = TweenInfo.new(Theme.motion.easeIn.duration, Theme.motion.easeIn.style, Theme.motion.easeIn.direction)
 
 local state = nil
 local casting = false
@@ -961,7 +979,7 @@ local function makeButton(parent, props)
 			rippleCorner.Parent = ripple
 			ripple.ZIndex = button.ZIndex + 1
 			ripple.Parent = button
-			TweenService:Create(ripple, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TweenService:Create(ripple, EASE_RIPPLE, {
 				Size = UDim2.new(0, maxSize, 0, maxSize),
 				BackgroundTransparency = 1,
 			}):Play()
@@ -1123,6 +1141,34 @@ local function makeButton(parent, props)
 	setupPressFeedback()
 	
 	return button
+end
+-- [harborheist-kqbq.18.2] Uniform disabled treatment helper. Applies the
+-- single disabled recipe from the kqbq.18.1 audit: Active=false + a semantic
+-- bg color (surface.elevated for temporary/maxed, surface.secondary for
+-- locked-tier, status.disabled for system-error) + TextColor3=text.tertiary.
+-- Saves original colors on first disable so re-enable restores them. No
+-- opacity changes (this codebase signals disabled via color swap, not
+-- transparency — keeps contrast specs green).
+local setButtonEnabled = function(button, enabled, disabledBg)
+	if enabled then
+		button.Active = true
+		local saved = button:GetAttribute("kqbq18_2_savedColors")
+		if saved then
+			button.BackgroundColor3 = saved.bg
+			button.TextColor3 = saved.fg
+			button:SetAttribute("kqbq18_2_savedColors", nil)
+		end
+	else
+		if not button:GetAttribute("kqbq18_2_savedColors") then
+			button:SetAttribute("kqbq18_2_savedColors", {
+				bg = button.BackgroundColor3,
+				fg = button.TextColor3,
+			})
+		end
+		button.Active = false
+		button.BackgroundColor3 = disabledBg or Theme.color.surface.elevated
+		button.TextColor3 = Theme.color.text.tertiary
+	end
 end
 
 -- ============================================================
@@ -1359,11 +1405,10 @@ Theme.applyElevation = applyElevation
 -- ============================================================
 local Transitions = {}
 
--- Duration presets (seconds). Match the existing EASE_* values so the
--- library is consistent with the hand-tuned timings already in the file.
+-- Duration presets (seconds). kqbq.17.2: sourced from Theme.motion.
 Transitions.durations = {
-	fast = 0.12, -- matches EASE_FAST
-	normal = 0.22, -- matches EASE_OUT
+	fast = Theme.motion.fast.duration,
+	normal = Theme.motion.easeOut.duration,
 	slow = 0.5,
 }
 
@@ -1873,6 +1918,8 @@ local function animateCashTo(target)
 			TextXAlignment = Enum.TextXAlignment.Right,
 			ZIndex = 5,
 		})
+		-- kqbq.17.1 rejection log: 0.8s float is intentional (cash gains are readable info).
+		-- kqbq.17.1 rejection log: 0.8s float is intentional (cash gains are readable info).
 		TweenService:Create(gain, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 			Position = UDim2.new(1, -110, 0, -10),
 			TextTransparency = 1,
@@ -1945,7 +1992,7 @@ local MAX_VISIBLE_TOASTS = 3
 local MAX_TOAST_QUEUE = 8
 local MIN_TOAST_H = IS_MOBILE and 40 or 42
 local TOAST_LIFETIME = 3.6
-local TOAST_FADE = 0.4
+local TOAST_FADE = Theme.motion.toastFade.duration
 local TOAST_CATEGORIES = {
 	catch = "CATCH", quest = "QUEST", raid = "RAID",
 	["raid-victim"] = "RAID!", ["raid-attacker"] = "RAID",
@@ -2136,7 +2183,8 @@ local function showToastDirect(message, color, category, actions)
 		if dismissed then return end
 		dismissed = true
 		if toast.Parent then
-			local fade = TweenInfo.new(TOAST_FADE, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			-- kqbq.17.2: toast dismiss uses Theme.motion.toastFade (0.4s Quad In).
+			local fade = TweenInfo.new(TOAST_FADE, Theme.motion.toastFade.style, Theme.motion.toastFade.direction)
 			TweenService:Create(toast, fade, { BackgroundTransparency = 1 }):Play()
 			TweenService:Create(tStroke, fade, { Transparency = 1 }):Play()
 			TweenService:Create(accentBar, fade, { BackgroundTransparency = 1 }):Play()
@@ -2868,7 +2916,7 @@ hidePanels = function()
 			-- harborheist-pytn: Use AnimationSystem slide transition for mobile hide
 			-- harborheist-kqbq.1: close 0.16→0.22 — exits slightly faster than
 			-- the 0.28 open, not half-speed (abrupt). Hide delay tracks it.
-			Anim:slide(panel, "down", 0.22)
+			Anim:slide(panel, "down", EASE_OUT)
 			task.delay(0.26, function()
 				-- Fresh-eyes: same reopen race as showPanel's switch path —
 				-- a close→reopen inside the slide would hide the live panel.
@@ -2885,7 +2933,7 @@ hidePanels = function()
 			end
 			local fit = scale.Scale
 			-- harborheist-kqbq.1: close 0.16→0.22 (see mobile twin above)
-			Anim:scale(panel, fit * 0.9, 0.22)
+			Anim:scale(panel, fit * 0.9, EASE_OUT)
 			task.delay(0.26, function()
 				if activePanel ~= panel then
 					panel.Visible = false
@@ -2895,7 +2943,7 @@ hidePanels = function()
 		end
 	end
 	-- harborheist-pytn: Use AnimationSystem fade for backdrop
-	Anim:fade(backdrop, false, 0.22)
+	Anim:fade(backdrop, false, EASE_OUT)
 	task.delay(0.24, function()
 		if not activePanel then
 			backdrop.Visible = false
@@ -2916,7 +2964,7 @@ local function showPanel(panel)
 		if IS_MOBILE then
 			-- harborheist-pytn: Use AnimationSystem slide transition for mobile switch
 			-- harborheist-kqbq.1: match hidePanels close duration (0.22)
-			Anim:slide(oldPanel, "down", 0.22)
+			Anim:slide(oldPanel, "down", EASE_OUT)
 			task.delay(0.26, function()
 				-- Guard against A→B→A fast switching: if the user reopened
 				-- this panel before the slide-out finished, don't hide it.
@@ -2936,7 +2984,7 @@ local function showPanel(panel)
 			local fit = scale.Scale
 			-- harborheist-pytn: Use AnimationSystem scale transition for desktop switch
 			-- harborheist-kqbq.1: match hidePanels close duration (0.22)
-			Anim:scale(oldPanel, fit * 0.9, 0.22)
+			Anim:scale(oldPanel, fit * 0.9, EASE_OUT)
 			task.delay(0.26, function()
 				if activePanel ~= oldPanel then
 					oldPanel.Visible = false
@@ -2951,12 +2999,12 @@ local function showPanel(panel)
 	end
 	backdrop.Visible = true
 	-- harborheist-pytn: Use AnimationSystem fade for backdrop
-	Anim:fade(backdrop, true, 0.22)
+	Anim:fade(backdrop, true, EASE_OUT)
 	panel.Visible = true
 	if IS_MOBILE then
 		-- harborheist-pytn: Use AnimationSystem slide transition for mobile show
 		panel.Position = UDim2.new(0.5, 0, 1.35, 0)
-		Anim:slide(panel, "up", 0.28)
+		Anim:slide(panel, "up", EASE_POP)
 	else
 		-- harborheist-pytn: Use AnimationSystem scale and fade transitions for desktop show
 		-- harborheist-0ci3: re-apply the layout-mode base size first — the
@@ -2970,8 +3018,8 @@ local function showPanel(panel)
 		local fit = desktopPanelFitScale(panel)
 		scale.Scale = 0.92 * fit
 		panel.BackgroundTransparency = 0.3
-		Anim:scale(panel, fit, 0.28)
-		Anim:fade(panel, true, 0.22)
+		Anim:scale(panel, fit, EASE_POP)
+		Anim:fade(panel, true, EASE_OUT)
 	end
 end
 
@@ -3430,9 +3478,9 @@ local function renderInventory()
 				if not btn.Active then
 					return
 				end
-				btn.Active = false
+				setButtonEnabled(btn, false)
 				local ok, result = pcall(fn)
-				btn.Active = true
+				setButtonEnabled(btn, true)
 				if not ok or result == nil then
 					showNotification(friendlyFailureReason(verb, "bad_id"), Theme.color.status.bad)
 				end
@@ -5993,6 +6041,8 @@ local function ensureFishPulse(mode, baseTrans, amp)
 		return
 	end
 	local dur = mode == "fast" and 0.32 or 0.85
+	-- kqbq.17.1 rejection log: context-driven REPEATING Sine loop (cooldown/ready).
+	-- kqbq.17.1 rejection log: context-driven REPEATING Sine loop (cooldown/ready).
 	fishPulseTween = TweenService:Create(
 		s,
 		TweenInfo.new(dur, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
@@ -6401,9 +6451,11 @@ local function render()
 	if (state.lockedUntil or 0) > 0 then
 		lockButton.Text = string.format("LOCKED %ds", math.ceil(state.lockedUntil))
 		lockClass, lockBg, lockFg = "locked", Theme.color.status.bad, Theme.color.text.ink
+		lockButton.Active = true
 	elseif (state.lockCooldownUntil or 0) > 0 then
 		lockButton.Text = string.format("RECHARGE %ds", math.ceil(state.lockCooldownUntil))
-		lockClass, lockBg, lockFg = "recharge", Theme.color.surface.elevated, Theme.color.text.secondary
+		lockClass, lockBg, lockFg = "recharge", Theme.color.surface.elevated, Theme.color.text.tertiary
+		lockButton.Active = false
 	else
 		local lockDur = GameConfig.Aquarium.lockDuration
 		if state.lockLevel and state.lockLevel > 0 and GameConfig.Upgrades.Lock[state.lockLevel] then
@@ -6416,6 +6468,7 @@ local function render()
 			lockButton.Text = string.format("LOCK %ds — slower recharge", lockDur)
 		end
 		lockClass, lockBg, lockFg = "ready", Theme.color.status.warn, Theme.color.text.ink
+		lockButton.Active = true
 	end
 	if lockClass ~= lastLockClass then
 		lastLockClass = lockClass
@@ -6451,12 +6504,14 @@ local function render()
 	local storeHealthy = state.dataStoreHealthy ~= false
 	if not storeHealthy then
 		claimButton.Text = "SAVING UNAVAILABLE"
-		claimButton.BackgroundColor3 = Theme.color.status.disabled
+		setButtonEnabled(claimButton, false, Theme.color.status.disabled)
 	elseif state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
+		setButtonEnabled(claimButton, true)
 		claimButton.BackgroundColor3 = Theme.color.status.claimReady
 	else
 		claimButton.Text = "CLAIM $0"
+		setButtonEnabled(claimButton, true)
 		claimButton.BackgroundColor3 = Theme.color.status.neutral
 	end
 
@@ -6780,6 +6835,7 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	cardScale.Parent = card
 	-- harborheist-2wuo.1: Legendary reveal also uses Spring (was Back) for
 	-- physics-based overshoot — the most dramatic catch gets the bounciest pop.
+	-- kqbq.17.1 rejection log: 0.5s vs 0.28s EASE_POP is intentional RARITY GRADING.
 	-- selene: allow(incorrect_standard_library_use) — Spring is valid (see EASE_POP note).
 	TweenService:Create(cardScale, isLegendary and TweenInfo.new(0.5, Enum.EasingStyle.Spring, Enum.EasingDirection.Out) or EASE_POP, { Scale = 1 }):Play()
 
@@ -6791,6 +6847,8 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	end
 	if isEpicPlus then
 		hapticTick() -- R4 polish #2: the catch deserves a physical tick
+		-- kqbq.17.1 rejection log: breathing effect (REPEATING Sine InOut loop).
+		-- kqbq.17.1 rejection log: breathing effect (REPEATING Sine InOut loop).
 		revealStrokePulse = TweenService:Create(
 			cardStroke,
 			TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
@@ -6810,7 +6868,8 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 		TweenService:Create(flash, EASE_FAST, { BackgroundTransparency = 0.82 }):Play()
 		task.delay(0.14, function()
 			if flash.Parent then
-				TweenService:Create(flash, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { BackgroundTransparency = 1 }):Play()
+				-- kqbq.17.2: rarity flash tail uses Theme.motion.flashTail (0.45s Quad In).
+				TweenService:Create(flash, TweenInfo.new(Theme.motion.flashTail.duration, Theme.motion.flashTail.style, Theme.motion.flashTail.direction), { BackgroundTransparency = 1 }):Play()
 			end
 		end)
 		task.delay(0.65, function()
@@ -7056,6 +7115,8 @@ local function shakeFishButton()
 	fishShakeToken += 1
 	local token = fishShakeToken
 	task.spawn(function()
+		-- kqbq.17.1 rejection log: 0.05s Quad InOut (x4) mechanical rapid shake.
+		-- kqbq.17.1 rejection log: 0.05s Quad InOut (x4) mechanical rapid shake.
 		local step = TweenInfo.new(0.05, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
 		for _, angle in ipairs({ -3, 3, -2, 0 }) do
 			if token ~= fishShakeToken then
@@ -7160,9 +7221,9 @@ raidOptInPanelButton.Activated:Connect(function()
 		return
 	end
 	dismissOnboardingPrompt("raidExplain")
-	raidOptInPanelButton.Active = false
+	setButtonEnabled(raidOptInPanelButton, false)
 	task.delay(1.5, function()
-		raidOptInPanelButton.Active = true
+		setButtonEnabled(raidOptInPanelButton, true)
 	end)
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
@@ -7257,9 +7318,9 @@ raidOptInButton.Activated:Connect(function()
 		return
 	end
 	dismissOnboardingPrompt("raidExplain")
-	raidOptInButton.Active = false
+	setButtonEnabled(raidOptInButton, false)
 	task.delay(1.5, function()
-		raidOptInButton.Active = true
+		setButtonEnabled(raidOptInButton, true)
 	end)
 	Remotes.RequestToggleRaidOptIn:InvokeServer()
 end)
@@ -7757,6 +7818,8 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 
 			castDeadline = os.clock() + duration
 
+			-- kqbq.17.1 rejection log: Linear + variable server-driven (os.clock physics).
+			-- kqbq.17.1 rejection log: Linear + variable server-driven (os.clock physics).
 			markTween = TweenService:Create(
 				marker,
 				TweenInfo.new(duration, Enum.EasingStyle.Linear),

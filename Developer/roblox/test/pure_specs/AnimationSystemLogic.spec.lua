@@ -231,5 +231,24 @@ return function(describe, it, expect)
 		it("Transition:fade conditionally adds TextTransparency", function()
 			expect(animSource:find("if supportsTextTransparency(element) then", 1, true)).to.be.a("number")
 		end)
+
+		-- harborheist-kqbq.17.2: transitions accept Theme.motion TweenInfo presets
+		it("resolveTransitionInfo helper exists (kqbq.17.2)", function()
+			expect(animSource:find("local function resolveTransitionInfo", 1, true)).to.be.a("number")
+		end)
+		it("resolveTransitionInfo checks typeof TweenInfo", function()
+			expect(animSource:find('typeof(duration) == "TweenInfo"', 1, true)).to.be.a("number")
+		end)
+		it("Transition:slide uses resolveTransitionInfo", function()
+			expect(animSource:find("resolveTransitionInfo(duration, self, Enum.EasingStyle.Back", 1, true)).to.be.a("number")
+		end)
+		it("resolveTransitionInfo used by slide/scale/rotate/fadeSlide", function()
+			local count = 0
+			for _ in animSource:gmatch("resolveTransitionInfo") do count = count + 1 end
+			expect(count >= 4).to.equal(true)
+		end)
+		it("Transition:fade accepts TweenInfo via typeof guard", function()
+			expect(animSource:find('if typeof(duration) == "TweenInfo" then', 1, true)).to.be.a("number")
+		end)
 	end)
 end

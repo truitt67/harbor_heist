@@ -645,14 +645,32 @@ local function supportsTextTransparency(element)
   return element:IsA("TextLabel") or element:IsA("TextButton") or element:IsA("TextBox")
 end
 
+-- harborheist-kqbq.17.2: resolve a duration argument that may be either a
+-- bare number (legacy callers) or a pre-built TweenInfo from Theme.motion.
+-- When a TweenInfo is passed it is used verbatim so the centralized easing
+-- tokens flow through; a number falls back to the default easing so every
+-- existing caller keeps working unchanged.
+local function resolveTransitionInfo(duration, ctx, defaultStyle, defaultDirection)
+  if typeof(duration) == "TweenInfo" then
+    return duration
+  end
+  local dur = duration or ctx.defaultDuration or 0.3
+  return TweenInfo.new(dur, defaultStyle, defaultDirection)
+end
+
 function Transition:fade(element, visible, duration)
   if not element then
     return false
   end
 
-  local dur = duration or self.defaultDuration or 0.3
-  local easing = self.defaultEasing or Enum.EasingStyle.Quad
-  local tweenInfo = TweenInfo.new(dur, easing, Enum.EasingDirection.Out)
+  local tweenInfo
+  if typeof(duration) == "TweenInfo" then
+    tweenInfo = duration
+  else
+    local dur = duration or self.defaultDuration or 0.3
+    local easing = self.defaultEasing or Enum.EasingStyle.Quad
+    tweenInfo = TweenInfo.new(dur, easing, Enum.EasingDirection.Out)
+  end
 
   local target = visible and 0 or 1
   local props = { BackgroundTransparency = target }
@@ -684,8 +702,7 @@ function Transition:slide(element, direction, duration)
     return false
   end
 
-  local dur = duration or self.defaultDuration or 0.3
-  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+  local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
   TweenService:Create(element, tweenInfo, { Position = offset }):Play()
 
@@ -704,8 +721,7 @@ function Transition:scale(element, scaleValue, duration)
     uiScale.Parent = element
   end
 
-  local dur = duration or self.defaultDuration or 0.3
-  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+  local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
   TweenService:Create(uiScale, tweenInfo, { Scale = scaleValue }):Play()
 
@@ -718,8 +734,7 @@ function Transition:rotate(element, degrees, duration)
   end
 
   -- Roblox GuiObjects have a Rotation property directly (no UIRotation class)
-  local dur = duration or self.defaultDuration or 0.3
-  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+  local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
   TweenService:Create(element, tweenInfo, { Rotation = degrees }):Play()
 
@@ -745,8 +760,7 @@ function Transition:fadeSlide(element, visible, direction, duration)
     offset = UDim2.new(0, 0, 1, 0)  -- default: slide down
   end
 
-  local dur = duration or self.defaultDuration or 0.3
-  local tweenInfo = TweenInfo.new(dur, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+  local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
   local target = visible and 0 or 1
   local props = {
