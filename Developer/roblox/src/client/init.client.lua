@@ -2262,9 +2262,7 @@ drainToastQueue = function()
 	end
 end
 
--- Forward declarations: showNotification calls addToHistory (defined near
--- the bottom of this file); without these the call sites read nil globals.
-local addToHistory
+-- harborheist-keza: removed forward declaration of addToHistory (function removed — dead code).
 
 local function showNotification(message, color, category, actions)
 	category = category or "info"
@@ -2280,8 +2278,6 @@ local function showNotification(message, color, category, actions)
 	if stinger then
 		playSound(stinger.id, stinger.volume, stinger.speed)
 	end
-	-- Add to history for toastHistory feature
-	addToHistory(message, color, category, actions)
 	if activeToastCount < MAX_VISIBLE_TOASTS then
 		showToastDirect(message, color, category, actions)
 	else
@@ -7346,52 +7342,12 @@ local function withLoading(button, callback)
 	end)
 end
 
--- ============================================================
--- Toast History Storage (harborheist-6388.4): session-only storage
--- for past notifications with timestamps, categories, and actions.
--- Max 50 entries; clears on session end or when full.
--- ============================================================
-local toastHistory = {}
-local MAX_HISTORY = 50
-
-addToHistory = function(message, color, category, actions)
-	-- Create history entry with timestamp and optional actions
-	table.insert(toastHistory, 1, {
-		message = message,
-		color = color,
-		category = category or "info",
-		timestamp = os.time(),
-		actions = actions or nil,
-	})
-
-	-- Trim to max capacity (keep newest entries)
-	if #toastHistory > MAX_HISTORY then
-		table.remove(toastHistory, #toastHistory)
-	end
-	
-	return true
-end
-
-local function getHistory()
-	-- Returns copy of history for safe iteration
-	local result = {}
-	for i, entry in ipairs(toastHistory) do
-		result[i] = {
-			message = entry.message,
-			category = entry.category,
-			timestamp = os.time() - entry.timestamp, -- age in seconds
-			hasActions = entry.actions ~= nil,
-		}
-	end
-	return result
-end
-
-local function clearHistory()
-	toastHistory = {}
-end
-
--- Expose to global scope for other modules if needed
-setmetatable(toastHistory, {__mode = "k"})
+-- harborheist-keza: removed dead toast history code (addToHistory,
+-- getHistory, clearHistory, toastHistory table, setmetatable). The write
+-- path (addToHistory) was called from showNotification but getHistory and
+-- clearHistory had zero call sites — the feature was half-shipped
+-- (harborheist-6388.4 storage half; UI consumer never built). Bounded at
+-- 50 entries so no leak, but dead code adds confusion and maintenance cost.
 
 
 -- harborheist-3xlw: restore the TASK 23.1 (hvfh.3.1) overlay input router.
