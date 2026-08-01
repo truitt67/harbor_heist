@@ -2295,8 +2295,19 @@ end
 
 -- harborheist-keza: removed forward declaration of addToHistory (function removed — dead code).
 
+-- [harborheist-a2ug.15] forward declaration — the wandering-player
+-- re-guidance handler counts consecutive out-of-zone cast refusals (the
+-- server's not_in_zone toast arrives here, category "zone" per a2ug.14).
+-- The handler itself is assigned after updateZoneCue/showOnboardingPrompt
+-- are defined (~:6720); Remotes.Notify can't fire before that (the connect
+-- is near the bottom of the file), so the nil window is unreachable.
+local zoneRefusalHandler = nil
+
 local function showNotification(message, color, category, actions)
 	category = category or "info"
+	if category == "zone" and zoneRefusalHandler then
+		zoneRefusalHandler()
+	end
 	-- harborheist-6388.1: resolve toast variant from category for the
 	-- color default (caller-passed color still takes precedence).
 	local variantName = CATEGORY_TO_VARIANT[category]
@@ -6717,6 +6728,46 @@ local function updateZoneCue(dockIndex, hasCaught)
 	end)
 end
 
+-- ============================================================
+-- [harborheist-a2ug.15] Wandering-player re-guidance. The zone cue
+-- self-destructs at first catch by design, but a player CAN wander off
+-- mid-session — repeated out-of-zone casts then earn only a text toast
+-- with no spatial re-guidance. Count consecutive zone-refusal toasts;
+-- on the SECOND consecutive one, re-arm the cue at the player's dock and
+-- fire one dismissible returnToZone prompt. The counter resets and the
+-- re-armed cue is destroyed (via updateZoneCue -> destroyZoneCue) on the
+-- next successful cast (CastState(true) handler).
+-- ============================================================
+local zoneRefusalCount = 0
+local zoneCueRearmed = false -- true while a re-armed cue is up post-first-catch
+
+zoneRefusalHandler = function()
+	-- Only post-first-catch wanderers need re-guidance: before the first
+	-- catch the cue never self-destructed (it is already up), and arming
+	-- this path would let render() preserve the cue past the first-catch
+	-- flip (render consults zoneCueRearmed below).
+	if not state or (state.onboarding or {}).HasCaughtFirstFish ~= true then
+		return
+	end
+	zoneRefusalCount = zoneRefusalCount + 1
+	-- Second consecutive refusal is the threshold — one-off stray casts
+	-- (mid-raid detours, chasing a boat) must not resurrect the cue.
+	if zoneRefusalCount < 2 or zoneCueRearmed then
+		return
+	end
+	-- Plaza spawner (no dock — updateZoneCue would no-op, but the prompt
+	-- would still fire); minigame overlay owns the slot (cosmetic overlap).
+	if not state.dockIndex then
+		return
+	end
+	if isOverlayActive("cast") or isOverlayActive("bite") or isOverlayActive("raid") then
+		return
+	end
+	zoneCueRearmed = true
+	updateZoneCue(state.dockIndex, false)
+	showOnboardingPrompt("returnToZone", "Follow the arrow back to your glowing zone!", Theme.color.status.warn)
+end
+
 -- R4 polish #15: last-applied lock-button state class — render() tweens
 -- colors only on class change (never on the 1Hz countdown text updates).
 local lastLockClass = nil
@@ -6787,7 +6838,9 @@ local function render()
 	-- lives only while the player hasn't caught their first fish and
 	-- has an assigned dock. It self-destructs the instant the flag
 	-- flips — progress-gated, never dismiss-gated.
-	updateZoneCue(state.dockIndex, (state.onboarding or {}).HasCaughtFirstFish == true)
+	-- harborheist-a2ug.15: a re-armed cue survives state pushes until the
+	-- next successful cast clears zoneCueRearmed (CastState handler).
+	updateZoneCue(state.dockIndex, (state.onboarding or {}).HasCaughtFirstFish == true and not zoneCueRearmed)
 
 	-- harborheist-tzgk + harborheist-03mo: render() no longer writes the
 	-- boat LABEL. layoutDesktopBar / the mobile stack builder own button
@@ -8177,6 +8230,14 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		-- assignment that silently bypassed the waiting-dots loop and the
 		-- firstWait prompt hook — both only fire inside setFishState).
 		setFishState("waiting")
+		-- harborheist-a2ug.15: a successful RequestCast means the player is
+		-- back in the zone — reset the refusal streak and retire any
+		-- re-armed cue (destroy flows through updateZoneCue -> destroyZoneCue).
+		zoneRefusalCount = 0
+		if zoneCueRearmed then
+			zoneCueRearmed = false
+			updateZoneCue(state and state.dockIndex, true)
+		end
 		-- N16: read the server-authoritative hit-zone bounds (3rd arg).
 		-- hitZoneStart/hitZoneEnd = outer "good" zone; goodStart/goodEnd =
 		-- inner "perfect" zone. Falls back to hardcoded defaults if absent
