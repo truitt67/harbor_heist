@@ -89,7 +89,7 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn")
+			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn", "zone")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access

@@ -1870,7 +1870,7 @@ local TOAST_CATEGORIES = {
 	["raid-victim"] = "RAID!", ["raid-attacker"] = "RAID",
 	["raid-info"] = "RAID", lock = "LOCK", economy = "ECON",
 	discovery = "NEW!", cast = "CAST", missed = "MISS",
-	datastore = "SAVE", info = "INFO",
+	datastore = "SAVE", info = "INFO", zone = "ZONE",
 }
 local SEVERE_CATEGORIES = { ["raid-victim"] = true, datastore = true }
 
@@ -1892,7 +1892,7 @@ local CATEGORY_TO_VARIANT = {
 	["raid-victim"] = "critical", ["raid-attacker"] = "warning",
 	["raid-info"] = "info", lock = "info", economy = "info",
 	discovery = "info", cast = "info", missed = "warning",
-	datastore = "critical", info = "info",
+	datastore = "critical", info = "info", zone = "warning",
 }
 
 -- Host geometry is consumed by the onboarding prompt clamp (TASK 28.2,
@@ -5082,7 +5082,7 @@ if IS_MOBILE then
 			TextSize = Theme.type.sizes.md,
 			TextColor3 = action.color,
 		})
-		makeLabel(btn, {
+		local footnoteLabel = makeLabel(btn, {
 			Size = UDim2.new(1, 0, 0, 16),
 			Position = UDim2.new(0, 0, 1, -20),
 			Text = action.key,
@@ -5092,9 +5092,13 @@ if IS_MOBILE then
 		})
 		actionButtons[action.id] = btn
 		actionButtons[action.id .. "_label"] = heroLabel
+		-- harborheist-a2ug.4: capture the key footnote so the bite-wait
+		-- affordance can animate it ("WAIT", "WAIT.", ...) during fishState
+		-- == "waiting" — the footnote's "F" is only a cross-platform hint
+		-- (m32r), so demoting it while waiting is safe.
+		actionButtons[action.id .. "_footnote"] = footnoteLabel
 		mobileStackButtons[i] = { holder = holder, hero = heroLabel }
 	end
-
 	-- harborheist-hqn1 + harborheist-xrfp: fit the stack to the viewport height.
 	-- The fixed 60px/70px layout needs MOBILE_STACK_BOTTOM + 7*70 = 580px vertically;
 	-- short landscape phones (~375px) pushed the top buttons (QUEST/RAID/
@@ -5562,9 +5566,82 @@ local function renderFishButton()
 	ensureFishPulse(pulseMode, baseTrans, pulseMode == "fast" and 0.4 or 0.3)
 end
 
+-- ============================================================
+-- harborheist-a2ug.4: bite-wait engagement affordance.
+-- The 2-6s server-picked bite delay (FishingService BITE_MIN/MAX_DELAY
+-- 2.0/6.0) used to read as a dead button: static "WAITING" on desktop,
+-- a bare "..." on mobile. While fishState == "waiting", animate the
+-- ellipsis so the button visibly lives: desktop hero "WAITING" cycles
+-- dots; mobile hero stays "..." and the key footnote (its "F" is only
+-- a cross-platform hint, m32r) animates "WAIT", "WAIT.", "WAIT..",
+-- "WAIT...". Deliberately NOT a progress bar / countdown — the client
+-- must not know the server delay (anti-exploit), and an ETA affordance
+-- would mislead.
+local waitingDotsLoop = nil
+
+local function startWaitingDots()
+	if waitingDotsLoop then
+		return
+	end
+	local lbl = actionButtons.fish_label or actionButtons.fish
+	local footnote = actionButtons.fish_footnote
+	waitingDotsLoop = task.spawn(function()
+		local step = 0
+		while fishState == "waiting" do
+			local dots = string.rep(".", step % 4)
+			if IS_MOBILE then
+				-- Hero "..." already reads as waiting; animate the footnote.
+				if footnote then
+					footnote.Text = "WAIT" .. dots
+				end
+			elseif lbl then
+				lbl.Text = "WAITING" .. dots
+			end
+			step += 1
+			task.wait(0.4)
+		end
+	end)
+end
+
+local function stopWaitingDots()
+	if waitingDotsLoop then
+		task.cancel(waitingDotsLoop)
+		waitingDotsLoop = nil
+	end
+	local footnote = actionButtons.fish_footnote
+	if footnote then
+		footnote.Text = "F"
+	end
+	-- Desktop hero text is restored by renderFishButton (idempotent).
+end
+
+-- First-wait expectation setting: a first-timer has no idea how long a
+-- bite takes. Show one contextual prompt on their first-ever cast;
+-- dismissedPrompts is session-scoped, so it never nags twice in a
+-- session, and HasCaughtFirstFish gates it out permanently after.
+local firstWaitArmed = false
+
 local function setFishState(newState)
+	local previous = fishState
 	fishState = newState
 	renderFishButton()
+	if newState == "waiting" then
+		startWaitingDots()
+		if previous ~= "waiting"
+			and not firstWaitArmed
+			and not (state and state.onboarding and state.onboarding.HasCaughtFirstFish)
+		then
+			firstWaitArmed = true
+			showOnboardingPrompt("firstWait",
+				"A fish usually bites within a few seconds — stay ready!",
+				Theme.color.status.warn)
+		end
+	else
+		stopWaitingDots()
+		if previous == "waiting" and firstWaitArmed and currentPromptStage == "firstWait" then
+			dismissOnboardingPrompt("firstWait")
+		end
+	end
 end
 
 -- ============================================================
@@ -5909,11 +5986,14 @@ local function render()
 	local ob = state.onboarding or {}
 	if not ob.HasCaughtFirstFish then
 		-- Stage 1: player hasn't caught anything yet.
+		-- harborheist-a2ug.4: a2ug.4's firstWait prompt may be the visible
+		-- stage right now; the rescue below must not clobber it with the
+		-- firstCast text on the next 1Hz push.
 		if dismissedPrompts.firstCast then
 			-- Already dismissed — hide prompt
 		elseif casting then
 			dismissOnboardingPrompt("firstCast")
-		else
+		elseif currentPromptStage ~= "firstWait" then
 			showOnboardingPrompt("firstCast",
 				IS_MOBILE and "Tap FISH while standing in the glowing zone!" or "Press F to cast into the glowing zone at your dock!",
 				Theme.color.status.good)
