@@ -3199,11 +3199,19 @@ local function showPanel(panel)
 		-- harborheist-kqbq.21.1: one-time first-open bounce hint — 6px
 		-- up-down, 2 cycles, Sine InOut, fired after the entrance settles.
 		-- Teaches drag-to-dismiss without a word. Once per session.
+		-- Resting position is (0.5,0,0.5,0) — AnimationSystem:slide "up"
+		-- target — so the bounce nudges to 0.5,-6 (fresh-eyes fix: the
+		-- original 1,-6 target plunged the sheet half a screen down).
 		if not panelBounceHintShown then
 			panelBounceHintShown = true
 			task.delay(Theme.motion.pop.duration, function()
+				-- Don't bounce a sheet that was closed or switched away
+				-- during the entrance delay.
+				if activePanel ~= panel or not panel.Visible then
+					return
+				end
 				local bounce = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 1, true)
-				TweenService:Create(panel, bounce, { Position = UDim2.new(0.5, 0, 1, -6) }):Play()
+				TweenService:Create(panel, bounce, { Position = UDim2.new(0.5, 0, 0.5, -6) }):Play()
 			end)
 		end
 	else

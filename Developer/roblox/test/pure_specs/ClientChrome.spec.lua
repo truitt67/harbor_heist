@@ -869,9 +869,14 @@ describe("EPIC 44 client chrome source contracts", function()
 		it("bounce fires after the entrance settles (pop.duration delay)", function()
 			expect(clientSource:find("task.delay(Theme.motion.pop.duration, function()", 1, true)).to.be.a("number")
 		end)
-		it("bounce is 6px up-down, 2 cycles (1 repeat reversing), Sine InOut", function()
+		it("bounce is 6px up-down from the 0.5 rest position, 2 cycles (1 repeat reversing), Sine InOut", function()
 			expect(clientSource:find("local bounce = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, 1, true)", 1, true)).to.be.a("number")
-			expect(clientSource:find('{ Position = UDim2.new(0.5, 0, 1, -6) }', 1, true)).to.be.a("number")
+			-- Resting position is (0.5,0,0.5,0) (AnimationSystem:slide "up"),
+			-- so the nudge target must be 0.5,-6 — not 1,-6 (fresh-eyes fix).
+			expect(clientSource:find('{ Position = UDim2.new(0.5, 0, 0.5, -6) }', 1, true)).to.be.a("number")
+		end)
+		it("bounce is skipped if the sheet closed or switched away during the entrance", function()
+			expect(clientSource:find("if activePanel ~= panel or not panel.Visible then", 1, true)).to.be.a("number")
 		end)
 	end)
 
