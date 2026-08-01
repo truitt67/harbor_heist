@@ -11564,7 +11564,9 @@ local function formatCash(n)
 	local abs = math.abs(n)
 	if abs > 999999 then
 		local scaled, suffix
-		if abs >= 1e9 then
+		-- Promote to B once the M form would round up to "1000M"
+		-- (covers the MAX_COINS = 999,999,999 cap rendering as "1B").
+		if abs >= 999950000 then
 			scaled, suffix = n / 1e9, "B"
 		else
 			scaled, suffix = n / 1e6, "M"
