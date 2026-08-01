@@ -9890,14 +9890,20 @@ local EASE_OUT = TweenInfo.new(0.22, Enum.EasingStyle.Quint, Enum.EasingDirectio
 -- harborheist-2wuo.1: Back -> Spring for the "pop" easing (scale-in
 -- reveals, button bounce-back). Spring gives physics-based overshoot that
 -- feels more natural than Back's synthetic curve. NOT applied to EASE_FAST
--- (Quad) or EASE_IN (Quad) — those control press compression, hover glows,
--- fades, and exit acceleration where Spring overshoot would cause flicker
--- or feel wrong.
+-- (Quad) or EASE_IN (Quad) — those control fades and exit acceleration
+-- where Spring overshoot would cause flicker or feel wrong.
 -- selene: allow(incorrect_standard_library_use) — Spring is a valid
 -- Enum.EasingStyle member (confirmed via Roblox creator docs); selene
 -- 0.31's roblox std is stale.
 local EASE_POP = TweenInfo.new(0.28, Enum.EasingStyle.Spring, Enum.EasingDirection.Out)
 local EASE_FAST = TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- harborheist-kqbq.2: dedicated press-down easing — front-loaded (Quad Out)
+-- so motion is visible on frame 1; 0.10s is a tactile snap, not a gentle dip.
+-- Depth 0.94 (set at the press site) makes the compression read as a click.
+local EASE_PRESS = TweenInfo.new(0.10, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+-- harborheist-kqbq.3: desktop hover is an invitation, not a press — runs at
+-- 0.2s (deliberate) so it is perceptually distinct from the 0.10s press snap.
+local EASE_HOVER = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 -- R4 polish #7/#8: exits ACCELERATE, entries decelerate. Both panel close
 -- paths (mobile slide, desktop shrink) used decelerating easings — the
 -- slowest, most visible part of the exit was the tail.
@@ -10608,7 +10614,8 @@ local function makeButton(parent, props)
 		if hasAnimPress then return end  -- AnimationSystem handles the visual scale
 		if pressTween then return end
 		
-		pressTween = EASE_FAST
+		-- harborheist-kqbq.2: dedicated press easing (Quad Out, 0.10s)
+		pressTween = EASE_PRESS
 		
 		-- harborheist-g9z2: Track active tweens for cancellation during rapid interactions
 		local activeTweens = {}
@@ -10653,7 +10660,8 @@ local function makeButton(parent, props)
 			cancelTweens()
 			
 			-- Press state - scale down slightly for tactile feedback
-			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.96 })
+			-- harborheist-kqbq.2: depth 0.94 for a tactile click read
+			activeTweens.scale = TweenService:Create(button, pressTween, { Scale = 0.94 })
 			activeTweens.scale:Play()
 		end)
 		
@@ -10681,17 +10689,17 @@ local function makeButton(parent, props)
 				cancelTweens()
 				
 				-- harborheist-g9z2: Scale up slightly on hover
-				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1.02 })
+				activeTweens.scale = TweenService:Create(button, EASE_HOVER, { Scale = 1.02 })
 				activeTweens.scale:Play()
 				
 				-- harborheist-g9z2: Brighten background color (lerp toward white by 10%)
 				local hoverColor = originalColor:Lerp(Color3.new(1, 1, 1), 0.1)
-				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = hoverColor })
+				activeTweens.color = TweenService:Create(button, EASE_HOVER, { BackgroundColor3 = hoverColor })
 				activeTweens.color:Play()
 				
 				-- harborheist-g9z2: Show hover glow overlay
 				if hoverGlow then
-					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 0.9 })
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_HOVER, { BackgroundTransparency = 0.9 })
 					activeTweens.glow:Play()
 				end
 				
@@ -10700,7 +10708,7 @@ local function makeButton(parent, props)
 				local shadowConfig = Theme.shadows.low
 				for i, shadow in ipairs(hoverShadows) do
 					local targetAlpha = 1 - (shadowConfig.alpha * (1 - (i - 1) / shadowConfig.layers))
-					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = targetAlpha })
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_HOVER, { BackgroundTransparency = targetAlpha })
 					activeTweens["shadow_" .. i]:Play()
 				end
 				
@@ -10712,23 +10720,23 @@ local function makeButton(parent, props)
 				cancelTweens()
 				
 				-- harborheist-g9z2: Scale back to normal
-				activeTweens.scale = TweenService:Create(button, EASE_FAST, { Scale = 1 })
+				activeTweens.scale = TweenService:Create(button, EASE_HOVER, { Scale = 1 })
 				activeTweens.scale:Play()
 				
 				-- harborheist-g9z2: Restore original color
-				activeTweens.color = TweenService:Create(button, EASE_FAST, { BackgroundColor3 = originalColor })
+				activeTweens.color = TweenService:Create(button, EASE_HOVER, { BackgroundColor3 = originalColor })
 				activeTweens.color:Play()
 				
 				-- harborheist-g9z2: Hide hover glow
 				if hoverGlow then
-					activeTweens.glow = TweenService:Create(hoverGlow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens.glow = TweenService:Create(hoverGlow, EASE_HOVER, { BackgroundTransparency = 1 })
 					activeTweens.glow:Play()
 				end
 				
 				-- harborheist-g9z2: Fade out hover shadows
 				-- harborheist-8qv8: track these in activeTweens so cancelTweens() covers them
 				for i, shadow in ipairs(hoverShadows) do
-					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 })
+					activeTweens["shadow_" .. i] = TweenService:Create(shadow, EASE_HOVER, { BackgroundTransparency = 1 })
 					activeTweens["shadow_" .. i]:Play()
 				end
 				
