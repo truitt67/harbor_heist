@@ -10,6 +10,7 @@ local NOTIFY_COLORS = {
 	success = UIPalette.color("money"),
 	info = UIPalette.color("accentSoft"),
 	discovery = UIPalette.color("discovery"),
+	reward = UIPalette.color("discovery"),
 }
 
 local Remotes = {}
@@ -44,7 +45,7 @@ folder.Parent = ReplicatedStorage
 -- so unmigrated call sites silently drop the 3rd arg until the client-visual
 -- half of 24.3 consumes it.
 -- color can be a Color3 (legacy) or a semantic string key
--- ("warn", "error", "success", "info", "discovery") resolved via
+-- ("warn", "error", "success", "info", "discovery", "reward") resolved via
 -- NOTIFY_COLORS built from UIPalette. Unknown keys fall back to
 -- accentSoft + a one-time warn().
 function Remotes.notify(player, message, color, category)

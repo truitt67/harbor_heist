@@ -76,8 +76,8 @@ function ShopService.init(deps)
 			remotes.notify(
 				player,
 				string.format("Not enough cash! %s costs $%d.", item.name, item.cost),
-			"error",
-			"economy"
+				"error",
+				"economy"
 			)
 			return { ok = false, reason = "poor" }
 		end
@@ -127,8 +127,8 @@ function ShopService.init(deps)
 		remotes.notify(
 			player,
 			string.format("Purchased %s!", item.name),
-		"success",
-		"economy"
+			"success",
+			"economy"
 		)
 		-- TASK 14.15 (wqw.15): aquarium/dock upgrades change the income
 		-- multipliers, so invalidate the cached incomePerSec for those kinds.

@@ -36,8 +36,8 @@ function FishInventoryService.init(deps)
 	end
 
 	-- Helper: notify client
-	local function notify(player, msg, color)
-		remotes.notify(player, msg, color)
+	local function notify(player, msg, color, category)
+		remotes.notify(player, msg, color, category)
 	end
 
 	-- ════════════════════════════════════════════════════════════════════════
