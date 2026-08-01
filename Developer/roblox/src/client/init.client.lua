@@ -7203,7 +7203,7 @@ end
 -- ============================================================
 local revealCard = nil
 local revealDismissToken = 0
--- R4 polish #9: the Epic/Legendary stroke-breath tween, cancelled on
+-- R4 polish #9: the Rare+ stroke-breath tween, cancelled on
 -- dismiss/replacement so it never writes to a destroyed UIStroke.
 local revealStrokePulse = nil
 
@@ -7252,11 +7252,15 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	Gradients.apply(card, "surface.default")
 
 	-- R4 polish #9: rarity-graded celebration — the peak moment of the game
-	-- should feel different per tier. Rare: the standard pop. Epic: adds a
-	-- breathing rarity-stroke pulse. Legendary: slower/bigger entrance plus
-	-- a full-screen rarity flash behind the card.
+	-- should feel different per tier. Rare: breathing stroke pulse (subtle).
+	-- Epic: faster/brighter breathing stroke pulse. Legendary: slower/bigger
+	-- entrance plus a full-screen rarity flash behind the card.
+	-- harborheist-kqbq.22.4: Rare (12% weight) is the most-seen reveal but
+	-- was previously flat (no pulse). Now gets a dimmer/slower pulse so the
+	-- ladder reads: Rare < Epic < Legendary (flash).
 	local isEpicPlus = rarity == "Epic" or rarity == "Legendary"
 	local isLegendary = rarity == "Legendary"
+	local isRarePlus = isEpicPlus or rarity == "Rare"
 
 	-- Scale-in (EASE_POP per bead spec; Legendary gets the grander 0.35 start)
 	local cardScale = Instance.new("UIScale")
@@ -7276,12 +7280,17 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	end
 	if isEpicPlus then
 		hapticTick() -- R4 polish #2: the catch deserves a physical tick
+	end
+	if isRarePlus then
 		-- kqbq.17.1 rejection log: breathing effect (REPEATING Sine InOut loop).
-		-- kqbq.17.1 rejection log: breathing effect (REPEATING Sine InOut loop).
+		-- kqbq.22.4: Rare gets a dimmer/slower pulse (0.9s, to 0.25) while
+		-- Epic/Legendary breathe faster/brighter (0.55s, to 0.05).
+		local pulsePeriod = isEpicPlus and 0.55 or 0.90
+		local pulseTarget = isEpicPlus and 0.05 or 0.25
 		revealStrokePulse = TweenService:Create(
 			cardStroke,
-			TweenInfo.new(0.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
-			{ Transparency = 0.05 }
+			TweenInfo.new(pulsePeriod, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true),
+			{ Transparency = pulseTarget }
 		)
 		revealStrokePulse:Play()
 	end
