@@ -1029,4 +1029,26 @@ return function(describe, it, expect)
 			expect(gameConfigSource:find("unlockTotalCatches = 10", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- ──────────────────────────────────────────────────────────────────
+	-- Source contract: raid minigame ping-pong sweep (a2ug.11)
+	-- ──────────────────────────────────────────────────────────────────
+	local clientSource = fs.readFile("src/client/init.client.lua")
+
+	describe("Source contract: raid minigame motion (a2ug.11)", function()
+		it("uses raidMinigameActive flag (not the old raidMinigameTween handle)", function()
+			expect(clientSource:find("raidMinigameActive", 1, true)).to.be.a("number")
+			expect(clientSource:find("raidMinigameTween", 1, true)).to.equal(nil)
+		end)
+
+		it("stopRaidMinigame sets the loop flag false (no tween:Cancel)", function()
+			expect(clientSource:find("raidMinigameActive = false", 1, true)).to.be.a("number")
+			expect(clientSource:find("raidMinigameTween:Cancel", 1, true)).to.equal(nil)
+		end)
+
+		it("uses os.clock-based triangular wave for the ping-pong sweep", function()
+			expect(clientSource:find("Triangular wave: 0 -> 1 -> 0", 1, true)).to.be.a("number")
+			expect(clientSource:find("sweepDuration = 1.7", 1, true)).to.be.a("number")
+		end)
+	end)
 end

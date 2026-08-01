@@ -4824,17 +4824,17 @@ local raidMinigameFrame, raidTitle, raidBarTrack, raidGoodZone, raidPerfectZone,
 		IS_MOBILE and "TAP IN THE GREEN ZONE!" or "CLICK IN THE GREEN ZONE!",
 		"PERFECT = HIGH CHANCE  •  GOOD = FAIR  •  MISS = LOW")
 
-local raidMinigameTween = nil
+-- [harborheist-a2ug.11] Loop flag replaces the TweenService handle; the
+-- sweep is now an os.clock-based ping-pong loop (matching runMinigame)
+-- rather than a one-shot linear tween.
+local raidMinigameActive = false
 local raidMinigameDuration = 0
 local raidMinigameGeneration = 0
 
 local function stopRaidMinigame()
 	raidMinigameFrame.Visible = false
 	releaseOverlay("raid")
-	if raidMinigameTween then
-		raidMinigameTween:Cancel()
-		raidMinigameTween = nil
-	end
+	raidMinigameActive = false
 end
 
 function startRaidMinigame(challenge)
@@ -4870,12 +4870,32 @@ function startRaidMinigame(challenge)
 	raidMinigameFrame.Visible = true
 	raidMarker.Position = UDim2.new(0, 0, 0, -3)
 	raidMinigameDuration = challenge.durationSeconds or 8
-	raidMinigameTween = TweenService:Create(
-		raidMarker,
-		TweenInfo.new(raidMinigameDuration, Enum.EasingStyle.Linear),
-		{ Position = UDim2.new(1, -5, 0, -3) }
-	)
-	raidMinigameTween:Play()
+	-- [harborheist-a2ug.11] Ping-pong sweep matching the bite minigame
+	-- (runMinigame). Period ~1.7s so the 8s window contains ~4-5 full
+	-- sweeps; os.clock-based position is drift-proof (no accumulating
+	-- local dt). Server contract unchanged: markerPos [0,1] is the same
+	-- Scale value the tween produced.
+	raidMinigameActive = true
+	local startTime = os.clock()
+	local sweepDuration = 1.7
+	task.spawn(function()
+		while raidMinigameActive do
+			local elapsed = os.clock() - startTime
+			if elapsed > raidMinigameDuration then
+				break
+			end
+			-- Triangular wave: 0 -> 1 -> 0 (identical pattern to runMinigame)
+			local t = (elapsed % sweepDuration) / sweepDuration
+			local pos
+			if t < 0.5 then
+				pos = t * 2
+			else
+				pos = 2 - t * 2
+			end
+			raidMarker.Position = UDim2.new(pos, pos * -5, 0, -3)
+			task.wait()
+		end
+	end)
 
 	-- Expire the overlay if the player never clicks (matching the server deadline).
 	-- harborheist-d6et: generation-guard the expiry. The closure reads
