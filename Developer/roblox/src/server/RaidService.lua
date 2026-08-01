@@ -593,7 +593,7 @@ function RaidService.requestRaidAttempt(player: Player, targetUserId: any): any
 		remotes.notify(
 			targetPlayer,
 			string.format("ALARM! %s is trying to steal from your aquarium!", player.DisplayName),
-			Color3.fromRGB(255, 150, 100),
+			"warn",
 			"raid-victim"
 		)
 	end
@@ -718,7 +718,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		remotes.notify(
 			attacker,
 			string.format("ALARM tripped! You're stunned for %ds.", alarmConfig.stunDuration),
-			Color3.fromRGB(255, 100, 100),
+			"error",
 			"raid-attacker"
 		)
 		victimNoteSuffix = string.format(" Your alarm stunned them for %ds.", alarmConfig.stunDuration)
@@ -743,7 +743,7 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 			GameConfig.Raid.defenderProtectionSeconds,
 			victimNoteSuffix or ""
 		),
-		Color3.fromRGB(255, 100, 100),
+		"error",
 		"raid-victim"
 	)
 	if fenced then
