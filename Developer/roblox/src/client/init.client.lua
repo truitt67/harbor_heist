@@ -5657,9 +5657,21 @@ function startRaidMinigame(challenge)
 		if raidMinigameFrame.Visible then
 			stopRaidMinigame()
 			raidInProgress = false
-			showNotification("Too slow! The raid window of opportunity passed...", Theme.color.status.warn)
+			showNotification("The raid window closed. The next one opens soon.", Theme.color.status.warn)
 		end
 	end)
+
+	-- etj2.3.2 (docs/MINIGAME_FEEDBACK_MODEL.md §4.2): target-state failure
+	-- copy — names the state change + one next action, leaks no defender
+	-- internals. Chance misses are handled separately below (they name the
+	-- server-derived tier so a perfect attempt never looks like a bug).
+	local RAID_FAIL_COPY = {
+		target_unavailable = "Your target left the harbor. Pick another aquarium.",
+		target_no_longer_eligible = "That aquarium locked down mid-heist. Pick another target.",
+		loss_capped = "That aquarium has lost enough this window — it's protected now. Pick another target.",
+		no_stealable_fish = "That aquarium has no stealable fish left. Pick another target.",
+		fish_gone = "The target changed mid-heist. Pick another aquarium.",
+	}
 
 	-- TASK 23.1 (hvfh.3.1): single registration with the overlay router,
 	-- replacing the per-raid UserInputService.InputBegan connection (which
@@ -5684,7 +5696,24 @@ function startRaidMinigame(challenge)
 					if result.success then
 						showNotification(string.format("Heist %s! Stole a %s %s worth $%s.", result.tier or "", result.rarity or "", result.speciesId or "", formatCash(result.value or 0)), Theme.color.status.good)
 					elseif result.ok and not result.success then
-						showNotification("Heist failed — the fish slipped away.", Theme.color.status.warn)
+						-- etj2.3.2: two-layer coaching. The server is the sole
+						-- tier/outcome authority — render only its result table.
+						-- Chance misses confirm the tier first ("timing was
+						-- right") then explain chance, so a perfect grab that
+						-- fails never looks like a bug or a broken promise.
+						local message
+						if result.reason == "missed" then
+							if result.tier == "perfect" then
+								message = "Perfect grab — the fish slipped free. Even perfect timing isn't a sure thing."
+							elseif result.tier == "good" then
+								message = "Good grab — the fish slipped free. Cleaner timing raises your odds."
+							else
+								message = "Weak grab — the fish slipped free. Aim for the center band."
+							end
+						else
+							message = RAID_FAIL_COPY[result.reason] or "The heist failed. Try the next raid window."
+						end
+						showNotification(message, Theme.color.status.warn)
 					end
 				end
 				refreshRaidPanel()

@@ -100,9 +100,11 @@ M2+M3 compose as "<tier phrase> — <outcome phrase>. <recovery>"
 | perfect + chance miss | "Perfect grab — the fish slipped free. Even perfect timing isn't a sure thing." | Skill confirmed, chance honest, no odds quoted |
 | good + chance miss | "Good grab — the fish slipped free. Cleaner timing raises your odds." | Teaches the tier ladder |
 | ok + chance miss | "Weak grab — the fish slipped free. Aim for the center band." | Teaches the tier ladder |
-| any + `target_unavailable` | "That raider's target left the harbor. Pick another aquarium." | Truthful cause + action |
+| any + `target_unavailable` | "Your target left the harbor. Pick another aquarium." | Truthful cause + action |
 | any + `target_no_longer_eligible` | "That aquarium locked down mid-heist. Pick another target." | Truthful cause + action |
 | any + `loss_capped` | "That aquarium has lost enough this window — it's protected now. Pick another target." | Product-rule protection, no defender detail |
+| any + `no_stealable_fish` | "That aquarium has no stealable fish left. Pick another target." | From resolveRaidSuccess — target-state class |
+| any + `fish_gone` | "The target changed mid-heist. Pick another aquarium." | From resolveRaidSuccess — target-state class |
 | any + `too_slow` | "The raid window closed. The next one opens soon." | Calm recovery (§15.7) |
 | any + `too_fast` (anti-forgery) | "That attempt didn't count — the marker hadn't reached that position." | §15.8 firm, describes enforcement not character |
 | `bad_input` / silent rejects | No player message (unchanged) | Unreachable by legitimate clients |

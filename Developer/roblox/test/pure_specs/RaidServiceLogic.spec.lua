@@ -1068,4 +1068,57 @@ return function(describe, it, expect)
 			expect(clientSource:find("sweepDuration = 1.7", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	describe("Source contract: raid result coaching (etj2.3.2)", function()
+		it("approved timeout + anti-forgery copy per MINIGAME_FEEDBACK_MODEL §4.2", function()
+			expect(raidSource:find("The raid window closed. The next one opens soon.", 1, true)).to.be.a("number")
+			expect(raidSource:find("That attempt didn't count — the marker hadn't reached that position.", 1, true)).to.be.a("number")
+		end)
+
+		it("old scolding/accusatory strings are gone", function()
+			expect(raidSource:find("Too slow! The raid window of opportunity passed", 1, true)).to.equal(nil)
+			expect(raidSource:find("Play the minigame fairly", 1, true)).to.equal(nil)
+		end)
+
+		it("missed (chance) path has NO attacker notify — result table is the single channel", function()
+			expect(raidSource:find("Heist failed! The fish slipped away", 1, true)).to.equal(nil)
+			expect(raidSource:find('return failOutcome("missed")', 1, true)).to.be.a("number")
+			-- The failOutcome("missed") call must be reachable from the chance
+			-- roll (ordering: successChance lookup precedes it).
+			local chancePos = raidSource:find("GameConfig.Raid.minigame.successChance[tier]", 1, true)
+			local missedPos = raidSource:find('return failOutcome("missed")', 1, true)
+			expect(chancePos < missedPos).to.equal(true)
+		end)
+
+		it("failOutcome still returns tier + reason for client coaching", function()
+			expect(raidSource:find("return { ok = true, success = false, tier = tier, reason = reason }", 1, true)).to.be.a("number")
+		end)
+
+		it("client renders tier-aware chance-miss coaching (no generic-only failure)", function()
+			expect(clientSource:find("Perfect grab — the fish slipped free. Even perfect timing isn't a sure thing.", 1, true)).to.be.a("number")
+			expect(clientSource:find("Good grab — the fish slipped free. Cleaner timing raises your odds.", 1, true)).to.be.a("number")
+			expect(clientSource:find("Weak grab — the fish slipped free. Aim for the center band.", 1, true)).to.be.a("number")
+			expect(clientSource:find("Heist failed — the fish slipped away.", 1, true)).to.equal(nil)
+		end)
+
+		it("client RAID_FAIL_COPY covers every failOutcome/resolveRaidSuccess reason", function()
+			for _, reason in ipairs({ "target_unavailable", "target_no_longer_eligible", "loss_capped", "no_stealable_fish", "fish_gone" }) do
+				expect(clientSource:find(reason .. " = ", 1, true)).to.be.a("number")
+			end
+			-- Fallback for unknown future reasons.
+			expect(clientSource:find("The heist failed. Try the next raid window.", 1, true)).to.be.a("number")
+		end)
+
+		it("RAID_FAIL_COPY is defined before the raid overlay handler that reads it", function()
+			local mapPos = clientSource:find("local RAID_FAIL_COPY = {", 1, true)
+			local handlerPos = clientSource:find("overlayInputHandlers.raid = function", 1, true)
+			expect(mapPos).to.be.a("number")
+			expect(handlerPos).to.be.a("number")
+			expect(mapPos < handlerPos).to.equal(true)
+		end)
+
+		it("client local-expiry timeout uses the approved calm copy", function()
+			expect(clientSource:find('showNotification("The raid window closed. The next one opens soon.", Theme.color.status.warn)', 1, true)).to.be.a("number")
+		end)
+	end)
 end

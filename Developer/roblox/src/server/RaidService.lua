@@ -827,7 +827,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 		-- No outcome event here: raid_attempted already fired at commit, and
 		-- the catalog has no attacker-side "expired" event (adding one is
 		-- analytics-scope, not this bead).
-		remotes.notify(player, "Too slow! The raid window of opportunity passed...", "error", "raid-attacker")
+		remotes.notify(player, "The raid window closed. The next one opens soon.", "error", "raid-attacker")
 		return { ok = false, reason = "too_slow" }
 	end
 	if type(markerPosition) ~= "number" then
@@ -856,7 +856,7 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	if duration > 0 then
 		local minNeeded = position * duration
 		if elapsed < (minNeeded - NETWORK_GRACE) then
-			remotes.notify(player, "Too fast! Play the minigame fairly.", "error", "raid-attacker")
+			remotes.notify(player, "That attempt didn't count — the marker hadn't reached that position.", "error", "raid-attacker")
 			return { ok = false, reason = "too_fast" }
 		end
 	end
@@ -924,7 +924,11 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	end
 	local chance = GameConfig.Raid.minigame.successChance[tier] or 0
 	if rng:NextNumber() > chance then
-		remotes.notify(player, "Heist failed! The fish slipped away...", "error", "raid-attacker")
+		-- harborheist-ux45-workflow-clarity-etj2.3.2: NO attacker notify here.
+		-- The result table (tier + reason via failOutcome) is the single
+		-- attacker channel — the client renders tier-aware coaching from it
+		-- (docs/MINIGAME_FEEDBACK_MODEL.md §4.2). The old server toast +
+		-- client toast double-notified with divergent strings.
 		return failOutcome("missed")
 	end
 	local outcome = resolveRaidSuccess(player, session, victim, victimSession, tier)
