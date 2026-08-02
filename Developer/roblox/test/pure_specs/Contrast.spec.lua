@@ -161,5 +161,33 @@ return function(describe, it, expect)
 				end
 			end
 		end)
+
+		it("bag-row tinted chip: lifted rarity text on 10%-tint composite meets AA-normal (§4b)", function()
+			-- Fresh-eyes finding: the tag text sits on a SAME-HUE chip; the
+			-- flat-surface matrix didn't model it. Chain: row = surface @0.85
+			-- over bg; chip = lifted rarity @0.10 over row (transparency 0.9,
+			-- pinned in ClientChrome.spec); text = lifted rarity.
+			local function comp(fg, back, opacity)
+				local out = {}
+				for i = 1, 3 do
+					out[i] = fg[i] * opacity + back[i] * (1 - opacity)
+				end
+				return out
+			end
+			local row = comp(rgbTriple("surface"), rgbTriple("bg"), 0.85)
+			local gcSource = fs.readFile("src/shared/GameConfig.lua")
+			local LIFT = 0.22
+			for _, name in ipairs({ "Common", "Uncommon", "Rare", "Epic", "Legendary" }) do
+				local r, g, b = gcSource:match('{ name = "' .. name .. '".-Color3%.fromRGB%((%d+),%s*(%d+),%s*(%d+)%)')
+				expect(r).to.be.a("string")
+				local base = { tonumber(r), tonumber(g), tonumber(b) }
+				local lifted = {}
+				for i = 1, 3 do
+					lifted[i] = base[i] + (255 - base[i]) * LIFT
+				end
+				local chip = comp(lifted, row, 0.10)
+				ge(contrast(lifted, chip), 4.5, name .. " text on tinted chip")
+			end
+		end)
 	end)
 end

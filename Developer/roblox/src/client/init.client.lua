@@ -3739,7 +3739,12 @@ local function renderInventory()
 		tag.Size = UDim2.new(0, 74, 0, 18)
 		tag.Position = UDim2.new(0, 10, 0, 7)
 		tag.BackgroundColor3 = rarityColor
-		tag.BackgroundTransparency = 0.78
+		-- etj2.4.4 follow-up (CONTRAST_MATRIX §4b): the tag text sits on a
+		-- SAME-HUE tinted chip — at 0.78 transparency the chip's 22% tint
+		-- lifted the background toward the text hue and dragged Epic to
+		-- 4.21:1 even with the 0.22 label lift. At 0.9 the tint is 10% and
+		-- every lifted rarity measures >= 5.19:1 on the composite.
+		tag.BackgroundTransparency = 0.9
 		tag.ZIndex = 27
 		tag.Parent = row
 		corner(tag, Theme.corners.compact)
@@ -4081,6 +4086,10 @@ local function makeCollectionCard(parent, order, data, discovered)
 	stroke(card, 0.9)
 
 	local rarityColor = RARITY_COLORS[data.rarity] or Theme.color.text.secondary
+	-- etj2.4.4 follow-up (CONTRAST_MATRIX §4b): the silhouette keeps the
+	-- saturated token (decorative glyph, non-text 3:1 floor); the xs tag
+	-- TEXT gets the lifted color and the darker chip (see bag rows).
+	local tagColor = rarityLabelColor(data.rarity)
 	if discovered then
 		local topBar = Instance.new("Frame")
 		topBar.Size = UDim2.new(1, 0, 0, 6)
@@ -4105,12 +4114,12 @@ local function makeCollectionCard(parent, order, data, discovered)
 		local tag = Instance.new("Frame")
 		tag.Size = UDim2.new(0, 74, 0, 18)
 		tag.Position = UDim2.new(0, 6, 0, 88)
-		tag.BackgroundColor3 = rarityColor
-		tag.BackgroundTransparency = 0.78
+		tag.BackgroundColor3 = tagColor
+		tag.BackgroundTransparency = 0.9
 		tag.ZIndex = 27
 		tag.Parent = card
 		corner(tag, Theme.corners.compact)
-		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 28 })
+		makeLabel(tag, { Size = UDim2.new(1, 0, 1, 0), Text = string.upper(data.rarity or "?"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = tagColor, ZIndex = 28 })
 	else
 		local icon = Instance.new("Frame")
 		icon.Size = UDim2.new(0, 48, 0, 48)
@@ -7774,12 +7783,17 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	topBar.Parent = card
 	corner(topBar, Theme.corners.snug)
 
-	-- Rarity tag
+	-- Rarity tag — etj2.4.4 follow-up: the tag text is xs (normal-size, not
+	-- covered by the card title's large-text exception) on a same-hue chip,
+	-- so it gets the lifted color + darker chip like every other small
+	-- rarity label (CONTRAST_MATRIX §4b). The gradient backdrop behind the
+	-- chip is §7 Studio-sampling scope; this strictly improves the ratio.
+	local tagColor = rarityLabelColor(rarity)
 	local tag = Instance.new("Frame")
 	tag.Size = UDim2.new(0, 100, 0, 22)
 	tag.Position = UDim2.new(0.5, -50, 0, 20)
-	tag.BackgroundColor3 = rarityColor
-	tag.BackgroundTransparency = 0.78
+	tag.BackgroundColor3 = tagColor
+	tag.BackgroundTransparency = 0.9
 	tag.ZIndex = 51
 	tag.Parent = card
 	corner(tag, Theme.corners.compact)
@@ -7788,7 +7802,7 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 		Text = string.upper(rarity or "?"),
 		Font = Theme.type.fonts.bold,
 		TextSize = Theme.type.sizes.xs,
-		TextColor3 = rarityColor,
+		TextColor3 = tagColor,
 		ZIndex = 52,
 	})
 

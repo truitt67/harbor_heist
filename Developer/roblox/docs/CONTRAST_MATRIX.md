@@ -96,7 +96,31 @@ formula, reproducible via Contrast.spec helpers.)
   are not.
 - **Blast radius warning (AC5):** these colors live in `GameConfig.Rarities`
   and double as gameplay FX tints (fish leap) and chat/feed colors. DO NOT
-  retune the token — fix at the call site (§8 R1).
+  retune the token — fix at the call site (§8 R2).
+
+### 4b. Tinted-chip composite (rarity tags) — found post-remediation
+
+The xs rarity TAGS (bag rows, collection tiles, reveal card) are label text
+IN THEIR OWN HUE on a chip filled with the same hue at BackgroundTransparency
+0.78 over the row/card. The flat-surface matrix above did NOT model this
+composite; fresh-eyes review caught it. Chain: row/card = surface @~0.85
+over bg → chip = lifted-rarity @ (1 − chipTransparency) over row → text =
+lifted rarity.
+
+| Chip transparency | Common | Uncommon | Rare | Epic | Legendary |
+| --- | --- | --- | --- | --- | --- |
+| 0.78 (as shipped pre-fix) | 6.21 | 5.77 | 4.60 | **4.21 ✗** | 6.17 |
+| **0.9 (shipped fix)** | 8.53 | 7.74 | 5.84 | **5.19 ✓** | 8.34 |
+
+At 0.78 the 22% same-hue tint lifted the background toward the text hue and
+dragged Epic below 4.5 even WITH the 0.22 label lift. Collection tiles were
+worse: they used the RAW token (Epic ~3.4 on the composite). Fix shipped on
+all three tag sites: chip transparency 0.78 → 0.9 (10% tint) + lifted tag
+text (collection/reveal keep the saturated token only for decorative
+silhouettes and the reveal card's LARGE title). Composite chain uses the
+documented §2 assumptions (panel backdrop = bg); the reveal card's gradient
+backdrop remains §7 Studio-sampling scope — the fix strictly improves that
+ratio regardless of backdrop hue.
 
 ## 5. Button / control states
 
@@ -120,7 +144,7 @@ completeness.
 ("nothing to claim yet"), not a disabled control, so the exemption does not
 apply. Ink (10,16,26) on neutral (60,70,80) is barely legible. Fix is
 call-site, one line: use `text` (8.62:1) or `textDim` (3.75:1) for the idle
-label — §8 R2.
+label — §8 R1.
 
 ## 6. Gradient surfaces
 
@@ -154,7 +178,7 @@ color, append to this matrix with confidence=measured.
 | # | Fix | Level | Blast radius | Status |
 | --- | --- | --- | --- | --- |
 | R1 | **CLAIM idle**: TextColor3 = Theme.color.text in the unclaimedIncome==0 branch (1.98 → 8.62) | Call-site, 1 line | None | **DONE (etj2.4.4)** — ready branch explicitly keeps ink on claimReady (5.70) |
-| R2 | **Epic/Rare small labels**: `rarityLabelColor()` lifts label colors 0.22 toward white (Rare 4.38→5.77, Epic 3.70→5.02 on surfaceHi); applied to bag rows, collection headers, aquarium stats lines. Reveal card keeps the saturated token (large-text pass) | Call-site helper | 3 label call sites | **DONE (etj2.4.4)** |
+| R2 | **Epic/Rare small labels**: `rarityLabelColor()` lifts label colors 0.22 toward white (Rare 4.38→5.77, Epic 3.70→5.02 on surfaceHi); applied to bag rows, collection headers, aquarium stats lines. Reveal card keeps the saturated token (large-text pass). Follow-up: bag-row tinted-chip composite (§4b) fixed via chip transparency 0.78→0.9 (Epic 4.21→5.19) | Call-site helper + chip tweak | 3 label call sites + tag chip | **DONE (etj2.4.4)** |
 | R3 | **Contrast.spec**: bad/accent pinned at 4.5 (was 3.0); CLAIM-idle pair and lifted-rarity math pinned drift-proof (parses GameConfig source) | Test-only | None | **DONE (etj2.4.4)** |
 | R4 | Do NOT retune textFaint, Rare, or Epic tokens | Token freeze | Avoids palette-wide + gameplay-FX churn | **DONE (etj2.4.4)** — no tokens changed |
 | R5 | Run §7 Studio sampling before any translucency change | Validation | None | OPEN — Studio-gated (tracked on etj2.5.2 matrix) |

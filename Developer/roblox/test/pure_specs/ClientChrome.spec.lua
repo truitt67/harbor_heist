@@ -1172,6 +1172,15 @@ describe("EPIC 44 client chrome source contracts", function()
 			expect(clientSource:find("RARITY_COLORS[currentRarity] or Theme.color.text.secondary", 1, true)).to.equal(nil)
 		end)
 
+		it("bag-row tag chip uses 0.9 transparency (same-hue composite stays >= 4.5:1, §4b)", function()
+			expect(clientSource:find("tag.BackgroundTransparency = 0.9", 1, true)).to.be.a("number")
+			expect(clientSource:find("tag.BackgroundTransparency = 0.78", 1, true)).to.equal(nil)
+			-- All three xs tag sites (collection tile, reveal card) route
+			-- through the lift helper; saturated token only feeds silhouettes.
+			expect(clientSource:find("local tagColor = rarityLabelColor(data.rarity)", 1, true)).to.be.a("number")
+			expect(clientSource:find("local tagColor = rarityLabelColor(rarity)", 1, true)).to.be.a("number")
+		end)
+
 		it("CLAIM idle uses text.primary (not the failing ink-on-neutral pair)", function()
 			expect(clientSource:find("claimButton.TextColor3 = Theme.color.text.primary", 1, true)).to.be.a("number")
 			-- Ready state keeps ink on claimReady (5.70:1 — passes).

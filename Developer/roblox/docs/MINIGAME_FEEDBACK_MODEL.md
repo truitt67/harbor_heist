@@ -62,16 +62,17 @@ blurred verdict.
 
 ### 3.2 Raid (`SubmitRaidResult`, `RaidService.lua:826-935`; client `:5683-5691`)
 
-| Server outcome | Current copy | Problem |
+| Server outcome | Copy at audit time | Status |
 | --- | --- | --- |
-| `too_fast` (timing forgery) | "Too fast! Play the minigame fairly." | Accusatory (§15.8 violation) |
-| `too_slow` | "Too slow! The raid window of opportunity passed..." | Scolding, trailing `...` |
-| `target_unavailable` / `target_no_longer_eligible` / `loss_capped` | Client shows generic "Heist failed — the fish slipped away." | **Lies about the cause** — implies chance miss when the target state changed; teaches the wrong lesson |
-| `missed` (chance roll failed) | Server toast "Heist failed! The fish slipped away..." **plus** client toast "Heist failed — the fish slipped away." | **Double notification, divergent duplicates** |
-| Success | "Heist perfect! Stole a Rare X worth $180." | Conforms — already tier-aware |
+| `too_fast` (timing forgery) | "Too fast! Play the minigame fairly." | **FIXED (etj2.3.2)** — §15.8 firm, mechanical |
+| `too_slow` | "Too slow! The raid window of opportunity passed..." | **FIXED (etj2.3.2)** — calm + next opening |
+| `target_unavailable` / `target_no_longer_eligible` / `loss_capped` | Client showed generic "Heist failed — the fish slipped away." — lied about the cause | **FIXED (etj2.3.2)** — RAID_FAIL_COPY names the state change + one action |
+| `missed` (chance roll failed) | Server toast **plus** divergent client toast (double notify) | **FIXED (etj2.3.2)** — single channel, tier-aware coaching |
+| Success | "Heist perfect! Stole a Rare X worth $180." | Conforms — unchanged |
 
 The server already returns `tier` and `reason` to the client for every failure
-(`failOutcome`, `RaidService.lua:909`) — the client just doesn't render them.
+(`failOutcome`, `RaidService.lua:909`); pre-etj2.3.2 the client didn't render
+them. It now does (RAID_FAIL_COPY + tier-aware missed coaching).
 
 ## 4. Message matrices (approved copy)
 
