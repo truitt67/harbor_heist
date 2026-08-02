@@ -584,6 +584,25 @@ return function(describe, it, expect)
 			expect(questSource:find("auditLog.logQuestReward(session.player, q.desc, q.reward)", 1, true)).to.be.a("number")
 		end)
 
+		it("sde2: quest reward grant triggers a transactional checkpoint", function()
+			-- dataManager must be a MODULE-level upvalue (processList/progressQuests
+			-- run outside init's scope), captured in init...
+			expect(questSource:find("dataManager = deps.dataManager", 1, true)).to.be.a("number")
+			-- ...and NOT re-shadowed as an init-local (that would leave the module
+			-- upvalue nil and silently disable the checkpoint).
+			expect(questSource:find("local dataManager =", 1, true)).to.equal(nil)
+			-- ...and the checkpoint must be gated on an actual reward grant, spawned,
+			-- and routed through DataManager.save like every other economy path.
+			expect(questSource:find("rewardGranted = true", 1, true)).to.be.a("number")
+			expect(questSource:find("if (grantedDaily or grantedWeekly) and dataManager and session.player then", 1, true)).to.be.a("number")
+			expect(questSource:find("dataManager.save(session.player)", 1, true)).to.be.a("number")
+			-- Ordering: the save call site must come AFTER processList's definition
+			-- (it lives in progressQuests, which consumes the granted flags).
+			local processListPos = questSource:find("local function processList", 1, true)
+			local savePos = questSource:find("dataManager.save(session.player)", 1, true)
+			expect(processListPos < savePos).to.equal(true)
+		end)
+
 		it("rarity ordinal derives from GameConfig.Rarities order (lunp)", function()
 			expect(questSource:find("RARITY_ORDINAL[rarity.name] = i", 1, true)).to.be.a("number")
 			expect(questSource:find("for i, rarity in ipairs(GameConfig.Rarities)", 1, true)).to.be.a("number")

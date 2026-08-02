@@ -6936,6 +6936,7 @@ local POOL = {
 local remotes
 local stateSync
 local auditLog
+local dataManager
 
 local function dailyKey(player)
 	local now = os.date("!*t")
@@ -6994,6 +6995,7 @@ end
 
 local function processList(session, list, scope, predicate, incrFn)
 	local changed = false
+	local rewardGranted = false
 	for _, q in ipairs(list) do
 		if not q.claimed and predicate(q) then
 			q.progress = incrFn(q)
@@ -7001,6 +7003,7 @@ local function processList(session, list, scope, predicate, incrFn)
 			if q.progress >= q.target then
 				q.progress = q.target
 				q.claimed = true
+				rewardGranted = true
 				-- N4 (CRITICAL): session has no `cash` field — money lives in
 				-- session.profile.Coins. The old `session.cash += q.reward` line
 				-- errored on every quest completion ("arithmetic on nil value")
@@ -7022,18 +7025,32 @@ local function processList(session, list, scope, predicate, incrFn)
 			end
 		end
 	end
-	return changed
+	return changed, rewardGranted
 end
 
 local function progressQuests(session, predicate, incrFn)
 	if not session then
 		return
 	end
-	local changed = processList(session, session.dailyQuests, "Daily quest", predicate, incrFn)
-	changed = processList(session, session.weeklyQuests, "Weekly quest", predicate, incrFn) or changed
+	local changed, grantedDaily = processList(session, session.dailyQuests, "Daily quest", predicate, incrFn)
+	local weeklyChanged, grantedWeekly = processList(session, session.weeklyQuests, "Weekly quest", predicate, incrFn)
+	changed = changed or weeklyChanged
 	if changed then
 		if stateSync then
 			stateSync.push(session)
+		end
+		-- harborheist-sde2: checkpoint when a quest reward was granted. Every
+		-- other economy path (store/sell/claim/purchase/raid) persists its
+		-- mutation immediately; quest rewards were the lone gap — without this,
+		-- coins + completion flags rode only the 60s autosave or the leave
+		-- save, and a crash/leave in that window silently replayed the grant.
+		-- Spawned so the caller returns immediately; coalesced by
+		-- DataManager.save's isSaving/saveDirty guard, so a multi-quest
+		-- completion still costs at most one trailing write.
+		if (grantedDaily or grantedWeekly) and dataManager and session.player then
+			task.spawn(function()
+				dataManager.save(session.player)
+			end)
 		end
 		if remotes and session.player and session.player.Parent then
 			remotes.QuestProgressChanged:FireClient(session.player, {
@@ -7120,7 +7137,7 @@ function QuestService.init(deps)
 	remotes = deps.remotes
 	stateSync = deps.stateSync
 	auditLog = deps.auditLog
-	local dataManager = deps.dataManager
+	dataManager = deps.dataManager
 	-- Round-4 review (harborheist-xdt): wire antiExploit so the OpenQuests
 	-- rate-limit guard below is LIVE, not dead code. Was referenced but never
 	-- extracted from deps, so `if antiExploit then` always evaluated false and
