@@ -327,12 +327,18 @@ local castDeadline = 0
 -- old per-cast InputBegan closure captured this by upvalue; the single
 -- overlay router (see CastState handler below) needs it as file scope.
 local castOverlayDuration = 0
--- harborheist-njqm: idle-cast coach toast. True while an OPENED cast
--- overlay is still waiting for its first tap; a CastState(false) arriving
--- in that window means the cast timed out with zero input and the server
--- silently assigned luckBonus 0. Coached once per session.
+-- harborheist-njqm / etj2.1.2: idle-cast coaching. castAwaitingInput is
+-- true while an OPENED cast overlay still waits for its first tap; a
+-- CastState(false) arriving in that window means the cast timed out with
+-- zero input and the server silently assigned luckBonus 0.
+-- etj2.1.2 (docs/CAST_COACHING_POLICY.md): tiny explicit coaching state —
+-- cadence A1 on the 1st idle cast / A2 on the 4th, suppressed permanently
+-- (session) once timing is demonstrated. Session-scoped by design (§5).
 local castAwaitingInput = false
-local coachShownIdleCast = false
+local castCoach = {
+	idleCount = 0,
+	timingDemonstrated = false,
+}
 -- TASK 23.1 (hvfh.3.1): central minigame/overlay manager. ONE owner for
 -- "which timed-input overlay is active", replacing four independent global
 -- InputBegan listeners (cast overlay, raid minigame, bite minigame x2).
@@ -6792,6 +6798,13 @@ overlayInputHandlers.cast = function(input, gp)
 		local elapsed = os.clock() - (castDeadline - castOverlayDuration)
 		local accuracy = math.clamp(elapsed / castOverlayDuration, 0, 1)
 		castAwaitingInput = false -- harborheist-njqm: input received, no coach toast
+		-- etj2.1.2 (policy T5): a tap inside the server-sent good band proves
+		-- the mechanic is understood — suppress all cast coaching for the
+		-- session. Internal suppression only: nothing is displayed or granted
+		-- here, so the "client never claims a tier" rule stays intact.
+		if accuracy >= castHitZone.goodStart_ and accuracy <= castHitZone.goodEnd_ then
+			castCoach.timingDemonstrated = true
+		end
 		-- harborheist-kqbq.19.2: cast tap already has bar-fill feedback
 		-- (the overlay closes + marker stops); add haptic for modality parity.
 		-- No neutral flash needed — the bar/overlay itself IS the ack.
@@ -8757,12 +8770,24 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 		-- harborheist-njqm: a CastState(false) arriving while the overlay
 		-- still awaited input means the cast timed out with ZERO taps — the
 		-- server assigned luckBonus 0 with no player-facing explanation.
-		-- Coach once per session so the miss teaches the mechanic.
 		if castAwaitingInput then
 			castAwaitingInput = false
-			if not coachShownIdleCast then
-				coachShownIdleCast = true
-				showNotification("No timing bonus — tap the bar next cast!", Theme.color.status.warn)
+			-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class A): A1 on the 1st
+			-- idle cast, A2 on the 4th (3 after A1), then silence; T5
+			-- suppresses permanently once timing is demonstrated. Dropped
+			-- WITHOUT counting when the onboarding prompt owns attention (S1)
+			-- or the toast queue is full (S2) — a late or competing coach
+			-- teaches the wrong lesson at the wrong moment.
+			if not castCoach.timingDemonstrated
+				and not onboardingPrompt.Visible
+				and activeToastCount < maxVisibleToasts()
+			then
+				castCoach.idleCount += 1
+				if castCoach.idleCount == 1 then
+					showNotification("The cast bar filled up — tap it before it fills to keep your luck bonus.", Theme.color.status.warn)
+				elseif castCoach.idleCount == 4 then
+					showNotification("Still no luck bonus — one tap on the cast bar before it fills is all it takes.", Theme.color.status.warn)
+				end
 			end
 		end
 		-- CastState(false) with no bite: the cast resolved/cancelled. Only

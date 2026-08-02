@@ -43,6 +43,16 @@ function FishingService.init(deps)
 	-- full" notifies and a redundant endCast after the player cancelled.
 	local castGen = {} -- player -> monotonic cast id (nil = no active cast)
 
+	-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class B): per-session count of
+	-- off-target cast submissions (tier "ok"). Occurrences 1 and 2 coach; a
+	-- demonstrated in-band cast sets the SENTINEL, suppressing coaching for
+	-- the rest of the session. Server-side because the server owns tier
+	-- feedback (feedback-model principle 2). Session-scoped — no profile
+	-- field, no migration (policy §5); cleared on PlayerRemoving like
+	-- activeBites.
+	local CAST_COACH_SUPPRESSED = 99
+	local offTargetCoachCount = {} -- player -> n (CAST_COACH_SUPPRESSED = coached out)
+
 	-- RELIABILITY (TASK 14.3): player-keyed table must be cleared on disconnect
 	-- or it leaks Player instances and leaves session.casting stuck true.
 	local function onPlayerRemoving(player)
@@ -51,6 +61,7 @@ function FishingService.init(deps)
 			session.casting = false
 		end
 		activeBites[player] = nil
+		offTargetCoachCount[player] = nil -- etj2.1.2: free the key, re-arm next session
 		-- harborheist-kqbq.12.1: invalidate any in-flight bite callback
 		-- (also frees the per-player key so the table cannot leak Player
 		-- instances). The player.Parent check in the callback is the primary
@@ -342,10 +353,28 @@ function FishingService.init(deps)
 		end
 
 		-- Feedback so the player knows their cast quality registered.
+		-- etj2.1.2 (policy T5): an in-band cast demonstrates the mechanic —
+		-- suppress off-target coaching for the rest of the session.
+		if tier == "perfect" or tier == "good" then
+			offTargetCoachCount[player] = CAST_COACH_SUPPRESSED
+		end
 		if tier == "perfect" then
 			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", "success", "cast")
 		elseif tier == "good" then
 			remotes.notify(player, "Good cast. +Luck on this catch.", "info", "cast")
+		elseif tier == "ok" then
+			-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class B): an off-target
+			-- tap used to get silence — the same invisible penalty as never
+			-- tapping, with no lesson. Coach occurrences 1 and 2 per
+			-- session, then quiet: the missing luck bonus and the labeled
+			-- overlay carry it from there.
+			local n = (offTargetCoachCount[player] or 0) + 1
+			offTargetCoachCount[player] = n
+			if n == 1 then
+				remotes.notify(player, "That tap missed the GOOD band — tap inside it to keep the luck bonus.", "warn", "cast")
+			elseif n == 2 then
+				remotes.notify(player, "The luck bonus needs the GOOD band — watch the marker and tap inside it.", "warn", "cast")
+			end
 		end
 	end)
 

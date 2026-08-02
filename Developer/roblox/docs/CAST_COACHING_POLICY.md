@@ -15,8 +15,8 @@ explicitly out of scope here — the two must never share copy.
 
 | Case | Detection | Feedback today | Gap |
 | --- | --- | --- | --- |
-| **Class A — idle cast**: overlay opens, ZERO taps before the server times the cast out | Client: `CastState(false)` arrives while `castAwaitingInput` is true (`init.client.lua` — search `coachShownIdleCast`) | Toast `"No timing bonus — tap the bar next cast!"`, **once per client session** | Policy undocumented; one-shot can be missed; string is ambiguous about WHICH miss happened |
-| **Class B — off-target cast**: tap received, accuracy lands outside the good band → server derives tier `"none"`, `luckBonus` stays 0 | Server: `FishingService.lua` `CastResult` handler (`cast_result_tier` analytics, tier `"none"`) | **NOTHING.** Server notifies only on `perfect`/`good` (`"PERFECT CAST! +Luck on this catch."` / `"Good cast. +Luck on this catch."`) | Player who taps but misses the band gets silence — the same invisible penalty as never tapping, with no lesson |
+| **Class A — idle cast**: overlay opens, ZERO taps before the server times the cast out | Client: `CastState(false)` arrives while `castAwaitingInput` is true (`init.client.lua` — pre-etj2.1.2 symbol `coachShownIdleCast`, now the `castCoach` state record) | Toast `"No timing bonus — tap the bar next cast!"`, **once per client session** | Policy undocumented; one-shot can be missed; string is ambiguous about WHICH miss happened |
+| **Class B — off-target cast**: tap received, accuracy lands outside the good band → server derives tier `"ok"` (no bonus), `luckBonus` stays 0 | Server: `FishingService.lua` `CastResult` handler (`cast_result_tier` analytics, tier `"ok"`) | **NOTHING.** Server notifies only on `perfect`/`good` (`"PERFECT CAST! +Luck on this catch."` / `"Good cast. +Luck on this catch."`) | Player who taps but misses the band gets silence — the same invisible penalty as never tapping, with no lesson |
 
 Doc-drift note: `MINIGAME_FEEDBACK_MODEL.md` §3.1 lists `"No timing bonus — tap
 the bar next cast!"` as the tier-none (Class B) string. The string exists
@@ -115,9 +115,11 @@ counts**, when any of these holds at the moment it would fire:
 - **Class B moves server-side, session-scoped.** Symmetry with the existing
   perfect/good notifies (the server owns tier feedback — principle 2 of the
   feedback model: the client never claims a tier). In the `CastResult`
-  handler, on `tier == "none"`, count per-session occurrences in the existing
-  session table and `remotes.notify` B1/B2 on occurrences 1 and 2 only. No
-  profile field, no migration.
+  handler, on `tier == "ok"` (the no-bonus tier — named `ok` in
+  `FishingService.lua`), count per-session occurrences in a service-local
+  player-keyed table (same lifecycle as `activeBites`, cleared on
+  `PlayerRemoving`) and `remotes.notify` B1/B2 on occurrences 1 and 2 only.
+  No profile field, no migration.
 - **T5 client hook:** in `overlayInputHandlers.cast`, when the submitted
   accuracy falls inside `castHitZone.goodStart_..goodEnd_`, set the
   demonstrated-success flag. This reads server-sent bounds and the player's
