@@ -3566,6 +3566,24 @@ for _, rarity in ipairs(GameConfig.Rarities) do
 	RARITY_COLORS[rarity.name] = rarity.color
 end
 
+-- etj2.4.4 (docs/CONTRAST_MATRIX.md §4 + §8 R2): small rarity labels fail
+-- WCAG AA-normal on elevated surfaces (Epic 3.70:1, Rare 4.38:1 on
+-- surfaceHi at xs sizes). GameConfig.Rarities colors are GAME DATA (fish
+-- leap FX, feed colors) — retuning the token has cross-system blast
+-- radius, so the fix is call-site: lift label colors 22% toward white.
+-- Hue identity is preserved (semantic distinction intact) and the lifted
+-- colors measure Rare 5.77 / Epic 5.02 on surfaceHi (both >= 4.5:1).
+-- Large celebration text (reveal card, lg/xl) keeps the saturated token —
+-- it passes the 3:1 large-text floor and wants full saturation.
+local RARITY_LABEL_LIFT = 0.22
+local function rarityLabelColor(rarityName)
+	local c = RARITY_COLORS[rarityName]
+	if not c then
+		return Theme.color.text.secondary
+	end
+	return c:Lerp(Color3.new(1, 1, 1), RARITY_LABEL_LIFT)
+end
+
 -- TASK 27.2 (hvfh.7.2): bag rows sorted by rarity (desc), then BaseSellValue
 -- (desc), with original catch order as the stable tiebreak so rows don't
 -- shuffle under the player. table.sort is NOT stable, so the original index
@@ -3706,7 +3724,7 @@ local function renderInventory()
 		if not fish then
 			continue
 		end
-		local rarityColor = RARITY_COLORS[fish.Rarity] or Theme.color.text.secondary
+		local rarityColor = rarityLabelColor(fish.Rarity)
 		local row = Instance.new("Frame")
 		row.Size = UDim2.new(1, -6, 0, rowH)
 		row.BackgroundColor3 = Theme.color.surface.secondary
@@ -4257,7 +4275,7 @@ renderCollection = function()
 		if data then
 			if data.rarity ~= currentRarity then
 				currentRarity = data.rarity
-				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = RARITY_COLORS[currentRarity] or Theme.color.text.secondary, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
+				makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 20), Text = string.upper(currentRarity or "Unknown"), Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.xs, TextColor3 = rarityLabelColor(currentRarity), TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = order, ZIndex = 26 })
 				order += 1
 
 				rarityGrid = Instance.new("Frame")
@@ -7272,9 +7290,10 @@ local function render()
 		-- IncomePerMinute) by 12-18x. Total income/sec from StateSync.snapshot
 		-- (the authoritative, multiplier-aware value) is shown via the
 		-- incomeLabel HUD element and the aquariumStats panel above.
+		local lineColor = rarityLabelColor(rarity.name)
 		table.insert(lines, string.format(
 			'<font color="%s">●</font>  <font color="%s"><b>%s</b></font>  ×%d   <font color="#94A3B8">$%s each</font>',
-			toHex(rarity.color), toHex(rarity.color), rarity.name, count, formatCash(rarity.value)
+			toHex(lineColor), toHex(lineColor), rarity.name, count, formatCash(rarity.value)
 		))
 	end
 	rarityList.Text = table.concat(lines, "\n")
@@ -7344,10 +7363,16 @@ local function render()
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
 		setButtonEnabled(claimButton, true)
 		claimButton.BackgroundColor3 = Theme.color.status.claimReady
+		claimButton.TextColor3 = Theme.color.text.ink
 	else
 		claimButton.Text = "CLAIM $0"
 		setButtonEnabled(claimButton, true)
 		claimButton.BackgroundColor3 = Theme.color.status.neutral
+		-- etj2.4.4 (docs/CONTRAST_MATRIX.md §5): the primary variant's ink
+		-- text on neutral fill measures 1.98:1, and this button is ACTIVE
+		-- ("CLAIM $0" is information, not a disabled control) so the WCAG
+		-- inactive-component exemption does NOT apply. text.primary = 8.62:1.
+		claimButton.TextColor3 = Theme.color.text.primary
 	end
 
 	-- TASK 9.2 (0jc.2): contextual onboarding prompts driven by flags.

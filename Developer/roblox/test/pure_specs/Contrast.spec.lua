@@ -16,6 +16,7 @@ local UIPalette = require("../../src/shared/UIPalette")
 -- directly. UIPalette.colors are pure RGB triples (Color3 is only used inside
 -- the lazy UIPalette.color() fn, never at module top level), so this require
 -- is lune-safe with no Roblox shim and cannot drift from the source of truth.
+local fs = require("@lune/fs")
 local function rgbTriple(name)
 	local c = UIPalette.colors[name]
 	return { c.r, c.g, c.b }
@@ -117,6 +118,48 @@ return function(describe, it, expect)
 			expect(UIPalette.colors.bg).to.be.a("table")
 			expect(UIPalette.colors.text).to.be.a("table")
 			expect(UIPalette.colors.surfaceHi).to.be.a("table")
+		end)
+	end)
+
+	-- harborheist-ux45-workflow-clarity-etj2.4.4: encode the MEASURED matrix
+	-- (docs/CONTRAST_MATRIX.md) as regression guards.
+	describe("etj2.4.4 measured-matrix guards", function()
+		it("least-headroom status colors (bad, accent) stay at AA-normal 4.5:1 (R3)", function()
+			for _, fg in ipairs({ "bad", "accent" }) do
+				for _, s in ipairs({ "bg", "surface", "surfaceHi", "undiscovered" }) do
+					ge(contrast(rgbTriple(fg), rgbTriple(s)), 4.5, fg .. " on " .. s)
+				end
+			end
+			expect(true).to.equal(true)
+		end)
+
+		it("CLAIM idle pair (text.primary on neutral) meets AA-normal (R1)", function()
+			-- The matrix measured ink-on-neutral at 1.98:1 (fail, not exempt);
+			-- the call-site fix uses text.primary (8.62:1). Pin the pair so a
+			-- future neutral-fill retune can't silently rebreak it.
+			ge(contrast(rgbTriple("text"), rgbTriple("neutral")), 4.5, "text on neutral (CLAIM idle)")
+		end)
+
+		it("rarity label lift (0.22 toward white) reaches AA-normal on elevated surfaces (R2)", function()
+			-- GameConfig.lua uses Roblox globals at module scope (cannot be
+			-- required under lune), so parse the rarity RGBs from source —
+			-- drift-proof against retuned rarity tokens. The client applies
+			-- RARITY_LABEL_LIFT = 0.22 at small-label call sites
+			-- (rarityLabelColor, init.client.lua).
+			local gcSource = fs.readFile("src/shared/GameConfig.lua")
+			local LIFT = 0.22
+			for _, name in ipairs({ "Rare", "Epic" }) do
+				local r, g, b = gcSource:match('{ name = "' .. name .. '".-Color3%.fromRGB%((%d+),%s*(%d+),%s*(%d+)%)')
+				expect(r).to.be.a("string")
+				local base = { tonumber(r), tonumber(g), tonumber(b) }
+				local lifted = {}
+				for i = 1, 3 do
+					lifted[i] = math.floor(base[i] + (255 - base[i]) * LIFT + 0.5)
+				end
+				for _, s in ipairs({ "surface", "surfaceHi", "surfaceMid" }) do
+					ge(contrast(lifted, rgbTriple(s)), 4.5, name .. " lifted label on " .. s)
+				end
+			end
 		end)
 	end)
 end

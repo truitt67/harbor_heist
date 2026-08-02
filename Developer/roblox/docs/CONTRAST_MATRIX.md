@@ -151,13 +151,13 @@ color, append to this matrix with confidence=measured.
 
 ## 8. Recommendations (input to etj2.4.4, prioritized)
 
-| # | Fix | Level | Blast radius | Expected result |
+| # | Fix | Level | Blast radius | Status |
 | --- | --- | --- | --- | --- |
-| R1 | **CLAIM idle**: set TextColor3 = Theme.color.text (or textDim) in the unclaimedIncome==0 branch | Call-site, 1 line | None (one button state) | 1.98 → 8.62 (or 3.75) |
-| R2 | **Epic/Rare list labels**: render xs rarity labels on a dark chip (surface fill) instead of surfaceHi cards, or bump to bold+sm, or add TextStroke | Call-site | Collection list + aquarium lines only | ≥4.5 at normal sizes |
-| R3 | **Contrast.spec**: extend the status-color pin from 3.0 to 4.5 for colors already passing 4.5 (bad 4.71, accent 4.82 are the floor) so future retunes can't silently erode headroom | Test-only | None | Prevents regression |
-| R4 | Do NOT retune textFaint, Rare, or Epic tokens | Token freeze | Avoids palette-wide + gameplay-FX churn | Preserves §2/§4 passes |
-| R5 | Run §7 Studio sampling before any translucency change | Validation | None | Converts assumptions to measurements |
+| R1 | **CLAIM idle**: TextColor3 = Theme.color.text in the unclaimedIncome==0 branch (1.98 → 8.62) | Call-site, 1 line | None | **DONE (etj2.4.4)** — ready branch explicitly keeps ink on claimReady (5.70) |
+| R2 | **Epic/Rare small labels**: `rarityLabelColor()` lifts label colors 0.22 toward white (Rare 4.38→5.77, Epic 3.70→5.02 on surfaceHi); applied to bag rows, collection headers, aquarium stats lines. Reveal card keeps the saturated token (large-text pass) | Call-site helper | 3 label call sites | **DONE (etj2.4.4)** |
+| R3 | **Contrast.spec**: bad/accent pinned at 4.5 (was 3.0); CLAIM-idle pair and lifted-rarity math pinned drift-proof (parses GameConfig source) | Test-only | None | **DONE (etj2.4.4)** |
+| R4 | Do NOT retune textFaint, Rare, or Epic tokens | Token freeze | Avoids palette-wide + gameplay-FX churn | **DONE (etj2.4.4)** — no tokens changed |
+| R5 | Run §7 Studio sampling before any translucency change | Validation | None | OPEN — Studio-gated (tracked on etj2.5.2 matrix) |
 
 ## 9. Roblox/platform caveats (recorded per STANDARD)
 

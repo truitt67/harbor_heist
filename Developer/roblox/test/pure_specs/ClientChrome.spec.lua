@@ -1156,5 +1156,27 @@ describe("EPIC 44 client chrome source contracts", function()
 			expect(clientSource:find("and state.dataStoreHealthy ~= false", 1, true) == nil).to.equal(true)
 		end)
 	end)
+
+	describe("etj2.4.4 contrast remediation wiring (pinned)", function()
+		it("rarityLabelColor lift helper exists with the measured 0.22 factor", function()
+			expect(clientSource:find("local RARITY_LABEL_LIFT = 0.22", 1, true)).to.be.a("number")
+			expect(clientSource:find("local function rarityLabelColor(rarityName)", 1, true)).to.be.a("number")
+			expect(clientSource:find("c:Lerp(Color3.new(1, 1, 1), RARITY_LABEL_LIFT)", 1, true)).to.be.a("number")
+		end)
+
+		it("small rarity labels use the lifted color (bag rows, collection headers, stats lines)", function()
+			expect(clientSource:find("local rarityColor = rarityLabelColor(fish.Rarity)", 1, true)).to.be.a("number")
+			expect(clientSource:find("TextColor3 = rarityLabelColor(currentRarity)", 1, true)).to.be.a("number")
+			expect(clientSource:find("local lineColor = rarityLabelColor(rarity.name)", 1, true)).to.be.a("number")
+			-- Raw token no longer feeds the collection-header call site.
+			expect(clientSource:find("RARITY_COLORS[currentRarity] or Theme.color.text.secondary", 1, true)).to.equal(nil)
+		end)
+
+		it("CLAIM idle uses text.primary (not the failing ink-on-neutral pair)", function()
+			expect(clientSource:find("claimButton.TextColor3 = Theme.color.text.primary", 1, true)).to.be.a("number")
+			-- Ready state keeps ink on claimReady (5.70:1 — passes).
+			expect(clientSource:find("claimButton.TextColor3 = Theme.color.text.ink", 1, true)).to.be.a("number")
+		end)
+	end)
 end)
 end
