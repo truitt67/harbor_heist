@@ -73,7 +73,7 @@ Policies: **block** (refuse the action), **proceed** (apply in-memory now),
 | 2 | **Sell fish** (bulk + single) | In-memory payout immediate — `AquariumService.lua:203-215`, `FishInventoryService.lua:143-155` | Yes | **Proceed + retry** | Same atomicity argument |
 | 3 | **Store fish** (bulk + single) | In-memory move carried→stored immediate — `AquariumService.lua:70-90`, `FishInventoryService.lua:232-244` | Yes | **Proceed + retry** | Same atomicity argument |
 | 4 | **Shop purchase** | Cash debited + item granted in-memory immediate — `ShopService.lua:135-150` | Yes | **Proceed + retry.** Do NOT block purchases | Whole purchase is one profile write: it either fully persists or fully never happened. Player can never lose cash without the item. Blocking would punish players for an infra fault |
-| 5 | **Quest reward grant** | Coins + completion flag in-memory only — `QuestService.lua:99-112` | **NO** — waits for autosave (≤60s), another action's checkpoint, or leave save | **Proceed + retry, AND add the missing checkpoint** (follow-up F1). Only economy path without a transactional checkpoint — same class of gap as the audit-log gap fixed in harborheist-gt44 | Every sibling economy path checkpoints; this one silently doesn't |
+| 5 | **Quest reward grant** | Coins + completion flag in-memory only — `QuestService.lua:99-112` | **NO** at audit time — waited for autosave (≤60s), another action's checkpoint, or leave save. **FIXED by harborheist-sde2**: grant now spawns a coalesced checkpoint | **Proceed + retry** (checkpoint shipped) | Was the only economy path without a transactional checkpoint — same class of gap as the audit-log gap fixed in harborheist-gt44 |
 | 6 | **Raid fish transfer** | Attacker + victim profiles mutated; BOTH checkpointed on success AND on failure — `RaidService.lua:790-802`, `:895-910` | Yes (both parties) | **Proceed + retry** | Both sides of the transfer checkpoint; no orphan-state window beyond the shared loss window |
 | 7 | **Fish catch → carried** | Carried fish (max 5) held in session; no checkpoint until store/sell/autosave | No (by design) | **Proceed.** Accepted risk, explicitly disclosed as low-stakes | Worst case: loss of ≤5 unsaved carried fish; checkpointing every catch would hammer the DataStore budget for negligible value |
 | 8 | **Autosave** | All sessions every 60s, spawned in parallel, snapshot-first — `DataManager.lua:783-807` | N/A (is the checkpoint) | **Retry.** Continues while unhealthy; each success self-heals the flag | Already correct |
@@ -115,6 +115,14 @@ Recovered:
 
 > **Saving restored — you're all caught up.**
 
+**As-implemented strings (etj2.2.6, fitted to the §15.6 length limits — the
+43-char header exceeded the 40-char banner-header budget, so "automatically"
+moved into the body):**
+
+- Banner header: `Saving interrupted — retrying`
+- Banner body: `Everything you earn counts and saves automatically when connection recovers. Stay in game to keep recent progress.`
+- Recovery toast: `Saving restored — you're all caught up.`
+
 Rules this copy follows (and future copy must keep):
 
 1. Names the actual state (interrupted, retrying) — never "unavailable -- try again".
@@ -144,12 +152,12 @@ and firm (per EPIC 45 WS-D governance).
 
 ## 5. Follow-up beads (created by this audit)
 
-| ID | Pri | Class | Summary |
-| --- | --- | --- | --- |
-| F1 | P2 | Integrity (code) | Add transactional checkpoint to quest reward grant in `QuestService.lua` (pattern: spawned `dataManager.save(player)` like `AquariumService.lua:118-126`) + source-contract pure spec |
-| F2 | P2 | Presentational (EPIC 45) | Replace contradictory degraded copy with §3.2 strings; convert one-shot toast to persistent banner; remove CLAIM-only disable + pulse-guard carve-out; keep "Saving restored" per §3.2 |
-| F3 | P3 | Presentational (EPIC 45) | Proactive `stateSync` push on DataStore health transitions so idle/zero-income players see banner appear and clear promptly |
+| ID | Bead | Pri | Class | Status | Summary |
+| --- | --- | --- | --- | --- | --- |
+| F1 | harborheist-sde2 | P2 | Integrity (code) | **DONE** (2026-08-02) | Transactional checkpoint on quest reward grant in `QuestService.lua` (spawned `dataManager.save(session.player)` gated on granted flags) + source-contract pure spec |
+| F2 | harborheist-ux45-workflow-clarity-etj2.2.6 | P2 | Presentational (EPIC 45) | **DONE** (2026-08-02) | Persistent DataStoreBanner with §3.2 fitted copy; false toast removed; CLAIM-only disable + pulse-guard carve-out removed; recovery toast per §3.2 |
+| F3 | harborheist-ux45-workflow-clarity-etj2.2.7 | P3 | Presentational (EPIC 45) | OPEN | Proactive `stateSync` push on DataStore health transitions so idle/zero-income players see banner appear and clear promptly |
 
-F1 is scoped as integrity (server mutation durability), not copy. F2/F3 are
+F1 was scoped as integrity (server mutation durability), not copy. F2/F3 are
 purely presentational and belong under EPIC 45 WS-B/WS-D. None of these block
-launch; the current behavior is safe-but-mislabeled, not lossy beyond §1.3.
+launch; the pre-audit behavior was safe-but-mislabeled, not lossy beyond §1.3.

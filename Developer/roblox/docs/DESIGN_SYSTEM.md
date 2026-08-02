@@ -627,9 +627,10 @@ Both beats are mandatory; either one alone fails this standard.
 ### 15.5 Numerals, currency, durations
 
 - **Digits always** ("5 fish", never "five fish").
-- **Currency**: `$` prefix + the canonical `formatCash` rendering — compact
-  K/M/B suffixes, at most one decimal (`$1,250` → `$1.3K`, `$999,999,999` →
-  `$1B`). Never hand-format cash in a new string; call `formatCash`.
+- **Currency**: `$` prefix + the canonical `formatCash` rendering — comma-grouped
+  integers below $1M (`$1,250`, `$999,999`), compact M/B suffixes at $1M and up
+  (`$1,500,000` → `$1.5M`, `$999,999,999` → `$1B`). There is NO K suffix.
+  Never hand-format cash in a new string; call `formatCash`.
 - **Durations under 2 minutes**: seconds with an `s` suffix (`LOCK 60s`,
   `RECHARGE 45s`). **2 minutes and over**: minutes, rounded down (`2m`).
   Never mix units in one string (`1m 30s` ✗).
@@ -649,11 +650,11 @@ Both beats are mandatory; either one alone fails this standard.
 ### 15.7 Surface-specific rules
 
 - **Action labels**: imperative verb first, object second (`STORE ALL`,
-  `SELL BAG`, `CLAIM $1.3K`). No punctuation.
+  `SELL BAG`, `CLAIM $1,250`). No punctuation.
 - **Blocked states**: outcome + next action (15.3). If the block is timed, name
   the time (`LOCKED 45s`).
 - **Confirmations**: state the consequence, then the confirm gesture —
-  `SELL ALL $1.3K? TAP` is the canonical shape. Destructive or irreversible
+  `SELL ALL $1,250? TAP` is the canonical shape. Destructive or irreversible
   actions always confirm; reversible ones never do.
 - **Onboarding**: imperative, present tense, exactly one action per prompt,
   input named explicitly (`Press F`, `Press G`, `Tap`).

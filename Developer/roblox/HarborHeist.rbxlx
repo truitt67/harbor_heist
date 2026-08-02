@@ -15632,13 +15632,14 @@ local raidBannerLabel = makeLabel(raidBanner, {
 -- ============================================================
 local dataStoreBanner = Instance.new("Frame")
 dataStoreBanner.Name = "DataStoreBanner"
-dataStoreBanner.AnchorPoint = Vector2.new(0.5, 0)
-dataStoreBanner.Size = UDim2.new(0, IS_MOBILE and 280 or 360, 0, 56)
--- Desktop stacks below the raid-banner slot (top-center); mobile takes the
--- top-center slot itself since the raid banner sits top-right there.
-dataStoreBanner.Position = IS_MOBILE and UDim2.new(0.5, 0, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+-- Desktop: top-center below the raid-banner slot (+6..42). Mobile: top-LEFT
+-- below the HUD — a centered banner horizontally overlaps the top-right raid
+-- banner and the "?" help button (+50) on narrow (~320px) phones.
+dataStoreBanner.AnchorPoint = IS_MOBILE and Vector2.new(0, 0) or Vector2.new(0.5, 0)
+dataStoreBanner.Size = UDim2.new(0, IS_MOBILE and 240 or 360, 0, 70)
+dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
 table.insert(safeTopConsumers, function()
-	dataStoreBanner.Position = IS_MOBILE and UDim2.new(0.5, 0, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+	dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
 end)
 dataStoreBanner.BackgroundColor3 = Theme.color.surface.primary
 dataStoreBanner.BackgroundTransparency = 0.12
@@ -15650,7 +15651,7 @@ stroke(dataStoreBanner, 0.7, Theme.color.status.warn, 1.5)
 
 local dataStoreBannerIcon = Instance.new("Frame")
 dataStoreBannerIcon.Size = UDim2.new(0, 8, 0, 8)
-dataStoreBannerIcon.Position = UDim2.new(0, 14, 0, 11)
+dataStoreBannerIcon.Position = UDim2.new(0, 14, 0, 9)
 dataStoreBannerIcon.BackgroundColor3 = Theme.color.status.warn
 dataStoreBannerIcon.ZIndex = 19
 dataStoreBannerIcon.Parent = dataStoreBanner
@@ -15667,8 +15668,8 @@ makeLabel(dataStoreBanner, {
 	ZIndex = 19,
 })
 makeLabel(dataStoreBanner, {
-	Size = UDim2.new(1, -36, 0, 30),
-	Position = UDim2.new(0, 28, 0, 21),
+	Size = UDim2.new(1, -36, 0, 44),
+	Position = UDim2.new(0, 28, 0, 22),
 	Text = "Everything you earn counts and saves automatically when connection recovers. Stay in game to keep recent progress.",
 	Font = Theme.type.fonts.body,
 	TextSize = Theme.type.sizes.xxs,
