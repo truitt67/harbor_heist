@@ -7913,8 +7913,16 @@ local function onMinigameTap()
 	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
 	-- so an on-zone tap can still be rejected — surface that honestly.
-	if hit and result and result.ok == false and result.reason == "missed" then
-		showNotification("So close! The fish shook off the hook...", Theme.color.status.warn)
+	-- etj2.3.3 (docs/MINIGAME_FEEDBACK_MODEL.md §4.1): the invoke result is
+	-- the single channel for both miss classes (server no longer notifies on
+	-- missed paths). hit=true + missed = CHANCE miss (timing confirmed);
+	-- hit=false + missed = TIMING miss. Distinct coaching for each.
+	if result and result.ok == false and result.reason == "missed" then
+		if hit then
+			showNotification("Clean hook — the fish shook free. Timing was right; the fight is chance. Same timing next cast.", Theme.color.status.warn)
+		else
+			showNotification("The fish slipped away. Tap when the marker is inside the zone.", Theme.color.status.warn)
+		end
 	end
 	-- TASK 22.4 (hvfh.2.4): reveal card on catch success for Rare+ and
 	-- first-session catches. Built from the structured invoke result, not
@@ -8741,8 +8749,8 @@ Remotes.BiteEvent.OnClientEvent:Connect(function(zoneId, windowSeconds)
 	-- is the one unavoidable race (a cast was legally in flight when a
 	-- LEGAL raid started — both initiations passed their gates). Do NOT
 	-- open the bite overlay on top of the raid overlay; let the bite
-	-- expire server-side. The server sends its own "Too slow! The fish
-	-- got away..." timeout toast (FishingService.lua), which already
+	-- expire server-side. The server sends its own "Too slow — the fish
+	-- got away. Watch for the splash, then tap fast." timeout toast (FishingService.lua), which already
 	-- explains the cost: the player chose to raid with a line in the
 	-- water. (Implementer choice recorded in the bead: no toast
 	-- suppression/replacement — the server message is the explanation.)

@@ -566,4 +566,33 @@ return function(describe, it, expect)
 			expect(fishingSource:find("castGen[player] = nil", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- Source contract: etj2.3.3 calm recovery copy + single-channel misses
+	describe("Source contract: etj2.3.3 fishing recovery copy", function()
+		it("approved zone-leave / no-input / late-input copy (distinct cases)", function()
+			expect(fishingSource:find("You left the fishing zone — the fish got away. Stay in the glowing zone.", 1, true)).to.be.a("number")
+			expect(fishingSource:find("The fish got away. Tap as soon as it bites.", 1, true)).to.be.a("number")
+			expect(fishingSource:find("Too slow — the fish got away. Watch for the splash, then tap fast.", 1, true)).to.be.a("number")
+		end)
+
+		it("old scolding/trailing-ellipsis strings are gone", function()
+			expect(fishingSource:find("You left the fishing zone... the fish got away!", 1, true)).to.equal(nil)
+			expect(fishingSource:find("Too slow! The fish got away...", 1, true)).to.equal(nil)
+			expect(fishingSource:find("The fish slipped away...", 1, true)).to.equal(nil)
+		end)
+
+		it("server does NOT notify on either missed path (invoke result is the channel)", function()
+			expect(fishingSource:find('remotes.notify(player, "The fish slipped away...', 1, true)).to.equal(nil)
+			-- Both missed returns still carry reason="missed" (AC4: reason
+			-- codes unchanged; analytics missed vs missed_reroll untouched).
+			expect(fishingSource:find('analytics.track(player, "fish_catch_failed", { reason = "missed" })', 1, true)).to.be.a("number")
+			expect(fishingSource:find('analytics.track(player, "fish_catch_failed", { reason = "missed_reroll" })', 1, true)).to.be.a("number")
+		end)
+
+		it("client renders distinct timing-miss vs chance-miss coaching", function()
+			expect(clientSource:find("The fish slipped away. Tap when the marker is inside the zone.", 1, true)).to.be.a("number")
+			expect(clientSource:find("Clean hook — the fish shook free. Timing was right; the fight is chance. Same timing next cast.", 1, true)).to.be.a("number")
+			expect(clientSource:find("So close! The fish shook off the hook...", 1, true)).to.equal(nil)
+		end)
+	end)
 end

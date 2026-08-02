@@ -49,14 +49,16 @@ blurred verdict.
 
 ### 3.1 Fishing (`SubmitCatchInput`, `FishingService.lua:404-548`)
 
-| Server outcome | Current copy | Problem |
+| Server outcome | Copy at audit time | Status |
 | --- | --- | --- |
-| Cast tier (perfect/good) | "PERFECT CAST! +Luck on this catch." / "Good cast. +Luck on this catch." | Conforms — already tiered |
-| Cast tier (none) | "No timing bonus — tap the bar next cast!" | Conforms (positive coaching) |
-| `too_slow` (bite window) | "Too slow! The fish got away..." | Scolding `!`, trailing `...`, no next action |
-| `missed` (hit=false) | "The fish slipped away..." | Trailing `...`, no next action |
-| `missed_reroll` (clean hit, chance failed) | **"The fish slipped away..."** — identical to `missed` | **Player cannot distinguish a timing miss from a chance miss.** Analytics separates them (`missed` vs `missed_reroll`); copy does not. This is the core "game feels inconsistent" bug |
-| Success | Reveal card + "You caught X" | Conforms |
+| Cast tier (perfect/good) | "PERFECT CAST! +Luck on this catch." / "Good cast. +Luck on this catch." | Conforms — unchanged |
+| Cast tier (none) | "No timing bonus — tap the bar next cast!" | Conforms — unchanged |
+| Zone leave | "You left the fishing zone... the fish got away!" | **FIXED (etj2.3.3)** — now states cause + next action |
+| Stale bite (no input) | "The fish got away..." | **FIXED (etj2.3.3)** — distinct no-input copy |
+| `too_slow` (late input) | "Too slow! The fish got away..." | **FIXED (etj2.3.3)** — calm + next action |
+| `missed` (hit=false) | "The fish slipped away..." | **FIXED (etj2.3.3)** — server notify removed; client renders timing-miss coaching from the invoke result |
+| `missed_reroll` (clean hit, chance failed) | "The fish slipped away..." — identical to `missed`, **plus** a divergent client toast "So close! The fish shook off the hook..." (double notify) | **FIXED (etj2.3.3)** — single channel; distinct chance-miss coaching |
+| Success | Reveal card + "You caught X" | Conforms — unchanged |
 
 ### 3.2 Raid (`SubmitRaidResult`, `RaidService.lua:826-935`; client `:5683-5691`)
 
@@ -78,16 +80,20 @@ The server already returns `tier` and `reason` to the client for every failure
 Tier context for bites comes from the cast (M2 already delivered at cast time).
 Bite outcomes:
 
-| Situation | M3 message | M4 recovery |
+| Situation | M3 message | Notes |
 | --- | --- | --- |
-| Timeout (`too_slow`) | "Too slow — the fish got away." | "Watch for the splash, then tap fast." |
-| Timing miss (`missed`, hit=false) | "The fish slipped away." | "Tap when the marker is inside the zone." |
-| Chance miss (`missed_reroll`, clean hit) | "Clean hook — the fish shook free. Timing was right; the fight is chance." | "Same timing next cast." |
+| Zone leave | "You left the fishing zone — the fish got away. Stay in the glowing zone." | Cause + next action (server notify — no invoke in flight) |
+| Stale bite (no input) | "The fish got away. Tap as soon as it bites." | Distinct from late input (server notify on expiry) |
+| Late input (`too_slow`) | "Too slow — the fish got away. Watch for the splash, then tap fast." | Server notify — submission arrived after the window |
+| Timing miss (`missed`, hit=false) | "The fish slipped away. Tap when the marker is inside the zone." | Client-rendered from invoke result |
+| Chance miss (`missed_reroll`, clean hit) | "Clean hook — the fish shook free. Timing was right; the fight is chance. Same timing next cast." | Client-rendered via hit=true + reason="missed" |
 | Success | Reveal card (unchanged) | — |
 
 The chance-miss message deliberately contains two facts: skill confirmed
 ("timing was right") + authority explained ("the fight is chance"). It does not
-quote odds and does not apologize.
+quote odds and does not apologize. Both miss classes are single-channel: the
+server sends NO notify on either `missed` path; the invoke result is the
+channel (identical de-duplication rule to raids).
 
 ### 4.2 Raid minigame (tier × reason)
 

@@ -237,7 +237,7 @@ function FishingService.init(deps)
 				stillInZone, currentZoneId = dockManager.isInFishingZone(currentDock, player.Character)
 			end
 			if not stillInZone or currentZoneId ~= zoneId then
-				remotes.notify(player, "You left the fishing zone... the fish got away!", "error", "missed")
+				remotes.notify(player, "You left the fishing zone — the fish got away. Stay in the glowing zone.", "error", "missed")
 				activeBites[player] = nil
 				if rodService then
 					rodService.endCast(player, false)
@@ -275,7 +275,7 @@ function FishingService.init(deps)
 							rodService.endCast(player, false)
 						end
 						if player.Parent then
-							remotes.notify(player, "The fish got away...", "error", "missed")
+							remotes.notify(player, "The fish got away. Tap as soon as it bites.", "error", "missed")
 						end
 					end
 				end)
@@ -435,7 +435,7 @@ function FishingService.init(deps)
 		local elapsed = os.clock() - biteData.biteTime
 		if elapsed > BITE_WINDOW_SECONDS then
 			activeBites[player] = nil
-			remotes.notify(player, "Too slow! The fish got away...", "error", "missed")
+			remotes.notify(player, "Too slow — the fish got away. Watch for the splash, then tap fast.", "error", "missed")
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -454,7 +454,10 @@ function FishingService.init(deps)
 		activeBites[player] = nil
 
 		if not timingResult.hit then
-			remotes.notify(player, "The fish slipped away...", "error", "missed")
+			-- harborheist-ux45-workflow-clarity-etj2.3.3: NO notify here. The
+			-- invoke result (reason="missed") is the single channel — the
+			-- client renders timing-miss coaching from it (hit=false). A
+			-- server toast + client toast double-notified.
 			if rodService then
 				rodService.endCast(player, false)
 			end
@@ -494,7 +497,11 @@ function FishingService.init(deps)
 		end
 		effectiveZone = math.clamp(effectiveZone, baseZone, ceiling)
 		if rng:NextNumber() > effectiveZone then
-			remotes.notify(player, "The fish slipped away...", "error", "missed")
+			-- harborheist-ux45-workflow-clarity-etj2.3.3: NO notify here. The
+			-- client distinguishes this chance miss from a timing miss via
+			-- hit=true + reason="missed" and renders distinct coaching
+			-- ("timing was right; the fight is chance") — the old shared
+			-- "fish slipped away" string made the two indistinguishable.
 			if rodService then
 				rodService.endCast(player, false)
 			end
