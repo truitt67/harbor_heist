@@ -66,7 +66,11 @@ UIPalette.colors = {
 	textFaint = { r = 138, g = 154, b = 177 },
 	ink = { r = 10, g = 16, b = 26 },
 	-- Additional semantic palette colors
-	money = { r = 134, g = 239, b = 172 },
+	-- harborheist-kqbq.18.5: shifted from mint (134,239,172) to warm gold-green
+	-- (158,215,88) — treasure semantic, distinguishes money/currency from
+	-- success-green (good=52,199,123). WCAG AA-large/UI 3:1 verified on all
+	-- dark surfaces (bg, surface, surfaceHi, undiscovered). See kqbq.18.4.
+	money = { r = 158, g = 215, b = 88 },
 	undiscovered = { r = 16, g = 24, b = 36 },
 	claimReady = { r = 50, g = 160, b = 80 },
 	claimReadyHi = { r = 74, g = 198, b = 114 },
