@@ -579,6 +579,11 @@ return function(describe, it, expect)
 			expect(questSource:find("session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward", 1, true)).to.be.a("number")
 		end)
 
+		it("gt44: quest rewards are audit-logged", function()
+			expect(questSource:find("auditLog = deps.auditLog", 1, true)).to.be.a("number")
+			expect(questSource:find("auditLog.logQuestReward(session.player, q.desc, q.reward)", 1, true)).to.be.a("number")
+		end)
+
 		it("rarity ordinal derives from GameConfig.Rarities order (lunp)", function()
 			expect(questSource:find("RARITY_ORDINAL[rarity.name] = i", 1, true)).to.be.a("number")
 			expect(questSource:find("for i, rarity in ipairs(GameConfig.Rarities)", 1, true)).to.be.a("number")
