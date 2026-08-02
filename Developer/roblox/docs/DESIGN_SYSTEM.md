@@ -691,6 +691,29 @@ comment on the player's intent or character, and they are never playful.
 Only strings that violate these rules are candidates for change
 (harborheist-ux45-workflow-clarity-etj2.4.2); conforming strings are not churned.
 
+## 16. Unavailable-State Content Pattern (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.2.1. Full pattern, taxonomy,
+countdown rules, and worked examples: **docs/UNAVAILABLE_STATE_PATTERN.md**.
+
+The grammar: **STATE** — *reason* — *recovery*, in fixed slots. STATE lives on
+the control (≤ 14 chars, ALL CAPS chip convention); reason lives in adjacent
+always-visible helper text (never hover-only, never tap-to-explain on an
+inactive control); recovery tails the reason unless self-evident.
+
+Six canonical states: disabled, locked-by-prerequisite (`LOCKED` + named
+prerequisite), cooldown (`RECHARGE 30s`, live 1Hz, server-authoritative),
+maxed (`MAXED` badge in `status.good`, an achievement not a block),
+unhealthy/degraded (warn banner, actions stay live — §15 + the DataStore
+contract), temporarily unavailable (toast `"Couldn't X — try again."`,
+control returns to ready).
+
+The one deliberate exception: **"not yet" is not disabled** — an
+unaffordable-but-purchasable control stays tappable so the tap can explain
+(harborheist-cl05). Timed blocks always name the time; unknown durations name
+the condition, never a fake number; a countdown reaching zero shows the bare
+reason until the server confirms availability.
+
 ---
 
 ## Module Reference
