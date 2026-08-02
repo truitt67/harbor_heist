@@ -6904,7 +6904,7 @@ return OnboardingService
       <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">QuestService</string>
-          <string name="Source">local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local QuestService = {}
@@ -6951,7 +6951,7 @@ end
 local function pickDistinct(pool, count, rng)
 	local chosen = {}
 	local used = {}
-	while #chosen &lt; count and #used &lt; #pool do
+	while #chosen < count and #used < #pool do
 		local i = rng:NextInteger(1, #pool)
 		if not used[i] then
 			used[i] = true
@@ -7145,7 +7145,8 @@ function QuestService.init(deps)
 	end)
 end
 
-return QuestService</string>
+return QuestService
+]]></string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="25">
