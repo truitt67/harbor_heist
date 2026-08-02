@@ -4561,6 +4561,20 @@ local function itemDeltaSubText(entry, currentLevel)
 	return itemSubText(entry)
 end
 
+-- [harborheist-etj2.2.2] Prerequisite copy for prerequisite-locked rows:
+-- names the exact prior tier (the recovery path) FIRST, with the item
+-- description trailing — pattern §2 locked-by-prerequisite
+-- (docs/UNAVAILABLE_STATE_PATTERN.md). Inference is unnecessary cognitive
+-- load; the actionable clause must never be the part that truncates.
+local function prerequisiteSubText(entry)
+	for _, other in ipairs(SHOP_CATALOG) do
+		if other.kind == entry.kind and other.level == entry.level - 1 then
+			return "Requires " .. itemDisplayName(other) .. "  •  " .. itemSubText(entry)
+		end
+	end
+	return itemSubText(entry)
+end
+
 -- [harborheist-a2ug.9] Forward-declared: refreshShop references these but
 -- they are created after the shop rows are built (below). Luau closures
 -- resolve at call time, so this pattern is safe.
@@ -4784,9 +4798,10 @@ function refreshShop()
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.secondary
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
 			entry.buyButton.Active = false
-			-- [harborheist-a2ug.8] absolute desc for LOCKED rows
+			-- [harborheist-etj2.2.2] LOCKED rows name the exact prerequisite
+			-- (the recovery path), not just the item description.
 			if entry.subTextLabel then
-				entry.subTextLabel.Text = itemSubText(entry)
+				entry.subTextLabel.Text = prerequisiteSubText(entry)
 			end
 		end
 	end
@@ -4922,6 +4937,23 @@ getOrCreateSummaryRow = function(kind)
 		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.status.good,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 27,
+	})
+
+	-- [harborheist-etj2.2.2] Unambiguous completed state (pattern §2): the
+	-- summary row shares the muted elevated surface with disabled rows, so
+	-- the green badge alone could read as network-disabled. The subtitle
+	-- states the achievement plainly — maxed is never a block.
+	makeLabel(row, {
+		Size = UDim2.new(0.64, -20, 0, 30),
+		Position = UDim2.new(0, 10, 0, 30),
+		Text = "Fully upgraded — nothing left to buy in this track.",
+		Font = Theme.type.fonts.body,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.secondary,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
 		ZIndex = 27,
 	})
 
