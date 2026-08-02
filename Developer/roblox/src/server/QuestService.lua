@@ -29,6 +29,7 @@ local POOL = {
 -- Module-level deps captured in init(); used by event callbacks below.
 local remotes
 local stateSync
+local auditLog
 
 local function dailyKey(player)
 	local now = os.date("!*t")
@@ -101,6 +102,9 @@ local function processList(session, list, scope, predicate, incrFn)
 				-- earnings, matching every other coin-grant path in the codebase.
 				session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + q.reward)
 				session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward
+				if auditLog and session.player then
+					auditLog.logQuestReward(session.player, q.desc, q.reward)
+				end
 				if remotes and session.player and session.player.Parent then
 					remotes.notify(
 						session.player,
@@ -209,6 +213,7 @@ end
 function QuestService.init(deps)
 	remotes = deps.remotes
 	stateSync = deps.stateSync
+	auditLog = deps.auditLog
 	local dataManager = deps.dataManager
 	-- Round-4 review (harborheist-xdt): wire antiExploit so the OpenQuests
 	-- rate-limit guard below is LIVE, not dead code. Was referenced but never

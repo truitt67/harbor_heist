@@ -3303,7 +3303,8 @@ return AquariumService
           <string name="Source"><![CDATA[--!strict
 -- AuditLogService.lua (EPIC 10, TASK 10.3)
 -- Server-side audit logging for high-value transactions.
--- Logs: Legendary catches, all purchases, raid transfers, storage changes.
+-- Logs: Legendary catches, all purchases, raid transfers, storage changes,
+-- quest rewards.
 -- For debugging and balancing.
 
 local AuditLogService = {}
@@ -3388,6 +3389,12 @@ end
 function AuditLogService.logClaim(player, amount)
 	addEntry(player, "claim", string.format(
 		"Claimed $%d income", amount or 0
+	))
+end
+
+function AuditLogService.logQuestReward(player, desc, reward)
+	addEntry(player, "quest_reward", string.format(
+		"Quest complete: %s (+$%d)", desc or "?", reward or 0
 	))
 end
 
@@ -6897,7 +6904,7 @@ return OnboardingService
       <Item class="ModuleScript" referent="24">
         <Properties>
           <string name="Name">QuestService</string>
-          <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+          <string name="Source">local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
 local PlayerProfile = require(game:GetService("ReplicatedStorage").Shared.PlayerProfile)
 
 local QuestService = {}
@@ -6928,6 +6935,7 @@ local POOL = {
 -- Module-level deps captured in init(); used by event callbacks below.
 local remotes
 local stateSync
+local auditLog
 
 local function dailyKey(player)
 	local now = os.date("!*t")
@@ -6943,7 +6951,7 @@ end
 local function pickDistinct(pool, count, rng)
 	local chosen = {}
 	local used = {}
-	while #chosen < count and #used < #pool do
+	while #chosen &lt; count and #used &lt; #pool do
 		local i = rng:NextInteger(1, #pool)
 		if not used[i] then
 			used[i] = true
@@ -7000,6 +7008,9 @@ local function processList(session, list, scope, predicate, incrFn)
 				-- earnings, matching every other coin-grant path in the codebase.
 				session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + q.reward)
 				session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward
+				if auditLog and session.player then
+					auditLog.logQuestReward(session.player, q.desc, q.reward)
+				end
 				if remotes and session.player and session.player.Parent then
 					remotes.notify(
 						session.player,
@@ -7108,6 +7119,7 @@ end
 function QuestService.init(deps)
 	remotes = deps.remotes
 	stateSync = deps.stateSync
+	auditLog = deps.auditLog
 	local dataManager = deps.dataManager
 	-- Round-4 review (harborheist-xdt): wire antiExploit so the OpenQuests
 	-- rate-limit guard below is LIVE, not dead code. Was referenced but never
@@ -7133,8 +7145,7 @@ function QuestService.init(deps)
 	end)
 end
 
-return QuestService
-]]></string>
+return QuestService</string>
         </Properties>
       </Item>
       <Item class="ModuleScript" referent="25">

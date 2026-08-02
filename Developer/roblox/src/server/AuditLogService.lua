@@ -1,7 +1,8 @@
 --!strict
 -- AuditLogService.lua (EPIC 10, TASK 10.3)
 -- Server-side audit logging for high-value transactions.
--- Logs: Legendary catches, all purchases, raid transfers, storage changes.
+-- Logs: Legendary catches, all purchases, raid transfers, storage changes,
+-- quest rewards.
 -- For debugging and balancing.
 
 local AuditLogService = {}
@@ -86,6 +87,12 @@ end
 function AuditLogService.logClaim(player, amount)
 	addEntry(player, "claim", string.format(
 		"Claimed $%d income", amount or 0
+	))
+end
+
+function AuditLogService.logQuestReward(player, desc, reward)
+	addEntry(player, "quest_reward", string.format(
+		"Quest complete: %s (+$%d)", desc or "?", reward or 0
 	))
 end
 
