@@ -52,7 +52,8 @@ blurred verdict.
 | Server outcome | Copy at audit time | Status |
 | --- | --- | --- |
 | Cast tier (perfect/good) | "PERFECT CAST! +Luck on this catch." / "Good cast. +Luck on this catch." | Conforms — unchanged |
-| Cast tier (none) | "No timing bonus — tap the bar next cast!" | Conforms — unchanged |
+| Cast tier (none) — off-target tap | **Silence** — server notifies only on perfect/good | **POLICY SET (etj2.1.1)** — Class B coaching, see docs/CAST_COACHING_POLICY.md |
+| Cast idle timeout (zero taps) | "No timing bonus — tap the bar next cast!" (client, once/session) | **POLICY SET (etj2.1.1)** — Class A cadence + new copy, see docs/CAST_COACHING_POLICY.md |
 | Zone leave | "You left the fishing zone... the fish got away!" | **FIXED (etj2.3.3)** — now states cause + next action |
 | Stale bite (no input) | "The fish got away..." | **FIXED (etj2.3.3)** — distinct no-input copy |
 | `too_slow` (late input) | "Too slow! The fish got away..." | **FIXED (etj2.3.3)** — calm + next action |
