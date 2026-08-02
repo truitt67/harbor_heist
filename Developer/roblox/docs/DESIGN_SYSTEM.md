@@ -19,6 +19,7 @@
 12. [Mobile Modality](#12-mobile-modality-epic-44)
 13. [Minigame Visual Language](#13-minigame-visual-language-epic-44)
 14. [Best Practices](#14-best-practices)
+15. [Content & Voice Standards](#15-content--voice-standards-epic-45)
 
 ---
 
@@ -572,6 +573,122 @@ language.
   elevated surfaces. Use it only for large labels, icons, or UI components.
 - **Don't bypass `PanelAnimation` for panel open/close** — it handles UIScale
   ownership tracking, tween cleanup, and consistent easing.
+
+---
+
+## 15. Content & Voice Standards (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.4.1. Scope: the high-risk
+player-facing surfaces — action labels, blocked states, confirmations,
+onboarding, timeouts, and recoverable errors. This is not a marketing voice
+guide; strings that already meet these rules stay as they are.
+
+### 15.1 Voice
+
+Warm nautical confidence. Concise and calm. Playful only at celebration moments
+(a perfect cast, a completed quest, a big sale). Never sarcastic, never
+accusatory, never vague. When something goes wrong, the message tells the player
+what happened and what to do next — it does not dramatize the failure.
+
+### 15.2 Capitalization
+
+| Surface | Rule | Examples |
+| --- | --- | --- |
+| Sentences (notifications, banners, prompts) | Sentence case. Capitalize first word + proper nouns only | "Your aquarium is full" |
+| Panel titles, section headers | Title Case | "Bait & Tackle Shop" |
+| Short controls/chips (≤ 3 words) | ALL CAPS is the documented rendered convention for buttons and state chips | CLAIM, SELL ALL, LOCKED, WAIT |
+| Sentences inside ALL-CAPS controls | Never. If it needs a verb phrase longer than 3 words, it is a notification, not a label | ✗ "SAVING UNAVAILABLE" as a button state → use a banner + neutral label |
+
+### 15.3 The "outcome + next action" grammar
+
+Every blocked state, timeout, and recoverable error follows the same two-beat
+shape: **what happened (+ why, if not obvious) → what the player does next.**
+Both beats are mandatory; either one alone fails this standard.
+
+- ✓ "Your aquarium is full! Sell some fish first." (outcome + next action)
+- ✓ "Your hands are full! Store or sell your fish first."
+- ✗ "Saving unavailable -- try again." (vague outcome, vague action)
+- ✗ "No fish to sell!" (outcome only — no next action; fine ONLY when the next
+  action is self-evident from the control the player just pressed)
+
+### 15.4 Punctuation
+
+- **Em dash `—`** for asides and outcome→action pivots. Never `--`.
+- **No trailing `...` on failure messages.** Ellipsis signals "still in
+  progress" and is reserved for genuine waits. Failures end with a period.
+  (✗ "Too slow! The raid window of opportunity passed...")
+- **One exclamation mark maximum**, and only for celebration or positive
+  urgency ("PERFECT CAST!", "FISH ON!"). Failure and blocked states use
+  periods — calm, not scolding. (✗ "Stand in a fishing zone at your dock!")
+- **Contractions preferred** ("You're", "can't") — the voice is warm, not
+  formal. Pick one form per string; duplicates must converge.
+  (✗ "You are casting too fast" vs "You're casting too fast" — keep the latter)
+
+### 15.5 Numerals, currency, durations
+
+- **Digits always** ("5 fish", never "five fish").
+- **Currency**: `$` prefix + the canonical `formatCash` rendering — compact
+  K/M/B suffixes, at most one decimal (`$1,250` → `$1.3K`, `$999,999,999` →
+  `$1B`). Never hand-format cash in a new string; call `formatCash`.
+- **Durations under 2 minutes**: seconds with an `s` suffix (`LOCK 60s`,
+  `RECHARGE 45s`). **2 minutes and over**: minutes, rounded down (`2m`).
+  Never mix units in one string (`1m 30s` ✗).
+- **Separators**: the middot `•` separates stat clusters in HUD lines
+  (`$250  •  $12/min`). Do not invent new separators.
+
+### 15.6 Mobile length limits
+
+| Surface | Limit | Notes |
+| --- | --- | --- |
+| Button / chip label | ≤ 14 characters | Must fit the smallest hero button at min window |
+| Notification (toast) | ≤ 90 characters | One to two lines on a phone portrait viewport |
+| Banner header | ≤ 40 characters | Persistent banners (e.g. DataStore-degraded) |
+| Banner body | ≤ 120 characters | Outcome + next action, nothing else |
+| Onboarding prompt | ≤ 80 characters, one action per prompt | "Press F to cast into the glowing zone at your dock!" |
+
+### 15.7 Surface-specific rules
+
+- **Action labels**: imperative verb first, object second (`STORE ALL`,
+  `SELL BAG`, `CLAIM $1.3K`). No punctuation.
+- **Blocked states**: outcome + next action (15.3). If the block is timed, name
+  the time (`LOCKED 45s`).
+- **Confirmations**: state the consequence, then the confirm gesture —
+  `SELL ALL $1.3K? TAP` is the canonical shape. Destructive or irreversible
+  actions always confirm; reversible ones never do.
+- **Onboarding**: imperative, present tense, exactly one action per prompt,
+  input named explicitly (`Press F`, `Press G`, `Tap`).
+- **Timeouts & expired windows**: calm recovery framing — the next attempt is
+  implied free. ✗ "Too slow! The raid window of opportunity passed..." →
+  ✓ "The raid window closed — the next one opens soon."
+- **Recoverable errors**: "Couldn't X — try again." is the canonical shape
+  ("Couldn't sell that fish — try again."). Never blame the player, never say
+  "error", never expose internal reasons.
+
+### 15.8 Anti-cheat & security messages
+
+Distinct and firm. These describe a limit the system enforced — they never
+comment on the player's intent or character, and they are never playful.
+
+- ✗ "Too fast! Play the minigame fairly." (accusatory)
+- ✓ "That attempt didn't count — wait for the timing window."
+- Rate limiting: "Slow down — you're casting too fast." (calm, mechanical,
+  no moralizing)
+
+### 15.9 Worked examples (current strings → standard)
+
+| Current | Verdict | Standard form |
+| --- | --- | --- |
+| "Saving unavailable -- try again. Your progress is safe but purchases may not persist." | False claim, `--`, vague | Per docs/DATASTORE_DEGRADED_CONTRACT.md §3.2 banner |
+| "Too slow! The raid window of opportunity passed..." | Scolding + trailing `...` | "The raid window closed — the next one opens soon." |
+| "The fish got away..." | Trailing `...` | "The fish got away." |
+| "Heist failed! The fish slipped away..." (server) vs "Heist failed — the fish slipped away." (client) | Divergent duplicates | One string: "Heist failed — the fish slipped away." |
+| "You have no fish to store. Go fish!" | Meets standard (playful but instructive) | Keep |
+| "PERFECT CAST! +Luck on this catch." | Meets standard (celebration) | Keep |
+| "Stand in a fishing zone at your dock!" | Exclamation on a blocked state | "Stand in a fishing zone at your dock." |
+| "Your aquarium is full! Sell some fish." / "...Sell some fish first." | Near-duplicates | Converge on "Your aquarium is full! Sell some fish first." |
+
+Only strings that violate these rules are candidates for change
+(harborheist-ux45-workflow-clarity-etj2.4.2); conforming strings are not churned.
 
 ---
 
