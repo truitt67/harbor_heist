@@ -13296,12 +13296,11 @@ task.spawn(function()
 	local GLOW_LO = Theme.color.status.claimReady
 	local GLOW_HI = Theme.color.status.claimReadyHi
 	while true do
-		-- Fresh-eyes fix: the pulse must NOT mask the DataStore-unhealthy
-		-- state — render() paints the button danger-red "SAVING UNAVAILABLE"
-		-- then, and a green glow over it would lie about a dead feature.
+		-- etj2.2.6: no DataStore-health carve-out here — CLAIM stays live in
+		-- degraded mode (the persistent banner carries the warning), so the
+		-- pulse no longer needs to suppress itself for an unhealthy store.
 		if state
 			and (state.unclaimedIncome or 0) > 0
-			and state.dataStoreHealthy ~= false
 			and activePanel == aquariumPanel
 		then
 			local phase = (os.clock() % 2.0) / 2.0
@@ -15622,6 +15621,63 @@ local raidBannerLabel = makeLabel(raidBanner, {
 	ZIndex = 19,
 })
 -- ============================================================
+-- [harborheist-ux45-workflow-clarity-etj2.2.6] Persistent DataStore-degraded
+-- banner. Replaces the old one-shot toast + CLAIM-only disable (both lied:
+-- the toast claimed "progress is safe", and the disable implied claim was
+-- uniquely dangerous — the server honors every economy action in degraded
+-- mode and persists each via the same single-profile UpdateAsync). Copy per
+-- docs/DATASTORE_DEGRADED_CONTRACT.md §3.2 and DESIGN_SYSTEM.md §15: warn
+-- (not error) color because nothing is broken — actions still count.
+-- Visibility is driven by render() off state.dataStoreHealthy.
+-- ============================================================
+local dataStoreBanner = Instance.new("Frame")
+dataStoreBanner.Name = "DataStoreBanner"
+dataStoreBanner.AnchorPoint = Vector2.new(0.5, 0)
+dataStoreBanner.Size = UDim2.new(0, IS_MOBILE and 280 or 360, 0, 56)
+-- Desktop stacks below the raid-banner slot (top-center); mobile takes the
+-- top-center slot itself since the raid banner sits top-right there.
+dataStoreBanner.Position = IS_MOBILE and UDim2.new(0.5, 0, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+table.insert(safeTopConsumers, function()
+	dataStoreBanner.Position = IS_MOBILE and UDim2.new(0.5, 0, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+end)
+dataStoreBanner.BackgroundColor3 = Theme.color.surface.primary
+dataStoreBanner.BackgroundTransparency = 0.12
+dataStoreBanner.Visible = false
+dataStoreBanner.ZIndex = 18
+dataStoreBanner.Parent = screenGui
+corner(dataStoreBanner, Theme.corners.md)
+stroke(dataStoreBanner, 0.7, Theme.color.status.warn, 1.5)
+
+local dataStoreBannerIcon = Instance.new("Frame")
+dataStoreBannerIcon.Size = UDim2.new(0, 8, 0, 8)
+dataStoreBannerIcon.Position = UDim2.new(0, 14, 0, 11)
+dataStoreBannerIcon.BackgroundColor3 = Theme.color.status.warn
+dataStoreBannerIcon.ZIndex = 19
+dataStoreBannerIcon.Parent = dataStoreBanner
+corner(dataStoreBannerIcon, Theme.corners.pill)
+
+makeLabel(dataStoreBanner, {
+	Size = UDim2.new(1, -36, 0, 16),
+	Position = UDim2.new(0, 28, 0, 5),
+	Text = "Saving interrupted — retrying",
+	Font = Theme.type.fonts.bold,
+	TextSize = Theme.type.sizes.xs,
+	TextColor3 = Theme.color.status.warn,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	ZIndex = 19,
+})
+makeLabel(dataStoreBanner, {
+	Size = UDim2.new(1, -36, 0, 30),
+	Position = UDim2.new(0, 28, 0, 21),
+	Text = "Everything you earn counts and saves automatically when connection recovers. Stay in game to keep recent progress.",
+	Font = Theme.type.fonts.body,
+	TextSize = Theme.type.sizes.xxs,
+	TextColor3 = Theme.color.text.secondary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextWrapped = true,
+	ZIndex = 19,
+})
+-- ============================================================
 -- [harborheist-a2ug.13] Mobile "?" help button — always-visible entry
 -- point to the SHORTCUTS / HOW TO PLAY panel. Desktop uses an ACTIONS
 -- chip instead (added to the ACTIONS table above). The "?" sits 44px
@@ -16584,8 +16640,6 @@ local function toHex(color)
 	return string.format("#%02X%02X%02X", color.R * 255, color.G * 255, color.B * 255)
 end
 
-local dataStoreWarningShown = false
-
 -- ============================================================
 -- TASK 22.1 (hvfh.2.1): FISH button state machine.
 -- Replaces the binary `casting`-flag label with three visually
@@ -16941,14 +16995,15 @@ local function render()
 	if not state then
 		return
 	end
-	-- TASK 10.5: DataStore failure handling — show warning when unhealthy
-	-- (R4 polish #12: token colors — raw literals were off-palette)
-	if state.dataStoreHealthy == false and not dataStoreWarningShown then
-		dataStoreWarningShown = true
-		showNotification("Saving unavailable -- try again. Your progress is safe but purchases may not persist.", Theme.color.status.bad)
-	elseif state.dataStoreHealthy ~= false and dataStoreWarningShown then
-		dataStoreWarningShown = false
-		showNotification("Saving restored!", Theme.color.status.good)
+	-- TASK 10.5 + harborheist-ux45-workflow-clarity-etj2.2.6: DataStore-degraded
+	-- handling — persistent banner while unhealthy (truthful per
+	-- docs/DATASTORE_DEGRADED_CONTRACT.md §3.2; the old toast's "your progress
+	-- is safe" was false). Recovery surfaces as a one-shot success toast.
+	if state.dataStoreHealthy == false then
+		dataStoreBanner.Visible = true
+	elseif dataStoreBanner.Visible then
+		dataStoreBanner.Visible = false
+		showNotification("Saving restored — you're all caught up.", Theme.color.status.good)
 	end
 	animateCashTo(state.cash)
 	-- TASK 24.1 (hvfh.4.1): rate + pulsing claim-green "ready" segment (the
@@ -17140,12 +17195,11 @@ local function render()
 	end
 
 	-- Claim income button (TASK 5.1)
-	-- TASK 10.5: disable when DataStore is unhealthy
-	local storeHealthy = state.dataStoreHealthy ~= false
-	if not storeHealthy then
-		claimButton.Text = "SAVING UNAVAILABLE"
-		setButtonEnabled(claimButton, false, Theme.color.status.disabled)
-	elseif state.unclaimedIncome > 0 then
+	-- harborheist-ux45-workflow-clarity-etj2.2.6: CLAIM is no longer disabled
+	-- in degraded mode — the server honors it and checkpoints like every
+	-- other economy action (contract §2 row 1). The persistent banner is the
+	-- honest signal; a disabled button was cosmetic and exploiter-bypassable.
+	if state.unclaimedIncome > 0 then
 		claimButton.Text = string.format("CLAIM $%s", formatCash(state.unclaimedIncome))
 		setButtonEnabled(claimButton, true)
 		claimButton.BackgroundColor3 = Theme.color.status.claimReady
