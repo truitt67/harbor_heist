@@ -68,8 +68,11 @@ DataManager.bindToClose()
 -- updated state to all sessions within ~1s so clients show/clear the
 -- degraded banner immediately, not on the next income-tick or action push.
 DataManager.onHealthChange(function(healthy)
-	for _, session in ipairs(DataManager.allSessions()) do
-		StateSync.push(session)
+	for player in pairs(DataManager.allSessions()) do
+		local session = DataManager.get(player)
+		if session then
+			StateSync.push(session)
+		end
 	end
 end)
 
