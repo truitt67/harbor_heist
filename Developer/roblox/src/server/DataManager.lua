@@ -33,6 +33,10 @@ local MAX_FAILURES_BEFORE_DISABLE = 3
 local isDataStoreHealthy = true
 local lastFailureTime = 0
 local FAILURE_COOLDOWN = 60 -- seconds before retrying after disable
+-- etj2.2.7: Health-change callback. Registered by init.server.lua to push
+-- state to all sessions when health flips (so clients learn within ~1s,
+-- not on the next income-tick or action push).
+local onHealthChangeCallback = nil
 -- v1 store is only needed for migration reads; failure here is non-fatal
 -- (players without v1 data just skip migration).
 pcall(function()
@@ -45,16 +49,26 @@ end)
 -- a successful READ does not reset (read-success doesn't prove write-health).
 -- Both save and load failures increment the counter.
 local function recordSuccess()
+	local wasHealthy = isDataStoreHealthy
 	consecutiveFailures = 0
 	isDataStoreHealthy = true
+	-- etj2.2.7: notify on health flip (unhealthy → healthy)
+	if not wasHealthy and onHealthChangeCallback then
+		pcall(onHealthChangeCallback, true)
+	end
 end
 
 local function recordFailure()
+	local wasHealthy = isDataStoreHealthy
 	consecutiveFailures += 1
 	lastFailureTime = os.time()
 	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
 		isDataStoreHealthy = false
 		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
+		-- etj2.2.7: notify on health flip (healthy → unhealthy)
+		if wasHealthy and onHealthChangeCallback then
+			pcall(onHealthChangeCallback, false)
+		end
 	end
 end
 
@@ -839,9 +853,20 @@ function DataManager.tryRecover()
 		isDataStoreHealthy = true
 		consecutiveFailures = 0
 		print("[HarborHeist] DataStore attempting recovery after cooldown.")
+		-- etj2.2.7: notify on health flip (unhealthy → healthy)
+		if onHealthChangeCallback then
+			pcall(onHealthChangeCallback, true)
+		end
 		return true
 	end
 	return isDataStoreHealthy
+end
+
+-- etj2.2.7: Register a callback to be notified when DataStore health flips.
+-- Called by init.server.lua to push state to all sessions within ~1s.
+-- ⓘ DataManager.onHealthChange — registers a callback invoked on health transitions (EPIC 19.6 covers at runtime)
+function DataManager.onHealthChange(callback)
+	onHealthChangeCallback = callback
 end
 -- Test export: makes the local sanitize function accessible to unit tests
 -- without changing any production behavior. See test/specs/DataManagerSanitize.spec.lua

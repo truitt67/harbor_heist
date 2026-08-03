@@ -63,6 +63,16 @@ AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
 
+-- etj2.2.7: Proactive state push on DataStore health transitions.
+-- When health flips (healthy→unhealthy or unhealthy→healthy), push the
+-- updated state to all sessions within ~1s so clients show/clear the
+-- degraded banner immediately, not on the next income-tick or action push.
+DataManager.onHealthChange(function(healthy)
+	for _, session in ipairs(DataManager.allSessions()) do
+		StateSync.push(session)
+	end
+end)
+
 -- E2E test bridge: expose internal service state for the E2E runner
 -- (tests/e2e/runner.server.lua). The _G table is per-VM and never
 -- replicates to clients. Guarded by the E2ERunner script existing (only
