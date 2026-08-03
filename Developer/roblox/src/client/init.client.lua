@@ -8881,15 +8881,17 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			markTween:Play()
 			else
 				-- etj2.3.4 (docs/CAST_COACHING_POLICY.md sibling principle):
-				-- requestOverlay("cast") failed — a raid minigame grabbed the
-				-- single overlay slot in the sub-second gap between RequestCast
-				-- and this CastState. The cast still resolves server-side with
-				-- base luck (no CastResult tap), so NO state needs unwedging
-				-- here — casting/fishState will clean up on CastState(false).
-				-- The gap is purely informational: the player cast and saw
-				-- waiting dots but no timing bar, which reads as a dead control
-				-- without this explanation. One concise toast, then silence.
-				showNotification("Cast timing skipped — finish your raid first. Your cast still resolves.", Theme.color.status.info)
+				-- requestOverlay("cast") failed — another minigame (raid or bite)
+				-- grabbed the single overlay slot in the sub-second gap between
+				-- RequestCast and this CastState. The cast still resolves
+				-- server-side with base luck (no CastResult tap), so NO state
+				-- needs unwedging here — casting/fishState will clean up on
+				-- CastState(false). The gap is purely informational: the player
+				-- cast and saw waiting dots but no timing bar, which reads as a
+				-- dead control without this explanation. Generic phrasing
+				-- ("minigame") because the slot could be raid OR bite — naming
+				-- "raid" would mislead when a bite overlay is active.
+				showNotification("Cast timing skipped — finish the minigame first. Your cast still resolves.", Theme.color.status.info)
 			end
 	else
 		-- harborheist-njqm: a CastState(false) arriving while the overlay

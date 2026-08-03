@@ -37,11 +37,23 @@ return function(describe, it, expect)
 			it("uses the info severity (not warn/bad — this is an accepted race, not an error)", function()
 				local castStart = clientSource:find('if requestOverlay("cast") then', 1, true)
 				local elseBranch = clientSource:find("else", castStart + 1, true)
-				local castStateElse = clientSource:find("\telse\n\t\t-- harborheist-njqm", 1, true)
+				local castStateElse = clientSource:find("	else\n		-- harborheist-njqm", 1, true)
 				local segment = clientSource:sub(elseBranch, castStateElse)
 				expect(segment:find("status.info", 1, true)).to.be.a("number")
 				expect(segment:find("status.warn", 1, true) == nil).to.equal(true)
 				expect(segment:find("status.bad", 1, true) == nil).to.equal(true)
+			end)
+			it("uses generic phrasing (not raid-specific — slot could be bite or raid)", function()
+				-- Fresh-eyes fix: the original toast said "finish your raid first"
+				-- but requestOverlay("cast") fails for ANY active overlay (raid OR
+				-- bite). If a bite overlay is active, the toast misleads the player.
+				-- Generic phrasing ("finish the minigame first") is correct for both.
+				local castStart = clientSource:find('if requestOverlay("cast") then', 1, true)
+				local elseBranch = clientSource:find("else", castStart + 1, true)
+				local castStateElse = clientSource:find("	else\n		-- harborheist-njqm", 1, true)
+				local segment = clientSource:sub(elseBranch, castStateElse)
+				expect(segment:find("finish the minigame first", 1, true)).to.be.a("number")
+				expect(segment:find("finish your raid first", 1, true) == nil).to.equal(true)
 			end)
 		end)
 
