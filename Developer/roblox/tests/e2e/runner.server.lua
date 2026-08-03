@@ -86,6 +86,9 @@ local RaidService = require(hh:WaitForChild("RaidService"))
 local AntiExploitService = require(hh:WaitForChild("AntiExploitService"))
 local PlayerProfile = require(ReplicatedStorage.Shared:WaitForChild("PlayerProfile"))
 local GameConfig = require(ReplicatedStorage.Shared:WaitForChild("GameConfig"))
+-- Hoisted from the migrated 19.4 section (EPIC 43, 8hnx): 19.6/19.7/19.8
+-- build fish records and previously relied on 19.4's chunk-local require.
+local FishInstance = require(ReplicatedStorage.Shared:WaitForChild("FishInstance"))
 
 print("[E2E] services acquired")
 
@@ -239,62 +242,7 @@ DataManager.remove(player)
 
 -- TASK 19.3 (Fishing Loop) MIGRATED to tests/e2e/scenarios/Fishing.lua (EPIC 43, c4fs)
 
--- ============================================================
--- TASK 19.4: Aquarium Economy (store, income, claim, sell)
--- ============================================================
-print("[E2E 19.4] === Aquarium Economy ===")
-
-local ecoPlayer = {
-	UserId = 333444555,
-	Name = "E2EEco",
-	DisplayName = "E2EEco",
-	Parent = Players,
-	Character = nil,
-}
-local ecoSession = DataManager.load(ecoPlayer)
-assertTrue("19.4 eco session created", ecoSession ~= nil)
-local ecoDock = DockManager.claim(ecoPlayer)
-assertTrue("19.4 eco dock claimed", ecoDock ~= nil)
-
--- Inject a fish into carried (simulating a catch)
--- Use a higher-value fish to ensure income accumulates above the floor threshold
-local FishInstance = require(ReplicatedStorage.Shared.FishInstance)
-local testFish = FishInstance.new("Tuna", "StarterPier")  -- Higher value than Bluegill
-table.insert(ecoSession.carried, testFish)
-print("[E2E 19.4] injected fish: " .. testFish.SpeciesId .. " ($" .. testFish.BaseSellValue .. ")")
-assertEq("19.4 carried count before store", 1, #ecoSession.carried)
-assertEq("19.4 stored count before store", 0, #ecoSession.profile.Aquarium.StoredFish)
-
--- Test store fish
-if _G.HARBORHEIST_TEST and _G.HARBORHEIST_TEST.aquariumStoreFish then
-	pcall(_G.HARBORHEIST_TEST.aquariumStoreFish, ecoPlayer)
-	assertEq("19.4 stored count after store", 1, #ecoSession.profile.Aquarium.StoredFish)
-	assertEq("19.4 carried count after store", 0, #ecoSession.carried)
-	print("[E2E 19.4] store completed")
-
-	-- For claim test: directly inject income to avoid waiting for fractional accumulation
-	-- (incomePerSec is fractional, so we need many ticks to floor to 1+ coin)
-	ecoSession.profile.Aquarium.UnclaimedIncome = 50  -- Inject $50 for testing
-	local coinsBeforeClaim = ecoSession.profile.Coins
-	pcall(_G.HARBORHEIST_TEST.aquariumClaimIncome, ecoPlayer)
-	assertEq("19.4 unclaimed income after claim", 0, ecoSession.profile.Aquarium.UnclaimedIncome)
-	assertTrue("19.4 coins increased after claim", ecoSession.profile.Coins > coinsBeforeClaim)
-	print("[E2E 19.4] claim completed (coins=" .. tostring(ecoSession.profile.Coins) .. ")")
-
-	local testFish2 = FishInstance.new("Perch", "StarterPier")
-	table.insert(ecoSession.carried, testFish2)
-	assertEq("19.4 carried count before sell", 1, #ecoSession.carried)
-
-	local coinsBeforeSell = ecoSession.profile.Coins
-	pcall(_G.HARBORHEIST_TEST.aquariumSellFish, ecoPlayer)
-	assertEq("19.4 carried count after sell", 0, #ecoSession.carried)
-	assertTrue("19.4 coins increased after sell", ecoSession.profile.Coins > coinsBeforeSell)
-	print("[E2E 19.4] sell completed (coins=" .. tostring(ecoSession.profile.Coins) .. ")")
-end
-
--- Cleanup eco
-DockManager.release(ecoPlayer)
-DataManager.remove(ecoPlayer)
+-- TASK 19.4 (Aquarium Economy) MIGRATED to tests/e2e/scenarios/Aquarium.lua (EPIC 43, 8hnx)
 
 -- ============================================================
 -- TASK 19.5: Shop Purchases (rod, bait, capacity; insufficient funds)
