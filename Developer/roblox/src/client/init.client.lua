@@ -3600,7 +3600,9 @@ end
 -- signature consistent automatically.
 -- R3 audit #9: forward-declared so renderInventory can gate STORE ALL on
 -- bag-emptiness before the button instance is created below.
+-- etj2.2.4: invStoreAllHelper (the capacity-preview strip) same reason.
 local invStoreAllBtn
+local invStoreAllHelper
 local function sortCarriedForDisplay(carried)
 	local wrapped = {}
 	for i, fish in ipairs(carried) do
@@ -3694,10 +3696,42 @@ local function renderInventory()
 	-- R3 audit #9: STORE ALL should be dead while the bag is empty, otherwise
 	-- it fires a pointless round-trip and the server returns a confusing
 	-- toast. Reflect carry state on the bulk button every render.
+	-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D2): capacity-aware preview. The
+	-- snapshot already carries storedFish + capacity, so the advisory label
+	-- is exact at render time; the server result remains the truth (D3/D5).
+	-- Runs BEFORE the signature early-return so tank changes (sell/raid/
+	-- capacity purchase) refresh the button even when the bag is unchanged.
 	local bagHasFish = #carried > 0
-	invStoreAllBtn.Active = bagHasFish
-	invStoreAllBtn.AutoButtonColor = bagHasFish
-	invStoreAllBtn.TextColor3 = bagHasFish and Theme.color.text.ink or Theme.color.text.tertiary
+	local tankFits = math.max(0, (state.capacity or 0) - #(state.storedFish or {}))
+	local movable = math.min(#carried, tankFits)
+	local canStore = bagHasFish and movable > 0
+	invStoreAllBtn.Active = canStore
+	invStoreAllBtn.AutoButtonColor = canStore
+	invStoreAllBtn.TextColor3 = canStore and Theme.color.text.ink or Theme.color.text.tertiary
+	if movable == #carried then
+		-- All fit (or empty bag, where both are 0): the sacred one-tap path
+		-- (D1) — no preview, no helper. Empty-bag inactivity comes from
+		-- canStore above (R3 #9).
+		invStoreAllBtn.Text = "STORE ALL"
+		invStoreAllHelper.Visible = false
+	elseif movable > 0 then
+		-- Partial: progressive disclosure — the label previews the split.
+		local remaining = #carried - movable
+		invStoreAllBtn.Text = string.format("STORE %d OF %d", movable, #carried)
+		invStoreAllHelper.Text = string.format(
+			remaining == 1 and "Only %d fit — 1 stays in your bag." or "Only %d fit — %d stay in your bag.",
+			movable,
+			remaining
+		)
+		invStoreAllHelper.TextColor3 = Theme.color.text.secondary
+		invStoreAllHelper.Visible = true
+	else
+		-- None fit: pattern §2 blocked state — reason in adjacent text.
+		invStoreAllBtn.Text = "TANK FULL"
+		invStoreAllHelper.Text = "Sell stored fish to free space."
+		invStoreAllHelper.TextColor3 = Theme.color.status.warn
+		invStoreAllHelper.Visible = true
+	end
 	if signature == lastInventorySignature then
 		return
 	end
@@ -3855,11 +3889,49 @@ invStoreAllBtn = makeButton(inventoryContent, {
 	BackgroundColor3 = Theme.color.accent.base,
 	ZIndex = 26,
 })
+-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D2): capacity-preview strip. Sits in
+-- the existing gap between the list bottom and the button (list inset is
+-- ~36px taller than the button on both modalities), so no layout change.
+-- Progressive disclosure: visible only for partial / zero-fit states.
+invStoreAllHelper = makeLabel(inventoryContent, {
+	Size = UDim2.new(1, -4, 0, 16),
+	Position = UDim2.new(0, 4, 1, -(invBulkH + 20)),
+	Text = "",
+	Font = Theme.type.fonts.body,
+	TextSize = Theme.type.sizes.xs,
+	TextColor3 = Theme.color.text.secondary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Visible = false,
+	ZIndex = 26,
+})
 invStoreAllBtn.Activated:Connect(function()
 	if not invStoreAllBtn.Active then
 		return
 	end
-	Remotes.RequestStoreFish:InvokeServer()
+	-- etj2.2.4 (D4): debounce like the per-fish rows (R3 #8) — a double-tap
+	-- during latency fired a second invoke that found an empty bag and
+	-- earned the confusing "Go fish!" toast. The invoke RESULT is
+	-- intentionally unread: the server toast is the single reconciliation
+	-- channel (D3); the next push re-renders (D5).
+	-- Fresh-eyes fix: do NOT blindly setButtonEnabled(btn, true) after the
+	-- invoke — InvokeServer yields, so stateSync.push fires DURING the
+	-- yield and renderInventory re-asserts Active/colors before we return.
+	-- A blind restore would then overwrite the just-rendered capacity-aware
+	-- state (partial-store label, TANK FULL text), causing a color/label
+	-- flicker. Instead: re-render from the authoritative snapshot so the
+	-- button reflects post-store reality immediately, with no fight.
+	setButtonEnabled(invStoreAllBtn, false)
+	local ok = pcall(function()
+		Remotes.RequestStoreFish:InvokeServer()
+	end)
+	if not ok then
+		showNotification("Couldn't store your fish — try again.", Theme.color.status.bad)
+	end
+	-- renderInventory is the single source of truth for button state — let
+	-- it re-derive Active/Text/colors from the latest snapshot. It's nilsafe
+	-- if state hasn't loaded yet (early-return), and the signature guard
+	-- means it's a no-op if the bag didn't change.
+	renderInventory()
 end)
 
 -- ============================================================

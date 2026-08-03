@@ -46,8 +46,20 @@ function AquariumService.init(deps)
 			if #session.carried == 0 then
 				remotes.notify(player, "You have no fish to store. Go fish!", "warn", "economy")
 			else
-				remotes.notify(player, "Your aquarium is full! Sell some fish.", "warn", "economy")
+				-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D3): §15.9 converged form.
+				remotes.notify(player, "Your aquarium is full! Sell some fish first.", "warn", "economy")
 			end
+		elseif #session.carried > 0 then
+			-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D3): partial store — the
+			-- old copy said "Stored N fish…" and hid the remainder. Name
+			-- what moved AND what didn't fit, with the one next step. This
+			-- toast is the single reconciliation channel; the client never
+			-- toasts its own and never mutates inventory optimistically.
+			remotes.notify(
+				player,
+				string.format("Stored %d fish — %d didn't fit. Sell stored fish to free space.", stored, #session.carried),
+				"info"
+			)
 		else
 			remotes.notify(
 				player,

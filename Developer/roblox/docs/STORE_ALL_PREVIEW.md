@@ -38,7 +38,7 @@ the latest snapshot (`fits = max(0, capacity − #storedFish)`,
 | State | Button label | Helper (directly above the button, shown only in this row's state) |
 | --- | --- | --- |
 | All fit (`movable == #carried`, > 0) | `STORE ALL` | — (hidden) |
-| Partial (`0 < movable < #carried`) | `STORE 2 OF 5` | `"Only 2 fit — 3 stay in your bag."` |
+| Partial (`0 < movable < #carried`) | `STORE 2 OF 5` | `"Only 2 fit — 3 stay in your bag."` (singular variant: `"Only 1 fit — 1 stays in your bag."`) |
 | None fit (`movable == 0`, carried > 0) | `TANK FULL` (inactive) | `"Sell stored fish to free space."` |
 | Empty bag (carried == 0) | `STORE ALL` (inactive, existing R3 #9 behavior) | — (hidden) |
 
