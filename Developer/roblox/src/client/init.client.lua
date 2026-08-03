@@ -7708,6 +7708,17 @@ local function runMinigame(windowSeconds)
 	-- backstop for any other occupied-slot path. Bail BEFORE mutating any
 	-- state so fishState/minigameActive can never wedge.
 	if not requestOverlay("bite") then
+		-- etj2.3.4: a BiteEvent arrived but the slot is occupied (cast or
+		-- raid overlay active). No state was mutated (bail is before any
+		-- assignment), so nothing needs unwedging. The server's bite
+		-- timeout will expire the bite server-side. The player sees a fish
+		-- bite indicator but no minigame — one concise explanation so it
+		-- doesn't read as a dead control. Skip when a cast is active: the
+		-- cast overlay IS the visible context, and the cast's own etj2.3.4
+		-- message already fires on its rejection path.
+		if not isOverlayActive("cast") then
+			showNotification("A fish bit — but you're busy. Finish what you're doing first.", Theme.color.status.info)
+		end
 		return
 	end
 	minigameActive = true
@@ -8858,7 +8869,6 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			overlayScale.Parent = castOverlay
 			overlayScale.Scale = 0.9
 			TweenService:Create(overlayScale, EASE_POP, { Scale = 1 }):Play()
-
 			castDeadline = os.clock() + duration
 
 			-- kqbq.17.1 rejection log: Linear + variable server-driven (os.clock physics).
@@ -8869,7 +8879,18 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 				{ Position = UDim2.new(1, -5, 0, -3) }
 			)
 			markTween:Play()
-		end
+			else
+				-- etj2.3.4 (docs/CAST_COACHING_POLICY.md sibling principle):
+				-- requestOverlay("cast") failed — a raid minigame grabbed the
+				-- single overlay slot in the sub-second gap between RequestCast
+				-- and this CastState. The cast still resolves server-side with
+				-- base luck (no CastResult tap), so NO state needs unwedging
+				-- here — casting/fishState will clean up on CastState(false).
+				-- The gap is purely informational: the player cast and saw
+				-- waiting dots but no timing bar, which reads as a dead control
+				-- without this explanation. One concise toast, then silence.
+				showNotification("Cast timing skipped — finish your raid first. Your cast still resolves.", Theme.color.status.info)
+			end
 	else
 		-- harborheist-njqm: a CastState(false) arriving while the overlay
 		-- still awaited input means the cast timed out with ZERO taps — the
