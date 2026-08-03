@@ -20,6 +20,13 @@
 13. [Minigame Visual Language](#13-minigame-visual-language-epic-44)
 14. [Best Practices](#14-best-practices)
 15. [Content & Voice Standards](#15-content--voice-standards-epic-45)
+16. [Unavailable-State Content Pattern](#16-unavailable-state-content-pattern-epic-45)
+17. [Cast Coaching Policy](#17-cast-coaching-policy-epic-45)
+18. [STORE ALL Consequence Preview](#18-store-all-consequence-preview-epic-45)
+19. [Minigame Feedback Model](#19-minigame-feedback-model-epic-45)
+20. [Measured Contrast Matrix](#20-measured-contrast-matrix-epic-45)
+21. [Non-Color State Communication](#21-non-color-state-communication-epic-45)
+22. [DataStore Degraded-Mode Contract](#22-datastore-degraded-mode-contract-epic-45)
 
 ---
 
@@ -713,6 +720,133 @@ unaffordable-but-purchasable control stays tappable so the tap can explain
 (harborheist-cl05). Timed blocks always name the time; unknown durations name
 the condition, never a fake number; a countdown reaching zero shows the bare
 reason until the server confirms availability.
+
+---
+
+## 17. Cast Coaching Policy (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.1.1  
+**Full spec:** docs/CAST_COACHING_POLICY.md
+
+Two miss classes in the cast minigame (timing bar before bite):
+
+- **Class A — idle cast**: overlay opens, zero taps before timeout. Toast: "No timing bonus — tap the bar next cast!" (once per session).
+- **Class B — off-target cast**: tap received, accuracy outside good band. Server derives tier "ok" (no bonus). Toast: "You missed the GOOD band — tap inside it to keep the luck bonus." (once per session).
+
+**Cadence**: Both toasts are one-shot per client session. Class A fires on first idle timeout. Class B fires on first off-target tap. They never fire together in the same session.
+
+**Anti-nag**: Toasts are non-severe (category "info"), tail the queue, evicted oldest-first under pressure. They never block gameplay or repeat on every miss.
+
+---
+
+## 18. STORE ALL Consequence Preview (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.2.3  
+**Full spec:** docs/STORE_ALL_PREVIEW.md
+
+Progressive disclosure at the decision point (no modal confirmation):
+
+| State | Button label | Helper text |
+| --- | --- | --- |
+| All fit (`movable == #carried`, > 0) | `STORE ALL` | — (hidden) |
+| Partial (`0 < movable < #carried`) | `STORE 2 OF 5` | "Only 2 fit — 3 stay in your bag." |
+| None fit (`movable == 0`, carried > 0) | `TANK FULL` (inactive) | "Sell stored fish to free space." |
+| Empty bag (carried == 0) | `STORE ALL` (inactive) | — (hidden) |
+
+**One-tap all-fit path is sacred**: When every carried fish fits, nothing changes — no confirmation, no helper text. STORE ALL is a frequent, fully reversible core-loop action. A modal is a confirmation tax on the game's tightest loop and is rejected by default.
+
+**Helper text**: One sentence, outcome + next action (§15.3), digits always (§15.5). Exists only when the result would surprise.
+
+---
+
+## 19. Minigame Feedback Model (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.3.1  
+**Full spec:** docs/MINIGAME_FEEDBACK_MODEL.md
+
+Four feedback moments (fishing and raid minigames):
+
+| Moment | Name | Channel | Authoritative? |
+| --- | --- | --- | --- |
+| M1 | Input acknowledgment | Neutral white tap flash + haptic tick | No — "received" only |
+| M2 | Server-confirmed timing tier | Toast/label naming the tier the SERVER derived | Yes (server-derived) |
+| M3 | Final outcome + reason | Result toast / reveal card | Yes |
+| M4 | Recovery action | Tail of the M3 message (one action) | — |
+
+**Principles**:
+1. Input acknowledgment is not a result. The tap flash means "input received" — never colors green/red, never previews hit/miss.
+2. The client never claims a tier. The client reports raw marker position; the server re-derives the tier. No UI element may label a tier before the server responds.
+3. Chance is honest. When a clean timing input still fails on the server's probability roll, the copy says so — distinctly from a timing failure.
+4. Every failure teaches one next step. Outcome + next action (§15.3 grammar), one recovery action only.
+5. Never reveal the roll early. No odds, no "almost won" framing before the server response.
+
+---
+
+## 20. Measured Contrast Matrix (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.4.3  
+**Full spec:** docs/CONTRAST_MATRIX.md
+
+WCAG 2.x relative-luminance contrast math over UIPalette RGB triples and GameConfig.Rarities colors. Same formula as test/pure_specs/Contrast.spec.lua.
+
+**Thresholds**: AA normal text ≥ 4.5:1 · AA large text (≥24px, or ≥19px GothamBold ≈ 14pt bold) and non-text UI (WCAG 1.4.11) ≥ 3:1.
+
+**Headline results**:
+
+| Claim / area | Result |
+| --- | --- |
+| Static-audit claim: "textFaint fails WCAG AA" | **DISPROVEN** — 4.98–6.45:1 on every dark surface, all ≥ 4.5 |
+| Rare rarity label on elevated surfaces | **BORDERLINE FAIL** 4.38:1 on surfaceHi at normal sizes |
+| Epic rarity label on elevated surfaces | **FAIL for normal-size text** 3.70:1 on surfaceHi (passes 3:1 large/UI) |
+| CLAIM "$0" idle state (ink text on neutral fill) | **FAIL** 1.98:1 — and NOT disability-exempt (button is Active) |
+| Translucent toasts/banners over the live 3D world | **UNMEASURED — Studio sampling required** (not fabricated) |
+
+**Remediation** (etj2.4.4): Rare/Epic rarity labels lifted 0.22 (Rare 5.77/Epic 5.02 on surfaceHi). CLAIM $0 idle state fixed. Zero token changes — call-site fixes only.
+
+---
+
+## 21. Non-Color State Communication (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.4.5  
+**Full spec:** docs/etj2.4.5_NON_COLOR_AUDIT.md
+
+**Result:** NO-CHANGE — every gameplay-critical state has a reliable non-color second channel.
+
+**Audit matrix**:
+
+| State | Color role | Non-color second channel | Verdict |
+| --- | --- | --- | --- |
+| Cast minigame zones (perfect/good) | Zone fill color (gold/green) | Text labels "PERFECT" / "GOOD" above zones | ✅ Compliant |
+| Bite minigame zone | Zone stroke color (green) | Text label "ZONE" above zone | ✅ Compliant |
+| Raid minigame zones | Zone fill color (green/yellow) | Text labels "PERFECT"/"GOOD" | ✅ Compliant |
+| Rarity identification | Rarity color on tag/text | Rarity NAME as uppercase text on every bag row + collection card | ✅ Compliant |
+| Capacity warning/full | Fill bar color (purple) | Text "N / M fish" in aquariumStats; STORE ALL label matrix | ✅ Compliant |
+| Income ready | CLAIM button pulse (claimReady/Hi) | Button text "CLAIM $N" with dollar amount | ✅ Compliant |
+| Destructive/error status | status.bad / status.warn colors | Toast message text (every showNotification has a message string) | ✅ Compliant |
+| Disabled/unavailable buttons | Color swap (setButtonEnabled → surface.elevated + text.tertiary) | Text reason per docs/UNAVAILABLE_STATE_PATTERN.md | ✅ Compliant |
+
+**Conclusion**: No code changes required. The codebase already follows the multi-channel principle consistently: color is always paired with text, shape, or position.
+
+---
+
+## 22. DataStore Degraded-Mode Contract (EPIC 45)
+
+**Bead:** harborheist-ux45-workflow-clarity-etj2.2.5  
+**Full spec:** docs/DATASTORE_DEGRADED_CONTRACT.md
+
+When DataStore is unhealthy (3 consecutive save/load failures), the game enters degraded mode:
+
+**Player-facing banner**: "Saving unavailable — try again later. Your progress is safe, but purchases may not persist."
+
+**Per-operation policy**:
+- **Claim income, sell fish, store fish, shop purchase, quest reward, raid fish transfer**: Proceed in-memory, retry on next autosave (60s). In-session state is authoritative; single-document write makes operations atomic.
+- **Fish catch → carried**: Proceed. No checkpoint until store/sell/autosave. Worst case: loss of ≤5 unsaved carried fish.
+- **Autosave**: Retry every 60s. Each success self-heals the flag.
+- **Leave save**: 2 attempts, wait ≤15s for in-flight, then accept loss. No requeue after remove().
+
+**Health-flip propagation** (etj2.2.7): When health flips (healthy→unhealthy or unhealthy→healthy), DataManager notifies all sessions within ~1s via proactive StateSync.push. Clients show/clear the degraded banner immediately, not on the next income-tick or action push.
+
+**Truthful copy**: Banner copy must never claim durability the code does not provide. "Your progress is safe" is false if the player leaves before any write succeeds. The approved copy discloses the real loss window honestly.
 
 ---
 
