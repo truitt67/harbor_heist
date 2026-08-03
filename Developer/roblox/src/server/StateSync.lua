@@ -1,4 +1,5 @@
 local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local DataManager = require(script.Parent.DataManager)
 
 local StateSync = {}
 
@@ -158,7 +159,11 @@ function StateSync.push(session)
 			cashValue.Value = math.floor(session.profile.Coins)
 		end
 	end
-	StateSync.remotes.StateChanged:FireClient(player, StateSync.snapshot(session))
+	-- etj2.2.7: snapshot() hardcodes dataStoreHealthy = true (overridden in
+	-- GetState). Override here too so push() sends the live health state.
+	local snap = StateSync.snapshot(session)
+	snap.dataStoreHealthy = DataManager.isHealthy()
+	StateSync.remotes.StateChanged:FireClient(player, snap)
 end
 
 function StateSync.setupLeaderstats(player, session)
