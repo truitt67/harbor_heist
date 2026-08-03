@@ -836,7 +836,11 @@ WCAG 2.x relative-luminance contrast math over UIPalette RGB triples and GameCon
 
 When DataStore is unhealthy (3 consecutive save/load failures), the game enters degraded mode:
 
-**Player-facing banner**: "Saving unavailable — try again later. Your progress is safe, but purchases may not persist."
+**Player-facing banner** (persistent, not a toast):
+- Header: "Saving interrupted — retrying"
+- Body: "Everything you earn counts and saves automatically when connection recovers. Stay in game to keep recent progress."
+
+**Recovery toast** (one-shot when health restores): "Saving restored — you're all caught up."
 
 **Per-operation policy**:
 - **Claim income, sell fish, store fish, shop purchase, quest reward, raid fish transfer**: Proceed in-memory, retry on next autosave (60s). In-session state is authoritative; single-document write makes operations atomic.
@@ -846,7 +850,7 @@ When DataStore is unhealthy (3 consecutive save/load failures), the game enters 
 
 **Health-flip propagation** (etj2.2.7): When health flips (healthy→unhealthy or unhealthy→healthy), DataManager notifies all sessions within ~1s via proactive StateSync.push. Clients show/clear the degraded banner immediately, not on the next income-tick or action push.
 
-**Truthful copy**: Banner copy must never claim durability the code does not provide. "Your progress is safe" is false if the player leaves before any write succeeds. The approved copy discloses the real loss window honestly.
+**Truthful copy**: Banner copy must never claim durability the code does not provide. The approved copy says "Everything you earn counts and saves automatically when connection recovers" — this is true as long as the player stays in game. If the player leaves before any write succeeds, data since the last successful save is lost. The copy is honest about the recovery mechanism without overpromising.
 
 ---
 
