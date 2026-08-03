@@ -2953,10 +2953,13 @@ end
 -- Layout-mode resize wiring: declared after updatePanelSizing exists
 -- (layoutDesktopBar / layoutMobileStack are feature-branch locals that keep
 -- their own resize handlers; only panel sizing is refreshed here).
+-- deep-review: viewportConn must be at FILE scope, not function scope, so the
+-- disconnect guard below actually finds the previous connection. A function-
+-- local resets to nil on every call, orphaning the old connection on each
+-- camera change (respawn) — a per-spawn connection leak.
+local _viewportConn
 local function bindViewportWidth(cam)
 	if not cam then return end
-
-	local viewportConn
 
 	local function updateLayoutMode()
 		-- harborheist-vr21: any viewport change can flip the orientation
@@ -2970,8 +2973,8 @@ local function bindViewportWidth(cam)
 		end
 	end
 
-	if viewportConn then viewportConn:Disconnect() end
-	viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayoutMode)
+	if _viewportConn then _viewportConn:Disconnect() end
+	_viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayoutMode)
 end
 
 bindViewportWidth(workspace.CurrentCamera)

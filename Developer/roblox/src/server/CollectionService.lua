@@ -286,6 +286,13 @@ function CollectionService.init(deps)
 		if stateSync then
 			stateSync.push(session)
 		end
+		-- deep-review: checkpoint the claim so a crash/leave before the next
+		-- autosave (60s) doesn't lose the claim state — without this, a rejoin
+		-- would show the milestone as unclaimed and allow a duplicate reward.
+		-- Same pattern as every other economy mutation (thj.2).
+		task.spawn(function()
+			deps.dataManager.save(player)
+		end)
 
 		return { ok = true, milestoneId = milestoneId, coinsGranted = coinsGranted }
 	end

@@ -133,6 +133,13 @@ function OnboardingService.init(deps)
 			return { ok = false, reason = "unknown_flag" }
 		end
 		OnboardingService.mark(session, flag)
+		-- deep-review: persist the flag change so a crash/leave before the next
+		-- autosave (60s) doesn't lose it. Other paths that flip onboarding flags
+		-- (catch, store, claim) already checkpoint via their primary economy
+		-- save — this remote is the only path where the flag is the sole mutation.
+		task.spawn(function()
+			deps.dataManager.save(player)
+		end)
 		return { ok = true }
 	end
 end
