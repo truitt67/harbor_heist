@@ -2024,7 +2024,7 @@ boatPrompt.Triggered:Connect(function(player)
 	-- have a boat" notify here since the prompt is the only UI surface where
 	-- that specific reason is surfaced (the RemoteFunction button just hides).
 	if result and not result.ok and result.reason == "already_has_boat" then
-		Remotes.notify(player, "You already have a boat!", "warn", "info")
+		Remotes.notify(player, "You already have a boat.", "warn", "info")
 	end
 end)
 
@@ -2079,7 +2079,7 @@ local function onPlayerAdded(player)
 		session.dockIndex = dock.index
 		DockManager.updateAquariumVisual(dock, session, StateSync.getCapacity(session))
 	else
-		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", "warn", "info")
+		Remotes.notify(player, "All docks are taken — you'll spawn at the plaza.", "warn", "info")
 	end
 
 	-- RELIABILITY: Store connection so we can disconnect it later to prevent memory leaks
@@ -2751,8 +2751,20 @@ function AquariumService.init(deps)
 			if #session.carried == 0 then
 				remotes.notify(player, "You have no fish to store. Go fish!", "warn", "economy")
 			else
-				remotes.notify(player, "Your aquarium is full! Sell some fish.", "warn", "economy")
+				-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D3): §15.9 converged form.
+				remotes.notify(player, "Your aquarium is full! Sell some fish first.", "warn", "economy")
 			end
+		elseif #session.carried > 0 then
+			-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D3): partial store — the
+			-- old copy said "Stored N fish…" and hid the remainder. Name
+			-- what moved AND what didn't fit, with the one next step. This
+			-- toast is the single reconciliation channel; the client never
+			-- toasts its own and never mutates inventory optimistically.
+			remotes.notify(
+				player,
+				string.format("Stored %d fish — %d didn't fit. Sell stored fish to free space.", stored, #session.carried),
+				"info"
+			)
 		else
 			remotes.notify(
 				player,
@@ -2875,7 +2887,7 @@ function AquariumService.init(deps)
 				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
-			remotes.notify(player, "No fish to sell!", "warn", "economy")
+			remotes.notify(player, "No fish to sell.", "warn", "economy")
 			return { ok = false }
 		end
 		local soldCount = carriedCount
@@ -3071,7 +3083,7 @@ function AquariumService.init(deps)
 		local newValue = not session.profile.Aquarium.RaidOptIn
 		session.profile.Aquarium.RaidOptIn = newValue
 		if newValue then
-			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", "warn", "raid-info")
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows.", "warn", "raid-info")
 		else
 			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", "success", "raid-info")
 		end
@@ -3872,7 +3884,7 @@ function BoatService.handleSpawnRequest(player)
 	-- Applies to BOTH the RemoteFunction AND the ProximityPrompt entry point.
 	local session = dataManager and dataManager.get(player)
 	if session and (session.stunUntil or 0) > os.clock() then
-		remotes.notify(player, "You're stunned! You can't launch a boat right now.", "error", "info")
+		remotes.notify(player, "You're stunned — you can't launch a boat right now.", "error", "info")
 		return { ok = false, reason = "stunned" }
 	end
 	local boatDock = worldFolderRef and worldFolderRef:FindFirstChild("BoatDock")
@@ -4205,6 +4217,13 @@ function CollectionService.init(deps)
 		if stateSync then
 			stateSync.push(session)
 		end
+		-- deep-review: checkpoint the claim so a crash/leave before the next
+		-- autosave (60s) doesn't lose the claim state — without this, a rejoin
+		-- would show the milestone as unclaimed and allow a duplicate reward.
+		-- Same pattern as every other economy mutation (thj.2).
+		task.spawn(function()
+			deps.dataManager.save(player)
+		end)
 
 		return { ok = true, milestoneId = milestoneId, coinsGranted = coinsGranted }
 	end
@@ -6148,6 +6167,16 @@ function FishingService.init(deps)
 	-- full" notifies and a redundant endCast after the player cancelled.
 	local castGen = {} -- player -> monotonic cast id (nil = no active cast)
 
+	-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class B): per-session count of
+	-- off-target cast submissions (tier "ok"). Occurrences 1 and 2 coach; a
+	-- demonstrated in-band cast sets the SENTINEL, suppressing coaching for
+	-- the rest of the session. Server-side because the server owns tier
+	-- feedback (feedback-model principle 2). Session-scoped — no profile
+	-- field, no migration (policy §5); cleared on PlayerRemoving like
+	-- activeBites.
+	local CAST_COACH_SUPPRESSED = 99
+	local offTargetCoachCount = {} -- player -> n (CAST_COACH_SUPPRESSED = coached out)
+
 	-- RELIABILITY (TASK 14.3): player-keyed table must be cleared on disconnect
 	-- or it leaks Player instances and leaves session.casting stuck true.
 	local function onPlayerRemoving(player)
@@ -6156,6 +6185,7 @@ function FishingService.init(deps)
 			session.casting = false
 		end
 		activeBites[player] = nil
+		offTargetCoachCount[player] = nil -- etj2.1.2: free the key, re-arm next session
 		-- harborheist-kqbq.12.1: invalidate any in-flight bite callback
 		-- (also frees the per-player key so the table cannot leak Player
 		-- instances). The player.Parent check in the callback is the primary
@@ -6168,7 +6198,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are casting too fast.", "warn", "cast")
+					remotes.notify(player, "Slow down — you're casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -6208,7 +6238,7 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn", "zone")
+			remotes.notify(player, "Stand in a fishing zone at your dock.", "warn", "zone")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access
@@ -6447,10 +6477,28 @@ function FishingService.init(deps)
 		end
 
 		-- Feedback so the player knows their cast quality registered.
+		-- etj2.1.2 (policy T5): an in-band cast demonstrates the mechanic —
+		-- suppress off-target coaching for the rest of the session.
+		if tier == "perfect" or tier == "good" then
+			offTargetCoachCount[player] = CAST_COACH_SUPPRESSED
+		end
 		if tier == "perfect" then
 			remotes.notify(player, "PERFECT CAST! +Luck on this catch.", "success", "cast")
 		elseif tier == "good" then
 			remotes.notify(player, "Good cast. +Luck on this catch.", "info", "cast")
+		elseif tier == "ok" then
+			-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class B): an off-target
+			-- tap used to get silence — the same invisible penalty as never
+			-- tapping, with no lesson. Coach occurrences 1 and 2 per
+			-- session, then quiet: the missing luck bonus and the labeled
+			-- overlay carry it from there.
+			local n = (offTargetCoachCount[player] or 0) + 1
+			offTargetCoachCount[player] = n
+			if n == 1 then
+				remotes.notify(player, "That tap missed the GOOD band — tap inside it to keep the luck bonus.", "warn", "cast")
+			elseif n == 2 then
+				remotes.notify(player, "The luck bonus needs the GOOD band — watch the marker and tap inside it.", "warn", "cast")
+			end
 		end
 	end)
 
@@ -6472,7 +6520,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cancel_cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are cancelling too fast.", "warn", "cast")
+					remotes.notify(player, "Slow down — you're cancelling too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -6900,6 +6948,13 @@ function OnboardingService.init(deps)
 			return { ok = false, reason = "unknown_flag" }
 		end
 		OnboardingService.mark(session, flag)
+		-- deep-review: persist the flag change so a crash/leave before the next
+		-- autosave (60s) doesn't lose it. Other paths that flip onboarding flags
+		-- (catch, store, claim) already checkpoint via their primary economy
+		-- save — this remote is the only path where the flag is the sole mutation.
+		task.spawn(function()
+			deps.dataManager.save(player)
+		end)
 		return { ok = true }
 	end
 end
@@ -9043,7 +9098,7 @@ function ShopService.init(deps)
 			return { ok = false, reason = "bad_level" }
 		end
 		if level ~= currentLevel + 1 then
-			remotes.notify(player, "Buy upgrades in order, one tier at a time!", "warn", "economy")
+			remotes.notify(player, "Buy upgrades in order, one tier at a time.", "warn", "economy")
 			return { ok = false, reason = "wrong_tier" }
 		end
 		if math.floor(session.profile.Coins) < item.cost then
@@ -10227,12 +10282,18 @@ local castDeadline = 0
 -- old per-cast InputBegan closure captured this by upvalue; the single
 -- overlay router (see CastState handler below) needs it as file scope.
 local castOverlayDuration = 0
--- harborheist-njqm: idle-cast coach toast. True while an OPENED cast
--- overlay is still waiting for its first tap; a CastState(false) arriving
--- in that window means the cast timed out with zero input and the server
--- silently assigned luckBonus 0. Coached once per session.
+-- harborheist-njqm / etj2.1.2: idle-cast coaching. castAwaitingInput is
+-- true while an OPENED cast overlay still waits for its first tap; a
+-- CastState(false) arriving in that window means the cast timed out with
+-- zero input and the server silently assigned luckBonus 0.
+-- etj2.1.2 (docs/CAST_COACHING_POLICY.md): tiny explicit coaching state —
+-- cadence A1 on the 1st idle cast / A2 on the 4th, suppressed permanently
+-- (session) once timing is demonstrated. Session-scoped by design (§5).
 local castAwaitingInput = false
-local coachShownIdleCast = false
+local castCoach = {
+	idleCount = 0,
+	timingDemonstrated = false,
+}
 -- TASK 23.1 (hvfh.3.1): central minigame/overlay manager. ONE owner for
 -- "which timed-input overlay is active", replacing four independent global
 -- InputBegan listeners (cast overlay, raid minigame, bite minigame x2).
@@ -12412,7 +12473,7 @@ end
 -- guarantees a lost fish. Placed after showNotification (lexical scope).
 local function overlayBlocksPanels()
 	if activeOverlay then
-		showNotification("One moment — finish the minigame first!", Theme.color.status.warn)
+		showNotification("One moment — finish the minigame first.", Theme.color.status.warn)
 		return true
 	end
 	return false
@@ -12685,7 +12746,7 @@ local SERVER_NOTIFIED_REASONS = {
 local FRIENDLY_FAILURE_REASONS = {
 	fish_not_found = "That fish is already gone.",
 	invalid_fish = "That fish can't be moved right now.",
-	rate_limited = "Slow down a moment...",
+	rate_limited = "Slow down — try again in a moment.",
 	no_session = "Still loading — try again in a second.",
 	bad_id = "That didn't work — try again.",
 }
@@ -12847,10 +12908,13 @@ end
 -- Layout-mode resize wiring: declared after updatePanelSizing exists
 -- (layoutDesktopBar / layoutMobileStack are feature-branch locals that keep
 -- their own resize handlers; only panel sizing is refreshed here).
+-- deep-review: viewportConn must be at FILE scope, not function scope, so the
+-- disconnect guard below actually finds the previous connection. A function-
+-- local resets to nil on every call, orphaning the old connection on each
+-- camera change (respawn) — a per-spawn connection leak.
+local _viewportConn
 local function bindViewportWidth(cam)
 	if not cam then return end
-
-	local viewportConn
 
 	local function updateLayoutMode()
 		-- harborheist-vr21: any viewport change can flip the orientation
@@ -12864,8 +12928,8 @@ local function bindViewportWidth(cam)
 		end
 	end
 
-	if viewportConn then viewportConn:Disconnect() end
-	viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayoutMode)
+	if _viewportConn then _viewportConn:Disconnect() end
+	_viewportConn = cam:GetPropertyChangedSignal("ViewportSize"):Connect(updateLayoutMode)
 end
 
 bindViewportWidth(workspace.CurrentCamera)
@@ -13494,7 +13558,9 @@ end
 -- signature consistent automatically.
 -- R3 audit #9: forward-declared so renderInventory can gate STORE ALL on
 -- bag-emptiness before the button instance is created below.
+-- etj2.2.4: invStoreAllHelper (the capacity-preview strip) same reason.
 local invStoreAllBtn
+local invStoreAllHelper
 local function sortCarriedForDisplay(carried)
 	local wrapped = {}
 	for i, fish in ipairs(carried) do
@@ -13588,10 +13654,42 @@ local function renderInventory()
 	-- R3 audit #9: STORE ALL should be dead while the bag is empty, otherwise
 	-- it fires a pointless round-trip and the server returns a confusing
 	-- toast. Reflect carry state on the bulk button every render.
+	-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D2): capacity-aware preview. The
+	-- snapshot already carries storedFish + capacity, so the advisory label
+	-- is exact at render time; the server result remains the truth (D3/D5).
+	-- Runs BEFORE the signature early-return so tank changes (sell/raid/
+	-- capacity purchase) refresh the button even when the bag is unchanged.
 	local bagHasFish = #carried > 0
-	invStoreAllBtn.Active = bagHasFish
-	invStoreAllBtn.AutoButtonColor = bagHasFish
-	invStoreAllBtn.TextColor3 = bagHasFish and Theme.color.text.ink or Theme.color.text.tertiary
+	local tankFits = math.max(0, (state.capacity or 0) - #(state.storedFish or {}))
+	local movable = math.min(#carried, tankFits)
+	local canStore = bagHasFish and movable > 0
+	invStoreAllBtn.Active = canStore
+	invStoreAllBtn.AutoButtonColor = canStore
+	invStoreAllBtn.TextColor3 = canStore and Theme.color.text.ink or Theme.color.text.tertiary
+	if movable == #carried then
+		-- All fit (or empty bag, where both are 0): the sacred one-tap path
+		-- (D1) — no preview, no helper. Empty-bag inactivity comes from
+		-- canStore above (R3 #9).
+		invStoreAllBtn.Text = "STORE ALL"
+		invStoreAllHelper.Visible = false
+	elseif movable > 0 then
+		-- Partial: progressive disclosure — the label previews the split.
+		local remaining = #carried - movable
+		invStoreAllBtn.Text = string.format("STORE %d OF %d", movable, #carried)
+		invStoreAllHelper.Text = string.format(
+			remaining == 1 and "Only %d fit — 1 stays in your bag." or "Only %d fit — %d stay in your bag.",
+			movable,
+			remaining
+		)
+		invStoreAllHelper.TextColor3 = Theme.color.text.secondary
+		invStoreAllHelper.Visible = true
+	else
+		-- None fit: pattern §2 blocked state — reason in adjacent text.
+		invStoreAllBtn.Text = "TANK FULL"
+		invStoreAllHelper.Text = "Sell stored fish to free space."
+		invStoreAllHelper.TextColor3 = Theme.color.status.warn
+		invStoreAllHelper.Visible = true
+	end
 	if signature == lastInventorySignature then
 		return
 	end
@@ -13749,11 +13847,49 @@ invStoreAllBtn = makeButton(inventoryContent, {
 	BackgroundColor3 = Theme.color.accent.base,
 	ZIndex = 26,
 })
+-- etj2.2.4 (docs/STORE_ALL_PREVIEW.md D2): capacity-preview strip. Sits in
+-- the existing gap between the list bottom and the button (list inset is
+-- ~36px taller than the button on both modalities), so no layout change.
+-- Progressive disclosure: visible only for partial / zero-fit states.
+invStoreAllHelper = makeLabel(inventoryContent, {
+	Size = UDim2.new(1, -4, 0, 16),
+	Position = UDim2.new(0, 4, 1, -(invBulkH + 20)),
+	Text = "",
+	Font = Theme.type.fonts.body,
+	TextSize = Theme.type.sizes.xs,
+	TextColor3 = Theme.color.text.secondary,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	Visible = false,
+	ZIndex = 26,
+})
 invStoreAllBtn.Activated:Connect(function()
 	if not invStoreAllBtn.Active then
 		return
 	end
-	Remotes.RequestStoreFish:InvokeServer()
+	-- etj2.2.4 (D4): debounce like the per-fish rows (R3 #8) — a double-tap
+	-- during latency fired a second invoke that found an empty bag and
+	-- earned the confusing "Go fish!" toast. The invoke RESULT is
+	-- intentionally unread: the server toast is the single reconciliation
+	-- channel (D3); the next push re-renders (D5).
+	-- Fresh-eyes fix: do NOT blindly setButtonEnabled(btn, true) after the
+	-- invoke — InvokeServer yields, so stateSync.push fires DURING the
+	-- yield and renderInventory re-asserts Active/colors before we return.
+	-- A blind restore would then overwrite the just-rendered capacity-aware
+	-- state (partial-store label, TANK FULL text), causing a color/label
+	-- flicker. Instead: re-render from the authoritative snapshot so the
+	-- button reflects post-store reality immediately, with no fight.
+	setButtonEnabled(invStoreAllBtn, false)
+	local ok = pcall(function()
+		Remotes.RequestStoreFish:InvokeServer()
+	end)
+	if not ok then
+		showNotification("Couldn't store your fish — try again.", Theme.color.status.bad)
+	end
+	-- renderInventory is the single source of truth for button state — let
+	-- it re-derive Active/Text/colors from the latest snapshot. It's nilsafe
+	-- if state hasn't loaded yet (early-return), and the signature guard
+	-- means it's a no-op if the bag didn't change.
+	renderInventory()
 end)
 
 -- ============================================================
@@ -14111,7 +14247,7 @@ local function makeMilestoneRow(parent, order, milestone)
 				lastCollectionSignature = nil
 				renderCollection()
 			elseif result and result.reason then
-				showNotification("Could not claim: " .. tostring(result.reason), Theme.color.status.bad)
+				showNotification("Couldn't claim that — try again.", Theme.color.status.bad)
 			end
 		end)
 	else
@@ -14299,7 +14435,7 @@ local function toggleCollectionPanel()
 		if not collectionBookData then
 			clearCollectionList()
 		end
-		showNotification("Collection book unavailable: " .. tostring(book and book.reason or "unknown"), Theme.color.status.bad)
+		showNotification("Collection book unavailable — try again.", Theme.color.status.bad)
 	end
 end
 
@@ -14451,6 +14587,20 @@ local function itemDeltaSubText(entry, currentLevel)
 			s = s .. "  •  " .. table.concat(nxt.cosmeticUnlocks, ", ")
 		end
 		return s
+	end
+	return itemSubText(entry)
+end
+
+-- [harborheist-etj2.2.2] Prerequisite copy for prerequisite-locked rows:
+-- names the exact prior tier (the recovery path) FIRST, with the item
+-- description trailing — pattern §2 locked-by-prerequisite
+-- (docs/UNAVAILABLE_STATE_PATTERN.md). Inference is unnecessary cognitive
+-- load; the actionable clause must never be the part that truncates.
+local function prerequisiteSubText(entry)
+	for _, other in ipairs(SHOP_CATALOG) do
+		if other.kind == entry.kind and other.level == entry.level - 1 then
+			return "Requires " .. itemDisplayName(other) .. "  •  " .. itemSubText(entry)
+		end
 	end
 	return itemSubText(entry)
 end
@@ -14678,9 +14828,10 @@ function refreshShop()
 			entry.buyButton.BackgroundColor3 = Theme.color.surface.secondary
 			entry.buyButton.TextColor3 = Theme.color.text.tertiary
 			entry.buyButton.Active = false
-			-- [harborheist-a2ug.8] absolute desc for LOCKED rows
+			-- [harborheist-etj2.2.2] LOCKED rows name the exact prerequisite
+			-- (the recovery path), not just the item description.
 			if entry.subTextLabel then
-				entry.subTextLabel.Text = itemSubText(entry)
+				entry.subTextLabel.Text = prerequisiteSubText(entry)
 			end
 		end
 	end
@@ -14816,6 +14967,23 @@ getOrCreateSummaryRow = function(kind)
 		TextSize = Theme.type.sizes.sm,
 		TextColor3 = Theme.color.status.good,
 		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 27,
+	})
+
+	-- [harborheist-etj2.2.2] Unambiguous completed state (pattern §2): the
+	-- summary row shares the muted elevated surface with disabled rows, so
+	-- the green badge alone could read as network-disabled. The subtitle
+	-- states the achievement plainly — maxed is never a block.
+	makeLabel(row, {
+		Size = UDim2.new(0.64, -20, 0, 30),
+		Position = UDim2.new(0, 10, 0, 30),
+		Text = "Fully upgraded — nothing left to buy in this track.",
+		Font = Theme.type.fonts.body,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.secondary,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
 		ZIndex = 27,
 	})
 
@@ -16692,6 +16860,13 @@ overlayInputHandlers.cast = function(input, gp)
 		local elapsed = os.clock() - (castDeadline - castOverlayDuration)
 		local accuracy = math.clamp(elapsed / castOverlayDuration, 0, 1)
 		castAwaitingInput = false -- harborheist-njqm: input received, no coach toast
+		-- etj2.1.2 (policy T5): a tap inside the server-sent good band proves
+		-- the mechanic is understood — suppress all cast coaching for the
+		-- session. Internal suppression only: nothing is displayed or granted
+		-- here, so the "client never claims a tier" rule stays intact.
+		if accuracy >= castHitZone.goodStart_ and accuracy &lt;= castHitZone.goodEnd_ then
+			castCoach.timingDemonstrated = true
+		end
 		-- harborheist-kqbq.19.2: cast tap already has bar-fill feedback
 		-- (the overlay closes + marker stops); add haptic for modality parity.
 		-- No neutral flash needed — the bar/overlay itself IS the ack.
@@ -17491,6 +17666,17 @@ local function runMinigame(windowSeconds)
 	-- backstop for any other occupied-slot path. Bail BEFORE mutating any
 	-- state so fishState/minigameActive can never wedge.
 	if not requestOverlay("bite") then
+		-- etj2.3.4: a BiteEvent arrived but the slot is occupied (cast or
+		-- raid overlay active). No state was mutated (bail is before any
+		-- assignment), so nothing needs unwedging. The server's bite
+		-- timeout will expire the bite server-side. The player sees a fish
+		-- bite indicator but no minigame — one concise explanation so it
+		-- doesn't read as a dead control. Skip when a cast is active: the
+		-- cast overlay IS the visible context, and the cast's own etj2.3.4
+		-- message already fires on its rejection path.
+		if not isOverlayActive("cast") then
+			showNotification("A fish bit — but you're busy. Finish what you're doing first.", Theme.color.status.info)
+		end
 		return
 	end
 	minigameActive = true
@@ -17944,7 +18130,7 @@ local function doFish()
 	-- minigame holds the overlay slot. Refused BEFORE RequestCast fires —
 	-- nothing is committed server-side, zero server calls.
 	if isOverlayActive("raid") then
-		showNotification("Finish the raid first!", Theme.color.status.warn)
+		showNotification("Finish the raid first.", Theme.color.status.warn)
 		return
 	end
 	-- harborheist-egvu: mid-bite F-presses must not fire a second RequestCast
@@ -18091,7 +18277,7 @@ sellButton.Activated:Connect(function()
 			if locked and (state.liveWellCount or 0) > 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
 				else
-				showNotification("No fish to sell!", Theme.color.status.alert)
+				showNotification("No fish to sell.", Theme.color.status.alert)
 			end
 			return
 		end
@@ -18199,7 +18385,7 @@ local function trySpawnBoat()
 	-- A stale snapshot self-corrects on the next 1Hz push; a stale-false
 	-- read just falls through to the server's own already_has_boat rejection.
 	if state and state.hasBoat then
-		showNotification("Your boat is out — find it at your dock!", Theme.color.brand.boat)
+		showNotification("Your boat is out — find it at your dock.", Theme.color.brand.boat)
 		return
 	end
 	local result = Remotes.SpawnBoat:InvokeServer()
@@ -18514,7 +18700,7 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		)
 	elseif not raidWindow.open and wasOpen then
 		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
-		showNotification("Raid waters closed. The harbor is safe... for now.", Theme.color.accent.soft)
+		showNotification("Raid waters closed. The harbor is safe for now.", Theme.color.accent.soft)
 	end
 end)
 
@@ -18641,7 +18827,6 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 			overlayScale.Parent = castOverlay
 			overlayScale.Scale = 0.9
 			TweenService:Create(overlayScale, EASE_POP, { Scale = 1 }):Play()
-
 			castDeadline = os.clock() + duration
 
 			-- kqbq.17.1 rejection log: Linear + variable server-driven (os.clock physics).
@@ -18652,17 +18837,42 @@ Remotes.CastState.OnClientEvent:Connect(function(isCasting, castTime, hitZone)
 				{ Position = UDim2.new(1, -5, 0, -3) }
 			)
 			markTween:Play()
-		end
+			else
+				-- etj2.3.4 (docs/CAST_COACHING_POLICY.md sibling principle):
+				-- requestOverlay("cast") failed — another minigame (raid or bite)
+				-- grabbed the single overlay slot in the sub-second gap between
+				-- RequestCast and this CastState. The cast still resolves
+				-- server-side with base luck (no CastResult tap), so NO state
+				-- needs unwedging here — casting/fishState will clean up on
+				-- CastState(false). The gap is purely informational: the player
+				-- cast and saw waiting dots but no timing bar, which reads as a
+				-- dead control without this explanation. Generic phrasing
+				-- ("minigame") because the slot could be raid OR bite — naming
+				-- "raid" would mislead when a bite overlay is active.
+				showNotification("Cast timing skipped — finish the minigame first. Your cast still resolves.", Theme.color.status.info)
+			end
 	else
 		-- harborheist-njqm: a CastState(false) arriving while the overlay
 		-- still awaited input means the cast timed out with ZERO taps — the
 		-- server assigned luckBonus 0 with no player-facing explanation.
-		-- Coach once per session so the miss teaches the mechanic.
 		if castAwaitingInput then
 			castAwaitingInput = false
-			if not coachShownIdleCast then
-				coachShownIdleCast = true
-				showNotification("No timing bonus — tap the bar next cast!", Theme.color.status.warn)
+			-- etj2.1.2 (docs/CAST_COACHING_POLICY.md Class A): A1 on the 1st
+			-- idle cast, A2 on the 4th (3 after A1), then silence; T5
+			-- suppresses permanently once timing is demonstrated. Dropped
+			-- WITHOUT counting when the onboarding prompt owns attention (S1)
+			-- or the toast queue is full (S2) — a late or competing coach
+			-- teaches the wrong lesson at the wrong moment.
+			if not castCoach.timingDemonstrated
+				and not onboardingPrompt.Visible
+				and activeToastCount &lt; maxVisibleToasts()
+			then
+				castCoach.idleCount += 1
+				if castCoach.idleCount == 1 then
+					showNotification("The cast bar filled up — tap it before it fills to keep your luck bonus.", Theme.color.status.warn)
+				elseif castCoach.idleCount == 4 then
+					showNotification("Still no luck bonus — one tap on the cast bar before it fills is all it takes.", Theme.color.status.warn)
+				end
 			end
 		end
 		-- CastState(false) with no bite: the cast resolved/cancelled. Only
