@@ -69,7 +69,7 @@ function ShopService.init(deps)
 			return { ok = false, reason = "bad_level" }
 		end
 		if level ~= currentLevel + 1 then
-			remotes.notify(player, "Buy upgrades in order, one tier at a time!", "warn", "economy")
+			remotes.notify(player, "Buy upgrades in order, one tier at a time.", "warn", "economy")
 			return { ok = false, reason = "wrong_tier" }
 		end
 		if math.floor(session.profile.Coins) < item.cost then

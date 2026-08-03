@@ -182,7 +182,7 @@ function AquariumService.init(deps)
 				remotes.notify(player, "Aquarium is locked — stored fish can't be sold until the lock expires.", "warn", "lock")
 				return { ok = false, reason = "aquarium_locked" }
 			end
-			remotes.notify(player, "No fish to sell!", "warn", "economy")
+			remotes.notify(player, "No fish to sell.", "warn", "economy")
 			return { ok = false }
 		end
 		local soldCount = carriedCount
@@ -378,7 +378,7 @@ function AquariumService.init(deps)
 		local newValue = not session.profile.Aquarium.RaidOptIn
 		session.profile.Aquarium.RaidOptIn = newValue
 		if newValue then
-			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows!", "warn", "raid-info")
+			remotes.notify(player, "Raid opt-in ENABLED. Your aquarium can be targeted during raid windows.", "warn", "raid-info")
 		else
 			remotes.notify(player, "Raid opt-in DISABLED. Your aquarium is safe from raids.", "success", "raid-info")
 		end

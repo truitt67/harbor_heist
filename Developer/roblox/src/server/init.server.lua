@@ -127,7 +127,7 @@ boatPrompt.Triggered:Connect(function(player)
 	-- have a boat" notify here since the prompt is the only UI surface where
 	-- that specific reason is surfaced (the RemoteFunction button just hides).
 	if result and not result.ok and result.reason == "already_has_boat" then
-		Remotes.notify(player, "You already have a boat!", "warn", "info")
+		Remotes.notify(player, "You already have a boat.", "warn", "info")
 	end
 end)
 
@@ -182,7 +182,7 @@ local function onPlayerAdded(player)
 		session.dockIndex = dock.index
 		DockManager.updateAquariumVisual(dock, session, StateSync.getCapacity(session))
 	else
-		Remotes.notify(player, "All docks are taken! You'll spawn at the plaza.", "warn", "info")
+		Remotes.notify(player, "All docks are taken — you'll spawn at the plaza.", "warn", "info")
 	end
 
 	-- RELIABILITY: Store connection so we can disconnect it later to prevent memory leaks

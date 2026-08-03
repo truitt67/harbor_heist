@@ -2518,7 +2518,7 @@ end
 -- guarantees a lost fish. Placed after showNotification (lexical scope).
 local function overlayBlocksPanels()
 	if activeOverlay then
-		showNotification("One moment — finish the minigame first!", Theme.color.status.warn)
+		showNotification("One moment — finish the minigame first.", Theme.color.status.warn)
 		return true
 	end
 	return false
@@ -2791,7 +2791,7 @@ local SERVER_NOTIFIED_REASONS = {
 local FRIENDLY_FAILURE_REASONS = {
 	fish_not_found = "That fish is already gone.",
 	invalid_fish = "That fish can't be moved right now.",
-	rate_limited = "Slow down a moment...",
+	rate_limited = "Slow down — try again in a moment.",
 	no_session = "Still loading — try again in a second.",
 	bad_id = "That didn't work — try again.",
 }
@@ -4292,7 +4292,7 @@ local function makeMilestoneRow(parent, order, milestone)
 				lastCollectionSignature = nil
 				renderCollection()
 			elseif result and result.reason then
-				showNotification("Could not claim: " .. tostring(result.reason), Theme.color.status.bad)
+				showNotification("Couldn't claim that — try again.", Theme.color.status.bad)
 			end
 		end)
 	else
@@ -4480,7 +4480,7 @@ local function toggleCollectionPanel()
 		if not collectionBookData then
 			clearCollectionList()
 		end
-		showNotification("Collection book unavailable: " .. tostring(book and book.reason or "unknown"), Theme.color.status.bad)
+		showNotification("Collection book unavailable — try again.", Theme.color.status.bad)
 	end
 end
 
@@ -8175,7 +8175,7 @@ local function doFish()
 	-- minigame holds the overlay slot. Refused BEFORE RequestCast fires —
 	-- nothing is committed server-side, zero server calls.
 	if isOverlayActive("raid") then
-		showNotification("Finish the raid first!", Theme.color.status.warn)
+		showNotification("Finish the raid first.", Theme.color.status.warn)
 		return
 	end
 	-- harborheist-egvu: mid-bite F-presses must not fire a second RequestCast
@@ -8322,7 +8322,7 @@ sellButton.Activated:Connect(function()
 			if locked and (state.liveWellCount or 0) > 0 then
 				showNotification("Aquarium is locked — stored fish can't be sold until the lock expires.", Theme.color.status.alert)
 				else
-				showNotification("No fish to sell!", Theme.color.status.alert)
+				showNotification("No fish to sell.", Theme.color.status.alert)
 			end
 			return
 		end
@@ -8430,7 +8430,7 @@ local function trySpawnBoat()
 	-- A stale snapshot self-corrects on the next 1Hz push; a stale-false
 	-- read just falls through to the server's own already_has_boat rejection.
 	if state and state.hasBoat then
-		showNotification("Your boat is out — find it at your dock!", Theme.color.brand.boat)
+		showNotification("Your boat is out — find it at your dock.", Theme.color.brand.boat)
 		return
 	end
 	local result = Remotes.SpawnBoat:InvokeServer()
@@ -8745,7 +8745,7 @@ Remotes.RaidWindowChanged.OnClientEvent:Connect(function(isOpen, remainingSecond
 		)
 	elseif not raidWindow.open and wasOpen then
 		playSound(SOUNDS.raidClose, 0.55) -- harborheist-6qyq: window-close settle
-		showNotification("Raid waters closed. The harbor is safe... for now.", Theme.color.accent.soft)
+		showNotification("Raid waters closed. The harbor is safe for now.", Theme.color.accent.soft)
 	end
 end)
 

@@ -74,7 +74,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are casting too fast.", "warn", "cast")
+					remotes.notify(player, "Slow down — you're casting too fast.", "warn", "cast")
 				end
 				return
 			end
@@ -114,7 +114,7 @@ function FishingService.init(deps)
 			inZone, zoneId = dockManager.isInFishingZone(dock, player.Character)
 		end
 		if not inZone then
-			remotes.notify(player, "Stand in a fishing zone at your dock!", "warn", "zone")
+			remotes.notify(player, "Stand in a fishing zone at your dock.", "warn", "zone")
 			return
 		end
 		-- TASK 2.2: Enforce rod-level zone access
@@ -396,7 +396,7 @@ function FishingService.init(deps)
 			local ok, reason = antiExploit.checkRate(player, "cancel_cast")
 			if not ok then
 				if reason == "rate_limited" then
-					remotes.notify(player, "Slow down! You are cancelling too fast.", "warn", "cast")
+					remotes.notify(player, "Slow down — you're cancelling too fast.", "warn", "cast")
 				end
 				return
 			end
