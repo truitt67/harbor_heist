@@ -17,13 +17,19 @@
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-kqbq: source the focus color from the canonical palette instead
+-- of a hardcoded RGB (was 56,152,255 — a duplicate of UIPalette.accent that
+-- would drift if the palette changed).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local KeyboardNav = {}
 KeyboardNav.__index = KeyboardNav
 
 -- Configuration
 local FOCUS_INDICATOR_THICKNESS = 3
-local FOCUS_INDICATOR_COLOR = Color3.fromRGB(56, 152, 255) -- accent blue
+local FOCUS_INDICATOR_COLOR = UIPalette.color("accent")
 local FOCUS_TWEEN_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 -- State

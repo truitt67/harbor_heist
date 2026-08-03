@@ -761,6 +761,7 @@ function ContextMenu.new(items, props)
 	menuFrame.Visible = false
 	corner(menuFrame, self.cornerRadius)
 	stroke(menuFrame, 0.8)
+	applyElevation(menuFrame, "high")
 
 	-- Store menu items data
 	self.itemsData = {}
@@ -1874,7 +1875,7 @@ local readyLabel = makeLabel(hud, {
 	Text = "",
 	Font = Theme.type.fonts.bold,
 	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
-	TextColor3 = Color3.fromRGB(50, 160, 80),
+	TextColor3 = Theme.color.status.claimReady,
 	TextTransparency = 1,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextTruncate = Enum.TextTruncate.AtEnd,
@@ -1918,7 +1919,7 @@ end
 
 -- TASK 24.1 (hvfh.4.1): dual-purpose income line — rate always shown, plus a
 -- claim-green "$N ready" segment while unclaimed income exists. One line: no
--- HUD height change, no carryPill shift. Color3.fromRGB(50,160,80) is the
+-- HUD height change, no carryPill shift. Theme.color.status.claimReady is the
 -- claimButton green used in render() — now set directly on readyLabel
 -- (harborheist-kqbq.11: RichText hex string no longer needed).
 -- TASK 22.3 (hvfh.2.3): adaptive income-rate formatting. Formats the SAME

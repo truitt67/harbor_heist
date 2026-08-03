@@ -30,6 +30,12 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-kqbq: source success/error colors from the canonical palette
+-- instead of hardcoded RGBs (were 52,199,123 and 255,92,92 — duplicates of
+-- UIPalette.good/bad that would drift if the palette changed).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local AnimationSystem = {}
 AnimationSystem.__index = AnimationSystem
@@ -386,7 +392,7 @@ function MicroInteraction:addSuccess(parent, message, duration)
   local checkmark = Instance.new("Frame")
   checkmark.Size = UDim2.new(0, 48, 0, 48)
   checkmark.Position = UDim2.new(0.5, -24, 0.5, -24)
-  checkmark.BackgroundColor3 = Color3.fromRGB(52, 199, 123)  -- green
+  checkmark.BackgroundColor3 = UIPalette.color("good")
   checkmark.BackgroundTransparency = 1 -- fade in
   checkmark.ZIndex = 900 + 1
   checkmark.Parent = parent
@@ -440,7 +446,7 @@ function MicroInteraction:addError(parent, message, duration)
   local errorFrame = Instance.new("Frame")
   errorFrame.Size = UDim2.new(0, 48, 0, 48)
   errorFrame.Position = UDim2.new(0.5, -24, 0.5, -24)
-  errorFrame.BackgroundColor3 = Color3.fromRGB(255, 92, 92)  -- red
+  errorFrame.BackgroundColor3 = UIPalette.color("bad")
   errorFrame.BackgroundTransparency = 1 -- fade in
   errorFrame.ZIndex = 900 + 1
   errorFrame.Parent = parent
