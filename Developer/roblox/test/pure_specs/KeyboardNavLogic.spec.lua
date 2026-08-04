@@ -473,4 +473,44 @@ return function(describe, it, expect)
 			expect(clientSource:find("baseBottom = math.max(baseBottom, 34)", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-3mo7.2.3: source contract for focus trapping
+	describe("Source contract: harborheist-3mo7.2.3 (focus trapping)", function()
+		it("declares focusTrapActive state variable", function()
+			expect(navSource:find("local focusTrapActive = false", 1, true)).to.be.a("number")
+		end)
+
+		it("declares trappedElements state variable", function()
+			expect(navSource:find("local trappedElements = {}", 1, true)).to.be.a("number")
+		end)
+
+		it("exposes EnableFocusTrap method", function()
+			expect(navSource:find("function KeyboardNav:EnableFocusTrap(", 1, true)).to.be.a("number")
+		end)
+
+		it("exposes DisableFocusTrap method", function()
+			expect(navSource:find("function KeyboardNav:DisableFocusTrap()", 1, true)).to.be.a("number")
+		end)
+
+		it("FocusNext respects focus trap", function()
+			expect(navSource:find("if focusTrapActive then", 1, true)).to.be.a("number")
+		end)
+
+		it("FocusPrevious respects focus trap", function()
+			-- Both FocusNext and FocusPrevious should check focusTrapActive
+			local count = 0
+			for _ in navSource:gmatch("if focusTrapActive then") do
+				count = count + 1
+			end
+			expect(count >= 2).to.equal(true)
+		end)
+
+		it("showPanel enables focus trap", function()
+			expect(clientSource:find("KeyboardNav:EnableFocusTrap(", 1, true)).to.be.a("number")
+		end)
+
+		it("hidePanels disables focus trap", function()
+			expect(clientSource:find("KeyboardNav:DisableFocusTrap()", 1, true)).to.be.a("number")
+		end)
+	end)
 end

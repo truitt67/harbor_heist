@@ -3212,6 +3212,10 @@ hidePanels = function()
 			GuiService.SelectedObject = previousFocusElement
 		end
 		previousFocusElement = nil
+		-- harborheist-3mo7.2.3: Disable focus trap to restore normal Tab navigation
+		if not IS_MOBILE then
+			KeyboardNav:DisableFocusTrap()
+		end
 		-- harborheist-kqbq.22.3: stash the scroll position of the shop /
 		-- collection lists so a close→reopen restores it (content may have
 		-- shrunk — clamped on restore, never into blank space).
@@ -3325,6 +3329,16 @@ local function showPanel(panel)
 	local firstFocusable = findFirstFocusableElement(panel)
 	if firstFocusable then
 		GuiService.SelectedObject = firstFocusable
+	end
+	-- harborheist-3mo7.2.3: Enable focus trap to keep Tab within the panel
+	if not IS_MOBILE then
+		local trappedButtons = {}
+		for _, descendant in ipairs(panel:GetDescendants()) do
+			if descendant:IsA("GuiButton") and descendant.Visible and descendant.Active then
+				table.insert(trappedButtons, descendant)
+			end
+		end
+		KeyboardNav:EnableFocusTrap(trappedButtons)
 	end
 	-- kqbq.17.3: arm the open-animation guard before the backdrop is tappable.
 	panelOpenToken += 1

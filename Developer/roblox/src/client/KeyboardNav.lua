@@ -37,6 +37,9 @@ local focusableElements = {} -- array of {element, tabOrder, stroke}
 local currentFocusIndex = 0
 local isEnabled = false
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+-- harborheist-3mo7.2.3: Focus trap state for modal panels
+local focusTrapActive = false
+local trappedElements = {}
 -- harborheist-6qps: store the InputBegan connection so Disable() can
 -- disconnect it. Without this, each Enable/Disable cycle leaks a connection
 -- on UserInputService (the old connection's guard `if not isEnabled then
@@ -130,41 +133,86 @@ end
 
 --[[
 	Move focus to the next element in tab order.
+	When focus trap is active, cycles only through trapped elements.
 	
 	@return nil
 ]]
 function KeyboardNav:FocusNext()
-	if #focusableElements == 0 then return end
-	
-	-- Clear current focus
-	self:ClearFocus()
-	
-	-- Move to next (wrap around)
-	currentFocusIndex = (currentFocusIndex % #focusableElements) + 1
-	
-	-- Apply focus
-	self:ApplyFocus()
+	if focusTrapActive then
+		-- Focus trap mode: cycle through trapped elements only
+		if #trappedElements == 0 then return end
+		
+		-- Find current trapped element index
+		local currentTrappedIndex = 0
+		local selected = GuiService.SelectedObject
+		for i, elem in ipairs(trappedElements) do
+			if elem == selected then
+				currentTrappedIndex = i
+				break
+			end
+		end
+		
+		-- Move to next (wrap around)
+		local nextIndex = (currentTrappedIndex % #trappedElements) + 1
+		GuiService.SelectedObject = trappedElements[nextIndex]
+	else
+		-- Normal mode: cycle through all focusable elements
+		if #focusableElements == 0 then return end
+		
+		-- Clear current focus
+		self:ClearFocus()
+		
+		-- Move to next (wrap around)
+		currentFocusIndex = (currentFocusIndex % #focusableElements) + 1
+		
+		-- Apply focus
+		self:ApplyFocus()
+	end
 end
 
 --[[
 	Move focus to the previous element in tab order.
+	When focus trap is active, cycles only through trapped elements.
 	
 	@return nil
 ]]
 function KeyboardNav:FocusPrevious()
-	if #focusableElements == 0 then return end
-	
-	-- Clear current focus
-	self:ClearFocus()
-	
-	-- Move to previous (wrap around)
-	currentFocusIndex = currentFocusIndex - 1
-	if currentFocusIndex < 1 then
-		currentFocusIndex = #focusableElements
+	if focusTrapActive then
+		-- Focus trap mode: cycle through trapped elements only
+		if #trappedElements == 0 then return end
+		
+		-- Find current trapped element index
+		local currentTrappedIndex = 0
+		local selected = GuiService.SelectedObject
+		for i, elem in ipairs(trappedElements) do
+			if elem == selected then
+				currentTrappedIndex = i
+				break
+			end
+		end
+		
+		-- Move to previous (wrap around)
+		local prevIndex = currentTrappedIndex - 1
+		if prevIndex < 1 then
+			prevIndex = #trappedElements
+		end
+		GuiService.SelectedObject = trappedElements[prevIndex]
+	else
+		-- Normal mode: cycle through all focusable elements
+		if #focusableElements == 0 then return end
+		
+		-- Clear current focus
+		self:ClearFocus()
+		
+		-- Move to previous (wrap around)
+		currentFocusIndex = currentFocusIndex - 1
+		if currentFocusIndex < 1 then
+			currentFocusIndex = #focusableElements
+		end
+		
+		-- Apply focus
+		self:ApplyFocus()
 	end
-	
-	-- Apply focus
-	self:ApplyFocus()
 end
 
 --[[
@@ -337,6 +385,51 @@ function KeyboardNav:ClearAll()
 	end
 	focusableElements = {}
 	currentFocusIndex = 0
+end
+
+--[[
+	Enable focus trap for modal panels.
+	When active, Tab/Shift+Tab cycles only through trapped elements.
+	
+	@param elements table - Array of GuiButton elements to trap focus within
+	@return nil
+]]
+function KeyboardNav:EnableFocusTrap(elements)
+	if isMobile then return end
+	focusTrapActive = true
+	trappedElements = elements or {}
+	-- Focus the first trapped element if nothing is focused
+	if #trappedElements > 0 then
+		local found = false
+		for _, entry in ipairs(focusableElements) do
+			if entry.element == trappedElements[1] then
+				found = true
+				break
+			end
+		end
+		if found then
+			GuiService.SelectedObject = trappedElements[1]
+		end
+	end
+end
+
+--[[
+	Disable focus trap, restoring normal Tab navigation.
+	
+	@return nil
+]]
+function KeyboardNav:DisableFocusTrap()
+	focusTrapActive = false
+	trappedElements = {}
+end
+
+--[[
+	Check if focus trap is currently active.
+	
+	@return boolean - True if focus trap is active
+]]
+function KeyboardNav:IsFocusTrapActive()
+	return focusTrapActive
 end
 
 return KeyboardNav
