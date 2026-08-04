@@ -397,4 +397,38 @@ return function(describe, it, expect)
 			expect(clientSource:find("local shopTabOrder = 2000", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-3mo7.2.2: source contract for panel focus management
+	describe("Source contract: harborheist-3mo7.2.2 (panel focus management)", function()
+		it("declares previousFocusElement variable", function()
+			-- Track focus before panel opens so we can restore it on close
+			expect(clientSource:find("local previousFocusElement = nil", 1, true)).to.be.a("number")
+		end)
+
+		it("defines findFirstFocusableElement helper", function()
+			-- Helper to find the first focusable GuiButton in a panel
+			expect(clientSource:find("local function findFirstFocusableElement(container)", 1, true)).to.be.a("number")
+		end)
+
+		it("saves focus before opening panel", function()
+			-- Save current focus when opening a panel
+			expect(clientSource:find("previousFocusElement = GuiService.SelectedObject", 1, true)).to.be.a("number")
+		end)
+
+		it("focuses first element in panel on open", function()
+			-- Move focus to first focusable element when panel opens
+			expect(clientSource:find("local firstFocusable = findFirstFocusableElement(panel)", 1, true)).to.be.a("number")
+			expect(clientSource:find("GuiService.SelectedObject = firstFocusable", 1, true)).to.be.a("number")
+		end)
+
+		it("restores focus when panel closes", function()
+			-- Restore previous focus when panel closes
+			expect(clientSource:find("if previousFocusElement and previousFocusElement.Parent then", 1, true)).to.be.a("number")
+		end)
+
+		it("clears previousFocusElement after restore", function()
+			-- Reset the saved focus after restoring
+			expect(clientSource:find("previousFocusElement = nil", 1, true)).to.be.a("number")
+		end)
+	end)
 end

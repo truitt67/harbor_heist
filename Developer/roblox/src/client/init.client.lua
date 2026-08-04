@@ -2869,6 +2869,20 @@ local activePanel = nil
 -- stale open-clear from A drop the flag while B is still opening.
 local panelOpening = false
 local panelOpenToken = 0
+-- harborheist-3mo7.2.2: Track focus before panel opens so we can restore it on close
+local previousFocusElement = nil
+
+-- harborheist-3mo7.2.2: Helper to find the first focusable GuiButton in a panel
+local function findFirstFocusableElement(container)
+	if not container then return nil end
+	for _, descendant in ipairs(container:GetDescendants()) do
+		if descendant:IsA("GuiButton") and descendant.Visible and descendant.Active then
+			return descendant
+		end
+	end
+	return nil
+end
+
 -- harborheist-vasr: forward declaration — the context menu implementation
 -- lives in the inventory section below, but hidePanels must be able to
 -- destroy an open menu when its panel closes.
@@ -3150,6 +3164,11 @@ hidePanels = function()
 		if updateActionBarIndicator then
 			updateActionBarIndicator()
 		end
+		-- harborheist-3mo7.2.2: Restore focus to the element that had focus before the panel opened
+		if previousFocusElement and previousFocusElement.Parent then
+			GuiService.SelectedObject = previousFocusElement
+		end
+		previousFocusElement = nil
 		-- harborheist-kqbq.22.3: stash the scroll position of the shop /
 		-- collection lists so a close→reopen restores it (content may have
 		-- shrunk — clamped on restore, never into blank space).
@@ -3210,6 +3229,8 @@ local function showPanel(panel)
 		return
 	end
 	if activePanel then
+		-- harborheist-3mo7.2.2: Save focus before closing the old panel (switch case)
+		previousFocusElement = GuiService.SelectedObject
 		-- R3 audit #5: switching panels on mobile hard-hid the old sheet
 		-- (Visible=false) while the new one slid up — an abrupt pop in a UI
 		-- that tweens everywhere else. Slide the old one down like hidePanels.
@@ -3246,9 +3267,19 @@ local function showPanel(panel)
 			end)
 		end
 	end
+	-- harborheist-3mo7.2.2: Focus management - save current focus before opening
+	if not activePanel then
+		-- Only save focus when opening from scratch (not switching panels, which already saved above)
+		previousFocusElement = GuiService.SelectedObject
+	end
 	activePanel = panel
 	if updateActionBarIndicator then
 		updateActionBarIndicator()
+	end
+	-- Find and focus the first focusable element in the panel
+	local firstFocusable = findFirstFocusableElement(panel)
+	if firstFocusable then
+		GuiService.SelectedObject = firstFocusable
 	end
 	-- kqbq.17.3: arm the open-animation guard before the backdrop is tappable.
 	panelOpenToken += 1
