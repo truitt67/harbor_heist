@@ -51,7 +51,18 @@ return function(describe, it, expect)
 			-- is destroyed and a new one created. The callback must check row.Parent
 			-- to bail if the row was destroyed, avoiding a context menu with stale
 			-- fish data from the old closure.
-			has("if isPressed and row.Parent then", "row.Parent guard in callback")
+			has("if isPressed and myToken == pressToken and row.Parent then", "row.Parent guard in callback")
+		end)
+
+		it("uses token-based cancellation to prevent stale callbacks", function()
+			-- A quick tap-then-hold sequence could let the first touch's stale
+			-- callback fire during the second touch's hold window. The pressToken
+			-- generation counter prevents this: each touch increments the token,
+			-- and the callback only fires if its captured token still matches.
+			has("local pressToken = 0", "token initialization")
+			has("pressToken += 1", "token increment")
+			has("local myToken = pressToken", "token capture")
+			has("myToken == pressToken", "token check in callback")
 		end)
 
 		it("InputEnded cancels long-press by resetting flag", function()

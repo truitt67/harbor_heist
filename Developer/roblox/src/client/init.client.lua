@@ -4119,20 +4119,29 @@ bindInventoryRowContextMenu = function(row, fish)
 	if IS_MOBILE then
 		local LONG_PRESS_DURATION = 0.5
 		local isPressed = false
+		local pressToken = 0 -- generation counter: each new touch increments;
+		-- the callback only fires if its captured token still matches, so a
+		-- quick tap-then-hold sequence can't have the first touch's stale
+		-- callback fire during the second touch's hold window.
 		
 		row.Active = true
 		
 		row.InputBegan:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.Touch then
 				isPressed = true
+				pressToken += 1
+				local myToken = pressToken
 				-- Start timer for long-press detection
 				task.delay(LONG_PRESS_DURATION, function()
-					-- Check if still pressed AND row still parented. renderInventory
-					-- rebuilds all rows on every state push (income ticks, remote
-					-- pushes); if a push landed during the hold, the old row is
-					-- destroyed and row.Parent is nil — bail to avoid opening a
-					-- context menu with stale fish data from the old closure.
-					if isPressed and row.Parent then
+					-- Three guards:
+					-- 1. isPressed: finger still down
+					-- 2. myToken == pressToken: no newer touch superseded this one
+					--    (a quick tap-then-hold would otherwise let the first
+					--    touch's stale callback fire during the second hold)
+					-- 3. row.Parent: renderInventory rebuilds all rows on every
+					--    state push (income ticks, remote pushes); if the row was
+					--    destroyed during the hold, bail to avoid stale fish data
+					if isPressed and myToken == pressToken and row.Parent then
 						-- Long-press detected — show context menu as bottom sheet
 						playHaptic("PressStart")
 						-- Calculate position (center-bottom of screen for mobile)
@@ -4148,8 +4157,10 @@ bindInventoryRowContextMenu = function(row, fish)
 		
 		row.InputEnded:Connect(function(input)
 			if input.UserInputType == Enum.UserInputType.Touch then
-				-- Cancel long-press by resetting flag
+				-- Cancel long-press by resetting flag AND bumping the token so
+				-- any pending callback from this touch is invalidated.
 				isPressed = false
+				pressToken += 1
 			end
 		end)
 		return
