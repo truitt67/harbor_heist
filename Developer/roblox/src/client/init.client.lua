@@ -7849,6 +7849,12 @@ local function runMinigame(windowSeconds)
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
 	minigameFrame.Visible = true
+	-- harborheist-3mo7.3.35: entrance animation matching cast overlay
+	-- Scale 0.9 → 1.0 with EASE_POP (0.28s Spring Out) for consistency
+	local minigameScale = minigameFrame:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+	minigameScale.Parent = minigameFrame
+	minigameScale.Scale = 0.9
+	TweenService:Create(minigameScale, EASE_POP, { Scale = 1 }):Play()
 	-- BiteEvent -> runMinigame reached here, so a bite is really happening:
 	-- enter bite-ready now (after the windowSeconds guard, so a bad payload
 	-- never sticks the button in bite-ready with no minigame to close it).
@@ -8199,7 +8205,18 @@ local function onMinigameTap()
 	minigameActive = false
 	minigameTapAck(minigameFrame)
 	releaseOverlay("bite")
-	minigameFrame.Visible = false
+	-- harborheist-3mo7.3.35: exit animation matching cast overlay
+	-- Scale 1.0 → 0.9 with EASE_IN (0.16s Quad In) before hiding
+	local exitScale = minigameFrame:FindFirstChildOfClass("UIScale")
+	if exitScale then
+		local exitTween = TweenService:Create(exitScale, EASE_IN, { Scale = 0.9 })
+		exitTween:Play()
+		exitTween.Completed:Connect(function()
+			minigameFrame.Visible = false
+		end)
+	else
+		minigameFrame.Visible = false
+	end
 	setFishState("idle")
 	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,

@@ -154,7 +154,20 @@ function KeyboardNav:FocusNext()
 		
 		-- Move to next (wrap around)
 		local nextIndex = (currentTrappedIndex % #trappedElements) + 1
-		GuiService.SelectedObject = trappedElements[nextIndex]
+		local nextElement = trappedElements[nextIndex]
+		
+		-- Clear visual focus from all elements, then apply to next
+		self:ClearFocus()
+		GuiService.SelectedObject = nextElement
+		
+		-- Find the next element in focusableElements and apply visual focus
+		for i, entry in ipairs(focusableElements) do
+			if entry.element == nextElement then
+				currentFocusIndex = i
+				self:ApplyFocus()
+				break
+			end
+		end
 	else
 		-- Normal mode: cycle through all focusable elements
 		if #focusableElements == 0 then return end
@@ -196,7 +209,20 @@ function KeyboardNav:FocusPrevious()
 		if prevIndex < 1 then
 			prevIndex = #trappedElements
 		end
-		GuiService.SelectedObject = trappedElements[prevIndex]
+		local prevElement = trappedElements[prevIndex]
+		
+		-- Clear visual focus from all elements, then apply to previous
+		self:ClearFocus()
+		GuiService.SelectedObject = prevElement
+		
+		-- Find the previous element in focusableElements and apply visual focus
+		for i, entry in ipairs(focusableElements) do
+			if entry.element == prevElement then
+				currentFocusIndex = i
+				self:ApplyFocus()
+				break
+			end
+		end
 	else
 		-- Normal mode: cycle through all focusable elements
 		if #focusableElements == 0 then return end
@@ -397,18 +423,25 @@ end
 function KeyboardNav:EnableFocusTrap(elements)
 	if isMobile then return end
 	focusTrapActive = true
-	trappedElements = elements or {}
-	-- Focus the first trapped element if nothing is focused
-	if #trappedElements > 0 then
-		local found = false
+	-- Filter elements to only include those that are registered with KeyboardNav
+	trappedElements = {}
+	for _, elem in ipairs(elements or {}) do
 		for _, entry in ipairs(focusableElements) do
-			if entry.element == trappedElements[1] then
-				found = true
+			if entry.element == elem then
+				table.insert(trappedElements, elem)
 				break
 			end
 		end
-		if found then
-			GuiService.SelectedObject = trappedElements[1]
+	end
+	-- Focus the first trapped element and apply visual focus
+	if #trappedElements > 0 then
+		for i, entry in ipairs(focusableElements) do
+			if entry.element == trappedElements[1] then
+				self:ClearFocus()
+				currentFocusIndex = i
+				self:ApplyFocus()
+				break
+			end
 		end
 	end
 end
