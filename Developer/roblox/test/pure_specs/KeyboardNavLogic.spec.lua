@@ -539,4 +539,18 @@ return function(describe, it, expect)
 			expect(clientSource:find("KeyboardNav:DisableFocusTrap()", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-3mo7.3.35: source contract for bite minigame entrance/exit animations
+	describe("Source contract: harborheist-3mo7.3.35 (bite minigame animations)", function()
+		it("adds entrance animation to bite minigame", function()
+			-- Entrance: scale 0.9 → 1.0 with EASE_POP
+			expect(clientSource:find("minigameScale.Scale = 0.9", 1, true)).to.be.a("number")
+			expect(clientSource:find("TweenService:Create(minigameScale, EASE_POP, { Scale = 1 })", 1, true)).to.be.a("number")
+		end)
+
+		it("adds exit animation to bite minigame", function()
+			-- Exit: scale 1.0 → 0.9 with EASE_IN before hiding
+			expect(clientSource:find("TweenService:Create(exitScale, EASE_IN, { Scale = 0.9 })", 1, true)).to.be.a("number")
+		end)
+	end)
 end
