@@ -4115,11 +4115,43 @@ end
 -- Bound per-row inside renderInventory (the fish reference rides the
 -- closure — no fake Instance properties, no list-level hit-testing).
 bindInventoryRowContextMenu = function(row, fish)
+	-- Mobile: long-press gesture (500ms hold) to open context menu
 	if IS_MOBILE then
+		local LONG_PRESS_DURATION = 0.5
+		local isPressed = false
+		
+		row.Active = true
+		
+		row.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch then
+				isPressed = true
+				-- Start timer for long-press detection
+				task.delay(LONG_PRESS_DURATION, function()
+					-- Check if still pressed after duration
+					if isPressed then
+						-- Long-press detected — show context menu as bottom sheet
+						playHaptic("PressStart")
+						-- Calculate position (center-bottom of screen for mobile)
+						local viewport = workspace.CurrentCamera.ViewportSize
+						local x = viewport.X / 2
+						local y = viewport.Y - 100 -- Near bottom
+						createInventoryContextMenu(fish, x, y)
+						isPressed = false -- Reset after showing menu
+					end
+				end)
+			end
+		end)
+		
+		row.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.Touch then
+				-- Cancel long-press by resetting flag
+				isPressed = false
+			end
+		end)
 		return
 	end
-	-- Plain Frames only receive InputBegan when Active; this also sinks
-	-- row clicks so they don't fall through to the 3D world behind the panel.
+	
+	-- Desktop: right-click context menu
 	row.Active = true
 	row.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then
