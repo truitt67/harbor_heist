@@ -431,4 +431,46 @@ return function(describe, it, expect)
 			expect(clientSource:find("previousFocusElement = nil", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-3mo7.1.1: source contract for iOS safe-area handling
+	describe("Source contract: harborheist-3mo7.1.1 (iOS safe-area handling)", function()
+		it("defines calculateSafeBottom function", function()
+			-- Calculate bottom safe area for iOS home indicator
+			expect(clientSource:find("local function calculateSafeBottom()", 1, true)).to.be.a("number")
+		end)
+
+		it("declares SAFE_BOTTOM variable", function()
+			-- Mutable bottom safe area, recalculated on orientation change
+			expect(clientSource:find("local SAFE_BOTTOM = calculateSafeBottom()", 1, true)).to.be.a("number")
+		end)
+
+		it("defines getMobileStackBottom function", function()
+			-- Dynamic bottom offset replacing hardcoded MOBILE_STACK_BOTTOM
+			expect(clientSource:find("local function getMobileStackBottom()", 1, true)).to.be.a("number")
+		end)
+
+		it("registers mobile stack with safeTopConsumers", function()
+			-- Mobile stack repositions on orientation change
+			expect(clientSource:find("table.insert(safeTopConsumers, function()", 1, true)).to.be.a("number")
+			expect(clientSource:find("stack.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())", 1, true)).to.be.a("number")
+		end)
+
+		it("replaces MOBILE_STACK_BOTTOM with getMobileStackBottom()", function()
+			-- All references use dynamic function instead of hardcoded constant
+			expect(clientSource:find("getMobileStackBottom()", 1, true)).to.be.a("number")
+			-- Verify no remaining references to old constant (except in comments)
+			local moibleStackBottomCount = 0
+			for _ in clientSource:gmatch("MOBILE_STACK_BOTTOM") do
+				moibleStackBottomCount = moibleStackBottomCount + 1
+			end
+			-- Should only appear in comments (2 occurrences)
+			expect(moibleStackBottomCount).to.equal(2)
+		end)
+
+		it("uses iOS home indicator heuristic", function()
+			-- Heuristic: if inset.Y > 20, assume 34px home indicator
+			expect(clientSource:find("if IS_MOBILE and inset.Y and inset.Y > 20 then", 1, true)).to.be.a("number")
+			expect(clientSource:find("baseBottom = math.max(baseBottom, 34)", 1, true)).to.be.a("number")
+		end)
+	end)
 end

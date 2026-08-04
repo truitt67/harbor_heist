@@ -442,7 +442,8 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
 -- Safe area handling (harborheist-fxfx): proper inset detection for all devices
-local inset = GuiService:GetGuiInset()
+-- harborheist-3mo7.1.1: Call GetGuiInset() inside calculation functions to get
+-- current value on each orientation change, not a stale module-load value.
 
 -- Calculate safe top offset based on device type and orientation
 local function calculateSafeTop()
@@ -464,6 +465,8 @@ local function calculateSafeTop()
 	local safeTop = baseSafeArea[isLandscape and "landscape" or "portrait"][IS_MOBILE and "mobile" or "desktop"]
 	
 	-- Add notch compensation if detected (iOS devices have larger inset.Y)
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
 	if inset.Y and inset.Y > 20 then
 		safeTop = math.max(safeTop, inset.Y + 4) -- Extra 4px for notch safety margin
 	end
@@ -471,9 +474,43 @@ local function calculateSafeTop()
 	return safeTop
 end
 
+-- harborheist-3mo7.1.1: Calculate safe bottom offset for iOS home indicator
+-- Note: GuiService:GetGuiInset() returns a Vector2 where X is horizontal inset
+-- and Y is vertical inset (top notch/status bar height on iOS).
+-- There is NO API to get the BOTTOM inset (home indicator) directly.
+-- We use a heuristic: if inset.Y > 20, assume iOS device with ~34px home indicator.
+-- LIMITATION: This may not work perfectly for Android devices with gesture navigation
+-- (which can have ~20-30px bottom inset but small top inset). For those devices,
+-- the action stack may overlap the gesture bar. This is acceptable since the game
+-- is primarily targeted at iOS.
+local function calculateSafeBottom()
+	local cam = workspace.CurrentCamera
+	local viewportSize = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local isLandscape = viewportSize.X > viewportSize.Y
+	
+	-- Base bottom safe area (no home indicator)
+	local baseBottom = IS_MOBILE and (isLandscape and 12 or 8) or 0
+	
+	-- iOS home indicator heuristic: if top inset > 20px, device has notch + home indicator
+	-- iPhone X+: top ~44px, bottom ~34px (home indicator)
+	-- iPad with home indicator: top ~20px, bottom ~20px
+	-- Older devices: top ~0px, bottom ~0px
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
+	if IS_MOBILE and inset.Y and inset.Y > 20 then
+		-- Assume 34px home indicator (iPhone X and later)
+		baseBottom = math.max(baseBottom, 34)
+	end
+	
+	return baseBottom
+end
+
 -- Mutable: harborheist-vr21 — recalculated on viewport/orientation change by
 -- refreshSafeTop() below (HUD consumers reposition via safeTopConsumers).
 local SAFE_TOP = calculateSafeTop()
+
+-- harborheist-3mo7.1.1: Mutable bottom safe area, recalculated on orientation change
+local SAFE_BOTTOM = calculateSafeBottom()
 
 -- Registry of SAFE_TOP consumers: each entry re-reads SAFE_TOP and
 -- repositions one UI element. Populated where each element is created
@@ -481,6 +518,7 @@ local SAFE_TOP = calculateSafeTop()
 local safeTopConsumers = {}
 local function refreshSafeTop()
 	SAFE_TOP = calculateSafeTop()
+	SAFE_BOTTOM = calculateSafeBottom()
 	for _, fn in ipairs(safeTopConsumers) do
 		task.spawn(fn)
 	end
@@ -2534,9 +2572,12 @@ end
 -- manual edits. (itt5: these definitions were lost in the hvfh.8.2
 -- partial-staging and are restored here.)
 -- ============================================================
-local MOBILE_STACK_BOTTOM = 90
+-- harborheist-3mo7.1.1: Dynamic bottom safe area (replaces hardcoded MOBILE_STACK_BOTTOM)
+-- Base offset is SAFE_BOTTOM (device home indicator) + 12px padding above safe area
+local function getMobileStackBottom()
+	return SAFE_BOTTOM + 12
+end
 local MOBILE_STACK_PITCH = 70
--- harborheist-hqn1: EFFECTIVE pitch after viewport-fit scaling. layoutMobileStack
 -- mutates this on short screens; updateOnboardingPromptOffset reads it so the
 -- prompt tracks the actual (possibly shrunk) stack top, not the design default.
 local mobileStackPitch = MOBILE_STACK_PITCH
@@ -2924,6 +2965,8 @@ local function desktopPanelFitScale(panel)
 	end
 	-- A centered panel has equal top/bottom gaps, and the top gap must
 	-- clear the Roblox top bar (inset) plus the aesthetic margin.
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
 	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
 	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
 	-- Floor: on absurdly small windows (<~120px tall) availW/availH go
@@ -3229,8 +3272,10 @@ local function showPanel(panel)
 		return
 	end
 	if activePanel then
-		-- harborheist-3mo7.2.2: Save focus before closing the old panel (switch case)
-		previousFocusElement = GuiService.SelectedObject
+		-- harborheist-3mo7.2.2: DO NOT save focus when switching panels.
+		-- The original focus (from before any panel opened) is already saved
+		-- in previousFocusElement. We want to restore THAT, not the focus
+		-- inside the current panel.
 		-- R3 audit #5: switching panels on mobile hard-hid the old sheet
 		-- (Visible=false) while the new one slid up — an abrupt pop in a UI
 		-- that tweens everywhere else. Slide the old one down like hidePanels.
@@ -3268,8 +3313,8 @@ local function showPanel(panel)
 		end
 	end
 	-- harborheist-3mo7.2.2: Focus management - save current focus before opening
-	if not activePanel then
-		-- Only save focus when opening from scratch (not switching panels, which already saved above)
+	-- Only save if previousFocusElement is nil (opening first panel, not switching)
+	if not activePanel and not previousFocusElement then
 		previousFocusElement = GuiService.SelectedObject
 	end
 	activePanel = panel
@@ -6085,7 +6130,7 @@ local function updateOnboardingPromptOffset()
 		-- mobileStackPitch = btnSize + MOBILE_STACK_PADDING, so total = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
 		local btnSize = mobileStackPitch - MOBILE_STACK_PADDING
 		local stackContentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
-		local offset = MOBILE_STACK_BOTTOM + stackContentH + PROMPT_STACK_GAP
+		local offset = getMobileStackBottom() + stackContentH + PROMPT_STACK_GAP
 		-- Short landscape phones: the derived offset would push the prompt
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
@@ -6130,12 +6175,19 @@ if IS_MOBILE then
 	local stack = Instance.new("ScrollingFrame")
 	stack.Name = "ActionStack"
 	stack.AnchorPoint = Vector2.new(1, 1)
-	stack.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+	stack.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
 	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * MOBILE_STACK_PITCH)
 	stack.BackgroundTransparency = 1
 	stack.ScrollingEnabled = false
 	stack.ScrollBarThickness = 0
 	stack.Parent = screenGui
+	
+	-- harborheist-3mo7.1.1: Register mobile stack with safe area consumers
+	-- so it repositions on orientation change (home indicator handling)
+	table.insert(safeTopConsumers, function()
+		stack.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
+	end)
+	
 	-- harborheist-kqbq.8: bottom-edge fade gradient shown ONLY when the
 	-- stack is scrollable and not scrolled to the bottom. Non-interactive
 	-- (Active=false) so it never intercepts touch input.
@@ -6231,7 +6283,7 @@ if IS_MOBILE then
 		-- Calculate original content height: buttons + gaps between them
 		local fullH = #ACTIONS * 60 + (#ACTIONS - 1) * MOBILE_STACK_PADDING
 		-- Available height: viewport minus bottom margin and HUD zone
-		local availH = viewportH - MOBILE_STACK_BOTTOM - (SAFE_TOP + 60)
+		local availH = viewportH - getMobileStackBottom() - (SAFE_TOP + 60)
 		local idealScale = availH / fullH
 		
 		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
@@ -6255,7 +6307,7 @@ if IS_MOBILE then
 		end
 		-- harborheist-kqbq.8: position the fade at the stack's bottom edge
 		stackFade.Size = UDim2.new(0, btnSize + 4, 0, 24)
-		stackFade.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+		stackFade.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
 	else
 		-- Normal scaling (fits within viewport)
 		local scale = math.clamp(idealScale, MIN_SCALE, 1)
