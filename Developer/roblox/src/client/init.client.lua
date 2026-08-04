@@ -3877,6 +3877,13 @@ local function renderInventory()
 			end
 			return result
 		end)
+		-- harborheist-3mo7.2.1: register per-fish SELL/STORE buttons with keyboard nav.
+		-- Tab order 1000+ to place after static HUD/panel buttons. Auto-unregisters
+		-- when row is destroyed (KeyboardNav connects to element.Destroying).
+		if not IS_MOBILE then
+			KeyboardNav:Register(sellBtn, 1000 + i * 2)
+			KeyboardNav:Register(storeBtn, 1000 + i * 2 + 1)
+		end
 		-- R4 polish: staggered entrance on rebuild.
 		staggerFadeIn(row, i)
 		
@@ -4936,6 +4943,22 @@ buildSectionHeader("DEFENSE", 299, { "lock", "alarm" })
 buildSectionHeader("DOCK", 499, { "dock" })
 for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
+end
+
+-- harborheist-3mo7.2.1: register shop BUY buttons with keyboard nav.
+-- Tab order 2000+ to place after inventory row buttons (1000+).
+-- Shop rows persist for the session (not destroyed/recreated), so no
+-- auto-unregister needed — KeyboardNav:Enable() is called once at init.
+if not IS_MOBILE then
+	local shopTabOrder = 2000
+	for _, entry in ipairs(SHOP_CATALOG) do
+		local rowKey = entry.kind .. entry.level
+		local row = shopRows[rowKey]
+		if row and row.buyButton then
+			KeyboardNav:Register(row.buyButton, shopTabOrder)
+			shopTabOrder = shopTabOrder + 1
+		end
+	end
 end
 
 -- [harborheist-a2ug.9] Compute max level per kind and create lazily-built

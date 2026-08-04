@@ -366,4 +366,35 @@ return function(describe, it, expect)
 			expect(navSource:find("inputConnection = UserInputService.InputBegan:Connect", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-3mo7.2.1: source contract for shop/inventory button registration
+	local clientSource = fs.readFile("src/client/init.client.lua")
+
+	describe("Source contract: harborheist-3mo7.2.1 (shop/inventory keyboard nav)", function()
+		it("registers shop BUY buttons with KeyboardNav", function()
+			-- Shop buy buttons are created in buildShopRow, stored in shopRows[key].buyButton
+			-- Registration happens after the SHOP_CATALOG loop
+			expect(clientSource:find("KeyboardNav:Register(row.buyButton", 1, true)).to.be.a("number")
+		end)
+
+		it("registers inventory SELL buttons with KeyboardNav", function()
+			-- Per-fish sellBtn created in renderInventory loop
+			expect(clientSource:find("KeyboardNav:Register(sellBtn", 1, true)).to.be.a("number")
+		end)
+
+		it("registers inventory STORE buttons with KeyboardNav", function()
+			-- Per-fish storeBtn created in renderInventory loop
+			expect(clientSource:find("KeyboardNav:Register(storeBtn", 1, true)).to.be.a("number")
+		end)
+
+		it("uses tab order 1000+ for inventory row buttons", function()
+			-- Inventory buttons use 1000+i*2 pattern to place after static HUD buttons
+			expect(clientSource:find("1000 + i * 2", 1, true)).to.be.a("number")
+		end)
+
+		it("uses tab order 2000+ for shop buy buttons", function()
+			-- Shop buttons use 2000+ to place after inventory row buttons
+			expect(clientSource:find("local shopTabOrder = 2000", 1, true)).to.be.a("number")
+		end)
+	end)
 end
