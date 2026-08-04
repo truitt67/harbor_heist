@@ -474,6 +474,32 @@ return function(describe, it, expect)
 		end)
 	end)
 
+	-- harborheist-3mo7.3.36: source contract for WCAG AA contrast fix
+	describe("Source contract: harborheist-3mo7.3.36 (WCAG AA contrast)", function()
+		it("uses text.secondary for undiscovered '???' label", function()
+			-- Undiscovered collection cards use text.secondary (not text.tertiary) for WCAG AA compliance
+			expect(clientSource:find('Text = "???"', 1, true)).to.be.a("number")
+			expect(clientSource:find("TextColor3 = Theme.color.text.secondary", 1, true)).to.be.a("number")
+		end)
+
+		it("does not use text.tertiary for undiscovered labels", function()
+			-- Verify the old problematic pattern is gone
+			local lines = {}
+			for line in clientSource:gmatch("[^\r\n]+") do
+				table.insert(lines, line)
+			end
+			
+			local foundBadPattern = false
+			for _, line in ipairs(lines) do
+				if line:find('Text = "???"', 1, true) and line:find("TextColor3 = Theme.color.text.tertiary", 1, true) then
+					foundBadPattern = true
+					break
+				end
+			end
+			expect(foundBadPattern).to.equal(false)
+		end)
+	end)
+
 	-- harborheist-3mo7.2.3: source contract for focus trapping
 	describe("Source contract: harborheist-3mo7.2.3 (focus trapping)", function()
 		it("declares focusTrapActive state variable", function()

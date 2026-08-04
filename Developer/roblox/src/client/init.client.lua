@@ -4311,7 +4311,7 @@ local function makeCollectionCard(parent, order, data, discovered)
 		-- TASK 27.1: Replace "?" text with greyed fish silhouette (no species-identifying info)
 		buildFishSilhouette(icon, Theme.color.text.tertiary)
 
-		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, ZIndex = 27 })
+		makeLabel(card, { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.new(0, 0, 0, 78), Text = "???", Font = Theme.type.fonts.bold, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.secondary, ZIndex = 27 })
 		makeLabel(card, { Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 0, 0, 98), Text = string.upper(data.rarity or "Unknown") .. " FISH", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.xs, TextColor3 = rarityColor, ZIndex = 27 })
 	end
 	return card
