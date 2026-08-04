@@ -1960,11 +1960,29 @@ AquariumService.startIncomeLoop(deps)
 DataManager.startAutosave()
 DataManager.bindToClose()
 
+-- etj2.2.7: Proactive state push on DataStore health transitions.
+-- When health flips (healthy→unhealthy or unhealthy→healthy), push the
+-- updated state to all sessions within ~1s so clients show/clear the
+-- degraded banner immediately, not on the next income-tick or action push.
+DataManager.onHealthChange(function(healthy)
+	for player in pairs(DataManager.allSessions()) do
+		local session = DataManager.get(player)
+		if session then
+			StateSync.push(session)
+		end
+	end
+end)
+
 -- E2E test bridge: expose internal service state for the E2E runner
 -- (tests/e2e/runner.server.lua). The _G table is per-VM and never
--- replicates to clients. Guarded by the E2ERunner script existing (only
--- present in the E2E place, not in production builds).
-if ServerScriptService:FindFirstChild("E2ERunner") then
+-- replicates to clients. Guarded by a test-only server script existing
+-- (only present in test/E2E places, not in production builds).
+-- EPIC 43 (c4fs): the modular scenario place maps the bootstrap as RunE2E
+-- (e2e_scenarios.project.json) with no E2ERunner script — without widening
+-- this guard, bridge-dependent scenarios would silently skip there.
+local e2eHarnessScript = ServerScriptService:FindFirstChild("E2ERunner")
+	or ServerScriptService:FindFirstChild("RunE2E")
+if e2eHarnessScript then
 	_G.HARBORHEIST_TEST = {
 		activeBites = fishingInit._activeBites,
 		setFishingRng = fishingInit._setRng,
@@ -4271,6 +4289,10 @@ local MAX_FAILURES_BEFORE_DISABLE = 3
 local isDataStoreHealthy = true
 local lastFailureTime = 0
 local FAILURE_COOLDOWN = 60 -- seconds before retrying after disable
+-- etj2.2.7: Health-change callback. Registered by init.server.lua to push
+-- state to all sessions when health flips (so clients learn within ~1s,
+-- not on the next income-tick or action push).
+local onHealthChangeCallback = nil
 -- v1 store is only needed for migration reads; failure here is non-fatal
 -- (players without v1 data just skip migration).
 pcall(function()
@@ -4283,16 +4305,26 @@ end)
 -- a successful READ does not reset (read-success doesn't prove write-health).
 -- Both save and load failures increment the counter.
 local function recordSuccess()
+	local wasHealthy = isDataStoreHealthy
 	consecutiveFailures = 0
 	isDataStoreHealthy = true
+	-- etj2.2.7: notify on health flip (unhealthy → healthy)
+	if not wasHealthy and onHealthChangeCallback then
+		pcall(onHealthChangeCallback, true)
+	end
 end
 
 local function recordFailure()
+	local wasHealthy = isDataStoreHealthy
 	consecutiveFailures += 1
 	lastFailureTime = os.time()
 	if consecutiveFailures >= MAX_FAILURES_BEFORE_DISABLE then
 		isDataStoreHealthy = false
 		warn("[HarborHeist] DataStore marked unhealthy after " .. consecutiveFailures .. " consecutive failures. Transactions will show warning.")
+		-- etj2.2.7: notify on health flip (healthy → unhealthy)
+		if wasHealthy and onHealthChangeCallback then
+			pcall(onHealthChangeCallback, false)
+		end
 	end
 end
 
@@ -5077,9 +5109,20 @@ function DataManager.tryRecover()
 		isDataStoreHealthy = true
 		consecutiveFailures = 0
 		print("[HarborHeist] DataStore attempting recovery after cooldown.")
+		-- etj2.2.7: notify on health flip (unhealthy → healthy)
+		if onHealthChangeCallback then
+			pcall(onHealthChangeCallback, true)
+		end
 		return true
 	end
 	return isDataStoreHealthy
+end
+
+-- etj2.2.7: Register a callback to be notified when DataStore health flips.
+-- Called by init.server.lua to push state to all sessions within ~1s.
+-- ⓘ DataManager.onHealthChange — registers a callback invoked on health transitions (EPIC 19.6 covers at runtime)
+function DataManager.onHealthChange(callback)
+	onHealthChangeCallback = callback
 end
 -- Test export: makes the local sanitize function accessible to unit tests
 -- without changing any production behavior. See test/specs/DataManagerSanitize.spec.lua
@@ -9209,6 +9252,7 @@ return ShopService
         <Properties>
           <string name="Name">StateSync</string>
           <string name="Source"><![CDATA[local GameConfig = require(game:GetService("ReplicatedStorage").Shared.GameConfig)
+local DataManager = require(script.Parent.DataManager)
 
 local StateSync = {}
 
@@ -9368,7 +9412,11 @@ function StateSync.push(session)
 			cashValue.Value = math.floor(session.profile.Coins)
 		end
 	end
-	StateSync.remotes.StateChanged:FireClient(player, StateSync.snapshot(session))
+	-- etj2.2.7: snapshot() hardcodes dataStoreHealthy = true (overridden in
+	-- GetState). Override here too so push() sends the live health state.
+	local snap = StateSync.snapshot(session)
+	snap.dataStoreHealthy = DataManager.isHealthy()
+	StateSync.remotes.StateChanged:FireClient(player, snap)
 end
 
 function StateSync.setupLeaderstats(player, session)
@@ -10397,7 +10445,8 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.Parent = playerGui
 
 -- Safe area handling (harborheist-fxfx): proper inset detection for all devices
-local inset = GuiService:GetGuiInset()
+-- harborheist-3mo7.1.1: Call GetGuiInset() inside calculation functions to get
+-- current value on each orientation change, not a stale module-load value.
 
 -- Calculate safe top offset based on device type and orientation
 local function calculateSafeTop()
@@ -10419,6 +10468,8 @@ local function calculateSafeTop()
 	local safeTop = baseSafeArea[isLandscape and "landscape" or "portrait"][IS_MOBILE and "mobile" or "desktop"]
 	
 	-- Add notch compensation if detected (iOS devices have larger inset.Y)
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
 	if inset.Y and inset.Y > 20 then
 		safeTop = math.max(safeTop, inset.Y + 4) -- Extra 4px for notch safety margin
 	end
@@ -10426,9 +10477,43 @@ local function calculateSafeTop()
 	return safeTop
 end
 
+-- harborheist-3mo7.1.1: Calculate safe bottom offset for iOS home indicator
+-- Note: GuiService:GetGuiInset() returns (ignoreGuiInset: boolean, inset: Vector2)
+-- where inset.X is left inset and inset.Y is TOP inset (notch/status bar).
+-- There is NO API to get the BOTTOM inset (home indicator) directly.
+-- We use a heuristic: if inset.Y > 20, assume iOS device with ~34px home indicator.
+-- LIMITATION: This may not work perfectly for Android devices with gesture navigation
+-- (which can have ~20-30px bottom inset but small top inset). For those devices,
+-- the action stack may overlap the gesture bar. This is acceptable since the game
+-- is primarily targeted at iOS.
+local function calculateSafeBottom()
+	local cam = workspace.CurrentCamera
+	local viewportSize = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+	local isLandscape = viewportSize.X > viewportSize.Y
+	
+	-- Base bottom safe area (no home indicator)
+	local baseBottom = IS_MOBILE and (isLandscape and 12 or 8) or 0
+	
+	-- iOS home indicator heuristic: if top inset > 20px, device has notch + home indicator
+	-- iPhone X+: top ~44px, bottom ~34px (home indicator)
+	-- iPad with home indicator: top ~20px, bottom ~20px
+	-- Older devices: top ~0px, bottom ~0px
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
+	if IS_MOBILE and inset.Y and inset.Y > 20 then
+		-- Assume 34px home indicator (iPhone X and later)
+		baseBottom = math.max(baseBottom, 34)
+	end
+	
+	return baseBottom
+end
+
 -- Mutable: harborheist-vr21 — recalculated on viewport/orientation change by
 -- refreshSafeTop() below (HUD consumers reposition via safeTopConsumers).
 local SAFE_TOP = calculateSafeTop()
+
+-- harborheist-3mo7.1.1: Mutable bottom safe area, recalculated on orientation change
+local SAFE_BOTTOM = calculateSafeBottom()
 
 -- Registry of SAFE_TOP consumers: each entry re-reads SAFE_TOP and
 -- repositions one UI element. Populated where each element is created
@@ -10436,6 +10521,7 @@ local SAFE_TOP = calculateSafeTop()
 local safeTopConsumers = {}
 local function refreshSafeTop()
 	SAFE_TOP = calculateSafeTop()
+	SAFE_BOTTOM = calculateSafeBottom()
 	for _, fn in ipairs(safeTopConsumers) do
 		task.spawn(fn)
 	end
@@ -10716,6 +10802,7 @@ function ContextMenu.new(items, props)
 	menuFrame.Visible = false
 	corner(menuFrame, self.cornerRadius)
 	stroke(menuFrame, 0.8)
+	applyElevation(menuFrame, "high")
 
 	-- Store menu items data
 	self.itemsData = {}
@@ -11829,7 +11916,7 @@ local readyLabel = makeLabel(hud, {
 	Text = "",
 	Font = Theme.type.fonts.bold,
 	TextSize = IS_MOBILE and Theme.type.sizes.xs or Theme.type.sizes.sm,
-	TextColor3 = Color3.fromRGB(50, 160, 80),
+	TextColor3 = Theme.color.status.claimReady,
 	TextTransparency = 1,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextTruncate = Enum.TextTruncate.AtEnd,
@@ -11873,7 +11960,7 @@ end
 
 -- TASK 24.1 (hvfh.4.1): dual-purpose income line — rate always shown, plus a
 -- claim-green "$N ready" segment while unclaimed income exists. One line: no
--- HUD height change, no carryPill shift. Color3.fromRGB(50,160,80) is the
+-- HUD height change, no carryPill shift. Theme.color.status.claimReady is the
 -- claimButton green used in render() — now set directly on readyLabel
 -- (harborheist-kqbq.11: RichText hex string no longer needed).
 -- TASK 22.3 (hvfh.2.3): adaptive income-rate formatting. Formats the SAME
@@ -12488,9 +12575,12 @@ end
 -- manual edits. (itt5: these definitions were lost in the hvfh.8.2
 -- partial-staging and are restored here.)
 -- ============================================================
-local MOBILE_STACK_BOTTOM = 90
+-- harborheist-3mo7.1.1: Dynamic bottom safe area (replaces hardcoded MOBILE_STACK_BOTTOM)
+-- Base offset is SAFE_BOTTOM (device home indicator) + 12px padding above safe area
+local function getMobileStackBottom()
+	return SAFE_BOTTOM + 12
+end
 local MOBILE_STACK_PITCH = 70
--- harborheist-hqn1: EFFECTIVE pitch after viewport-fit scaling. layoutMobileStack
 -- mutates this on short screens; updateOnboardingPromptOffset reads it so the
 -- prompt tracks the actual (possibly shrunk) stack top, not the design default.
 local mobileStackPitch = MOBILE_STACK_PITCH
@@ -12823,6 +12913,20 @@ local activePanel = nil
 -- stale open-clear from A drop the flag while B is still opening.
 local panelOpening = false
 local panelOpenToken = 0
+-- harborheist-3mo7.2.2: Track focus before panel opens so we can restore it on close
+local previousFocusElement = nil
+
+-- harborheist-3mo7.2.2: Helper to find the first focusable GuiButton in a panel
+local function findFirstFocusableElement(container)
+	if not container then return nil end
+	for _, descendant in ipairs(container:GetDescendants()) do
+		if descendant:IsA("GuiButton") and descendant.Visible and descendant.Active then
+			return descendant
+		end
+	end
+	return nil
+end
+
 -- harborheist-vasr: forward declaration — the context menu implementation
 -- lives in the inventory section below, but hidePanels must be able to
 -- destroy an open menu when its panel closes.
@@ -12864,6 +12968,8 @@ local function desktopPanelFitScale(panel)
 	end
 	-- A centered panel has equal top/bottom gaps, and the top gap must
 	-- clear the Roblox top bar (inset) plus the aesthetic margin.
+	-- harborheist-3mo7.1.1: Get current inset value (not stale module-load value)
+	local inset = GuiService:GetGuiInset()
 	local availW = cam.ViewportSize.X - 2 * PANEL_SCREEN_MARGIN
 	local availH = cam.ViewportSize.Y - 2 * (inset.Y + PANEL_SCREEN_MARGIN)
 	-- Floor: on absurdly small windows (&lt;~120px tall) availW/availH go
@@ -13104,6 +13210,11 @@ hidePanels = function()
 		if updateActionBarIndicator then
 			updateActionBarIndicator()
 		end
+		-- harborheist-3mo7.2.2: Restore focus to the element that had focus before the panel opened
+		if previousFocusElement and previousFocusElement.Parent then
+			GuiService.SelectedObject = previousFocusElement
+		end
+		previousFocusElement = nil
 		-- harborheist-kqbq.22.3: stash the scroll position of the shop /
 		-- collection lists so a close→reopen restores it (content may have
 		-- shrunk — clamped on restore, never into blank space).
@@ -13164,6 +13275,10 @@ local function showPanel(panel)
 		return
 	end
 	if activePanel then
+		-- harborheist-3mo7.2.2: DO NOT save focus when switching panels.
+		-- The original focus (from before any panel opened) is already saved
+		-- in previousFocusElement. We want to restore THAT, not the focus
+		-- inside the current panel.
 		-- R3 audit #5: switching panels on mobile hard-hid the old sheet
 		-- (Visible=false) while the new one slid up — an abrupt pop in a UI
 		-- that tweens everywhere else. Slide the old one down like hidePanels.
@@ -13200,9 +13315,19 @@ local function showPanel(panel)
 			end)
 		end
 	end
+	-- harborheist-3mo7.2.2: Focus management - save current focus before opening
+	-- Only save if previousFocusElement is nil (opening first panel, not switching)
+	if not activePanel and not previousFocusElement then
+		previousFocusElement = GuiService.SelectedObject
+	end
 	activePanel = panel
 	if updateActionBarIndicator then
 		updateActionBarIndicator()
+	end
+	-- Find and focus the first focusable element in the panel
+	local firstFocusable = findFirstFocusableElement(panel)
+	if firstFocusable then
+		GuiService.SelectedObject = firstFocusable
 	end
 	-- kqbq.17.3: arm the open-animation guard before the backdrop is tappable.
 	panelOpenToken += 1
@@ -13831,6 +13956,13 @@ local function renderInventory()
 			end
 			return result
 		end)
+		-- harborheist-3mo7.2.1: register per-fish SELL/STORE buttons with keyboard nav.
+		-- Tab order 1000+ to place after static HUD/panel buttons. Auto-unregisters
+		-- when row is destroyed (KeyboardNav connects to element.Destroying).
+		if not IS_MOBILE then
+			KeyboardNav:Register(sellBtn, 1000 + i * 2)
+			KeyboardNav:Register(storeBtn, 1000 + i * 2 + 1)
+		end
 		-- R4 polish: staggered entrance on rebuild.
 		staggerFadeIn(row, i)
 		
@@ -14890,6 +15022,22 @@ buildSectionHeader("DEFENSE", 299, { "lock", "alarm" })
 buildSectionHeader("DOCK", 499, { "dock" })
 for _, entry in ipairs(SHOP_CATALOG) do
 	buildShopRow(entry)
+end
+
+-- harborheist-3mo7.2.1: register shop BUY buttons with keyboard nav.
+-- Tab order 2000+ to place after inventory row buttons (1000+).
+-- Shop rows persist for the session (not destroyed/recreated), so no
+-- auto-unregister needed — KeyboardNav:Enable() is called once at init.
+if not IS_MOBILE then
+	local shopTabOrder = 2000
+	for _, entry in ipairs(SHOP_CATALOG) do
+		local rowKey = entry.kind .. entry.level
+		local row = shopRows[rowKey]
+		if row and row.buyButton then
+			KeyboardNav:Register(row.buyButton, shopTabOrder)
+			shopTabOrder = shopTabOrder + 1
+		end
+	end
 end
 
 -- [harborheist-a2ug.9] Compute max level per kind and create lazily-built
@@ -15985,7 +16133,7 @@ local function updateOnboardingPromptOffset()
 		-- mobileStackPitch = btnSize + MOBILE_STACK_PADDING, so total = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
 		local btnSize = mobileStackPitch - MOBILE_STACK_PADDING
 		local stackContentH = #ACTIONS * btnSize + (#ACTIONS - 1) * MOBILE_STACK_PADDING
-		local offset = MOBILE_STACK_BOTTOM + stackContentH + PROMPT_STACK_GAP
+		local offset = getMobileStackBottom() + stackContentH + PROMPT_STACK_GAP
 		-- Short landscape phones: the derived offset would push the prompt
 		-- into the toast host / HUD. Clamp so the prompt's top edge stays
 		-- at or below the toast host's lower edge (+8px margin) — the
@@ -16030,12 +16178,19 @@ if IS_MOBILE then
 	local stack = Instance.new("ScrollingFrame")
 	stack.Name = "ActionStack"
 	stack.AnchorPoint = Vector2.new(1, 1)
-	stack.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+	stack.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
 	stack.Size = UDim2.new(0, 64, 0, #ACTIONS * MOBILE_STACK_PITCH)
 	stack.BackgroundTransparency = 1
 	stack.ScrollingEnabled = false
 	stack.ScrollBarThickness = 0
 	stack.Parent = screenGui
+	
+	-- harborheist-3mo7.1.1: Register mobile stack with safe area consumers
+	-- so it repositions on orientation change (home indicator handling)
+	table.insert(safeTopConsumers, function()
+		stack.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
+	end)
+	
 	-- harborheist-kqbq.8: bottom-edge fade gradient shown ONLY when the
 	-- stack is scrollable and not scrolled to the bottom. Non-interactive
 	-- (Active=false) so it never intercepts touch input.
@@ -16131,7 +16286,7 @@ if IS_MOBILE then
 		-- Calculate original content height: buttons + gaps between them
 		local fullH = #ACTIONS * 60 + (#ACTIONS - 1) * MOBILE_STACK_PADDING
 		-- Available height: viewport minus bottom margin and HUD zone
-		local availH = viewportH - MOBILE_STACK_BOTTOM - (SAFE_TOP + 60)
+		local availH = viewportH - getMobileStackBottom() - (SAFE_TOP + 60)
 		local idealScale = availH / fullH
 		
 		-- If ideal scale would violate touch target, use minimum scale and enable scrolling
@@ -16155,7 +16310,7 @@ if IS_MOBILE then
 		end
 		-- harborheist-kqbq.8: position the fade at the stack's bottom edge
 		stackFade.Size = UDim2.new(0, btnSize + 4, 0, 24)
-		stackFade.Position = UDim2.new(1, -12, 1, -MOBILE_STACK_BOTTOM)
+		stackFade.Position = UDim2.new(1, -12, 1, -getMobileStackBottom())
 	else
 		-- Normal scaling (fits within viewport)
 		local scale = math.clamp(idealScale, MIN_SCALE, 1)
@@ -19032,6 +19187,12 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
 local SoundService = game:GetService("SoundService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-kqbq: source success/error colors from the canonical palette
+-- instead of hardcoded RGBs (were 52,199,123 and 255,92,92 — duplicates of
+-- UIPalette.good/bad that would drift if the palette changed).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local AnimationSystem = {}
 AnimationSystem.__index = AnimationSystem
@@ -19388,7 +19549,7 @@ function MicroInteraction:addSuccess(parent, message, duration)
   local checkmark = Instance.new("Frame")
   checkmark.Size = UDim2.new(0, 48, 0, 48)
   checkmark.Position = UDim2.new(0.5, -24, 0.5, -24)
-  checkmark.BackgroundColor3 = Color3.fromRGB(52, 199, 123)  -- green
+  checkmark.BackgroundColor3 = UIPalette.color("good")
   checkmark.BackgroundTransparency = 1 -- fade in
   checkmark.ZIndex = 900 + 1
   checkmark.Parent = parent
@@ -19442,7 +19603,7 @@ function MicroInteraction:addError(parent, message, duration)
   local errorFrame = Instance.new("Frame")
   errorFrame.Size = UDim2.new(0, 48, 0, 48)
   errorFrame.Position = UDim2.new(0.5, -24, 0.5, -24)
-  errorFrame.BackgroundColor3 = Color3.fromRGB(255, 92, 92)  -- red
+  errorFrame.BackgroundColor3 = UIPalette.color("bad")
   errorFrame.BackgroundTransparency = 1 -- fade in
   errorFrame.ZIndex = 900 + 1
   errorFrame.Parent = parent
@@ -20110,13 +20271,19 @@ return Gradients
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- harborheist-kqbq: source the focus color from the canonical palette instead
+-- of a hardcoded RGB (was 56,152,255 — a duplicate of UIPalette.accent that
+-- would drift if the palette changed).
+local UIPalette = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UIPalette"))
 
 local KeyboardNav = {}
 KeyboardNav.__index = KeyboardNav
 
 -- Configuration
 local FOCUS_INDICATOR_THICKNESS = 3
-local FOCUS_INDICATOR_COLOR = Color3.fromRGB(56, 152, 255) -- accent blue
+local FOCUS_INDICATOR_COLOR = UIPalette.color("accent")
 local FOCUS_TWEEN_INFO = TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 -- State
