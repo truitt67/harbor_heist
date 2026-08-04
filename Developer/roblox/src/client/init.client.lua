@@ -4127,8 +4127,12 @@ bindInventoryRowContextMenu = function(row, fish)
 				isPressed = true
 				-- Start timer for long-press detection
 				task.delay(LONG_PRESS_DURATION, function()
-					-- Check if still pressed after duration
-					if isPressed then
+					-- Check if still pressed AND row still parented. renderInventory
+					-- rebuilds all rows on every state push (income ticks, remote
+					-- pushes); if a push landed during the hold, the old row is
+					-- destroyed and row.Parent is nil — bail to avoid opening a
+					-- context menu with stale fish data from the old closure.
+					if isPressed and row.Parent then
 						-- Long-press detected — show context menu as bottom sheet
 						playHaptic("PressStart")
 						-- Calculate position (center-bottom of screen for mobile)

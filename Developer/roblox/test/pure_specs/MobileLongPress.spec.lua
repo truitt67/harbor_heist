@@ -4,8 +4,9 @@
 --
 -- Pins the mobile long-press gesture contract: inventory rows must detect
 -- 500ms touch holds and open the context menu. Desktop right-click must
--- remain functional. The gesture must set row.Active=true and wire both
--- InputBegan (Touch) and InputEnded (Touch) handlers.
+-- remain functional. The gesture must set row.Active=true, wire both
+-- InputBegan (Touch) and InputEnded (Touch) handlers, and check row.Parent
+-- to avoid stale fish data after renderInventory rebuild.
 return function(describe, it, expect)
 	local fs = require("@lune/fs")
 	local src = fs.readFile("./src/client/init.client.lua")
@@ -26,7 +27,6 @@ return function(describe, it, expect)
 			has("input.UserInputType == Enum.UserInputType.Touch", "touch input type")
 			has("isPressed = true", "press flag set")
 			has("task.delay(LONG_PRESS_DURATION, function()", "delayed callback")
-			has("if isPressed then", "press flag check")
 			has("isPressed = false", "press flag reset")
 		end)
 
@@ -43,6 +43,15 @@ return function(describe, it, expect)
 			has("local x = viewport.X / 2", "center x position")
 			has("local y = viewport.Y - 100", "bottom y position")
 			has("createInventoryContextMenu(fish, x, y)", "menu creation")
+		end)
+
+		it("long-press callback checks row.Parent to avoid stale fish data after renderInventory rebuild", function()
+			-- renderInventory rebuilds all rows on every state push (income ticks).
+			-- If a state push lands during the 500ms long-press window, the old row
+			-- is destroyed and a new one created. The callback must check row.Parent
+			-- to bail if the row was destroyed, avoiding a context menu with stale
+			-- fish data from the old closure.
+			has("if isPressed and row.Parent then", "row.Parent guard in callback")
 		end)
 
 		it("InputEnded cancels long-press by resetting flag", function()
