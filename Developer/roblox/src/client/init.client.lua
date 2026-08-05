@@ -395,8 +395,10 @@ end
 --          27 = inner controls (capacity bar, claim button),
 --          28 = shop/quest panel fills
 --
---   30-39  Prompts (sell/store confirmations)
---          30 = sellStorePrompt, 31 = prompt children
+--   30-39  Prompts (sell/store confirmations) + mobile action sheet
+--          30 = sellStorePrompt / action sheet backdrop (f0x8),
+--          31 = prompt children / action sheet frame,
+--          32 = action sheet rows / grabber / drag surface
 --
 --   40-49  Minigame overlays (cast, bite, raid)
 --          40 = OVERLAY_Z_BASE (frame), 41 = OVERLAY_Z_CONTENT,
@@ -4045,13 +4047,12 @@ end)
 -- activeContextMenu itself is forward-declared near hidePanels (top of file)
 -- so hidePanels can destroy an open menu when panels close.
 
-local function createInventoryContextMenu(fish, x, y)
-	if activeContextMenu then
-		activeContextMenu:destroy()
-		activeContextMenu = nil
-	end
-
-	local items = {
+-- harborheist-f0x8: shared action list builder. The desktop cursor popup
+-- (createInventoryContextMenu) and the mobile bottom sheet
+-- (showMobileActionSheet) render the SAME sell/store/details items so the
+-- two presentations can't drift apart.
+local function buildInventoryContextMenuItems(fish)
+	return {
 		{
 			id = "sell",
 			text = "Sell for $" .. formatCash(fish.BaseSellValue or 0),
@@ -4107,15 +4108,223 @@ local function createInventoryContextMenu(fish, x, y)
 			end,
 		},
 	}
+end
+
+local function createInventoryContextMenu(fish, x, y)
+	if activeContextMenu then
+		activeContextMenu:destroy()
+		activeContextMenu = nil
+	end
+
+	local items = buildInventoryContextMenuItems(fish)
 
 	activeContextMenu = ContextMenu.new(items)
 	activeContextMenu:show(x, y)
 end
 
+-- harborheist-f0x8: touch-native bottom sheet for mobile per-fish actions.
+-- Supersedes the 3mo7.1.2 fallback that positioned the DESKTOP cursor popup
+-- (180px wide, 32px rows) at bottom-center — which failed 4 of that bead's
+-- acceptance criteria: 44px touch targets, slide-up entrance, backdrop dim,
+-- drag-to-dismiss. Desktop right-click keeps createInventoryContextMenu;
+-- both presentations consume buildInventoryContextMenuItems above.
+--
+-- ZIndex band 30-32 (Prompts): the sheet must sit above panels (25-29) but
+-- BELOW toasts (55+, RULE 1 — server truth always wins) and minigame
+-- overlays (40-49, RULE 2). Deliberately NOT 150+: a full-width bottom
+-- sheet would occlude the toast stack, and the desktop popup's 200 is
+-- tolerated only because it's small, cursor-attached, and doesn't dim.
+local SHEET_ROW_HEIGHT = 44 -- touch-target minimum (bead acceptance + HIG)
+local SHEET_DISMISS_DRAG = 90 -- px of pull-down that commits a dismiss (makePanel twin)
+
+local function showMobileActionSheet(fish)
+	if activeContextMenu then
+		activeContextMenu:destroy()
+		activeContextMenu = nil
+	end
+
+	local items = buildInventoryContextMenuItems(fish)
+
+	-- Forward-declare BEFORE any closure that calls destroy(): the
+	-- drag/backdrop/row closures below all dismiss the sheet, and a
+	-- `local destroy` declared after them would be captured as a nil
+	-- global — the exact bug that forced the prior WIP revert (Agent
+	-- Mail msg 1292). `destroyed` guards double-destroy (drag + backdrop
+	-- + hidePanels can race).
+	local destroyed = false
+	local destroy
+
+	-- Layout math: grab zone + action rows + gaps + bottom safe area.
+	local grabZoneH = SHEET_ROW_HEIGHT
+	local rowsH = #items * SHEET_ROW_HEIGHT + (#items - 1) * 8
+	local bottomInset = SAFE_BOTTOM + 12
+	local sheetH = grabZoneH + rowsH + bottomInset + 8
+
+	-- Backdrop: full-screen dim; tap anywhere outside the sheet dismisses.
+	local sheetBackdrop = Instance.new("TextButton")
+	sheetBackdrop.Name = "MobileActionSheetBackdrop"
+	sheetBackdrop.Size = UDim2.new(1, 0, 1, 0)
+	sheetBackdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+	sheetBackdrop.BackgroundTransparency = 1
+	sheetBackdrop.Text = ""
+	sheetBackdrop.AutoButtonColor = false
+	sheetBackdrop.ZIndex = 30
+	sheetBackdrop.Parent = screenGui
+
+	-- Sheet: full-width, bottom-anchored, starts fully below the fold.
+	local sheet = Instance.new("Frame")
+	sheet.Name = "MobileActionSheet"
+	sheet.AnchorPoint = Vector2.new(0.5, 1)
+	sheet.Size = UDim2.new(1, -12, 0, sheetH)
+	sheet.Position = UDim2.new(0.5, 0, 1, sheetH)
+	sheet.BackgroundColor3 = Theme.color.surface.primary
+	sheet.BackgroundTransparency = 0.04
+	sheet.BorderSizePixel = 0
+	sheet.ZIndex = 31
+	sheet.Parent = screenGui
+	corner(sheet, Theme.corners.xl)
+	stroke(sheet, 0.82)
+	Gradients.apply(sheet, "surface.default")
+
+	-- Grabber pill: visual drag affordance (makePanel's GrabHandle twin).
+	local grabber = Instance.new("Frame")
+	grabber.Name = "GrabHandle"
+	grabber.Size = UDim2.new(0, 36, 0, 4)
+	grabber.AnchorPoint = Vector2.new(0.5, 0)
+	grabber.Position = UDim2.new(0.5, 0, 0, 8)
+	grabber.BackgroundColor3 = Theme.color.text.tertiary
+	grabber.BackgroundTransparency = 0.5
+	grabber.ZIndex = 32
+	grabber.Parent = sheet
+	corner(grabber, Theme.corners.pill)
+
+	-- Drag surface: the whole 44px grab zone is draggable, not just the pill.
+	local dragSurface = Instance.new("TextButton")
+	dragSurface.Name = "DragDismiss"
+	dragSurface.Size = UDim2.new(1, 0, 0, grabZoneH)
+	dragSurface.BackgroundTransparency = 1
+	dragSurface.Text = ""
+	dragSurface.AutoButtonColor = false
+	dragSurface.ZIndex = 32
+	dragSurface.Parent = sheet
+
+	-- Action rows: 44px tall, UIListLayout-ordered, shared items.
+	local rowContainer = Instance.new("Frame")
+	rowContainer.Name = "Actions"
+	rowContainer.BackgroundTransparency = 1
+	rowContainer.Size = UDim2.new(1, -24, 0, rowsH)
+	rowContainer.Position = UDim2.new(0, 12, 0, grabZoneH)
+	rowContainer.ZIndex = 32
+	rowContainer.Parent = sheet
+
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Padding = UDim.new(0, 8)
+	listLayout.Parent = rowContainer
+
+	for i, item in ipairs(items) do
+		local rowBtn = Instance.new("TextButton")
+		rowBtn.Name = "SheetItem_" .. tostring(item.id)
+		rowBtn.LayoutOrder = i
+		rowBtn.Size = UDim2.new(1, 0, 0, SHEET_ROW_HEIGHT)
+		rowBtn.BackgroundColor3 = Theme.color.surface.elevated
+		rowBtn.BackgroundTransparency = 0.6
+		rowBtn.AutoButtonColor = false
+		rowBtn.Font = Theme.type.fonts.body
+		rowBtn.TextSize = Theme.type.sizes.md
+		rowBtn.TextColor3 = Theme.color.text.primary
+		rowBtn.TextXAlignment = Enum.TextXAlignment.Left
+		rowBtn.TextTruncate = Enum.TextTruncate.AtEnd
+		rowBtn.Text = "  " .. item.text
+		rowBtn.ZIndex = 32
+		rowBtn.Parent = rowContainer
+		corner(rowBtn, Theme.corners.md)
+
+		if item.disabled then
+			rowBtn.TextColor3 = Theme.color.text.tertiary
+		else
+			rowBtn.Activated:Connect(function()
+				destroy()
+				item.action()
+			end)
+		end
+	end
+
+	-- Drag-to-dismiss — mirrors makePanel's R4 pattern: follow the finger,
+	-- lighten the world as the sheet descends, commit past the threshold,
+	-- spring back otherwise. Connections are collected so destroy() can
+	-- disconnect them (UserInputService-level handlers outlive the sheet).
+	local dragConns = {}
+	local dragInput = nil
+	local dragStartY = 0
+	local dragDy = 0
+	table.insert(dragConns, dragSurface.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+			dragStartY = input.Position.Y
+			dragDy = 0
+		end
+	end))
+	table.insert(dragConns, UserInputService.TouchMoved:Connect(function(input)
+		if input == dragInput then
+			dragDy = math.max(0, input.Position.Y - dragStartY)
+			sheet.Position = UDim2.new(0.5, 0, 1, dragDy)
+			sheetBackdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
+		end
+	end))
+	table.insert(dragConns, UserInputService.TouchEnded:Connect(function(input)
+		if input == dragInput then
+			dragInput = nil
+			if dragDy > SHEET_DISMISS_DRAG then
+				destroy()
+			else
+				TweenService:Create(sheet, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
+				TweenService:Create(sheetBackdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
+			end
+		end
+	end))
+	local backdropConn = sheetBackdrop.Activated:Connect(function()
+		destroy()
+	end)
+
+	local function destroyImpl()
+		if destroyed then return end
+		destroyed = true
+		for _, conn in ipairs(dragConns) do
+			conn:Disconnect()
+		end
+		if backdropConn then
+			backdropConn:Disconnect()
+			backdropConn = nil
+		end
+		if activeContextMenu and activeContextMenu.destroy == destroyImpl then
+			activeContextMenu = nil
+		end
+		-- Exit: slide below the fold + lift the dim, then remove. The 0.26
+		-- delay matches hidePanels' mobile close timing (kqbq.1).
+		TweenService:Create(sheet, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, sheetH) }):Play()
+		TweenService:Create(sheetBackdrop, EASE_OUT, { BackgroundTransparency = 1 }):Play()
+		task.delay(0.26, function()
+			sheet:Destroy()
+			sheetBackdrop:Destroy()
+		end)
+	end
+	destroy = destroyImpl
+
+	-- Entrance: slide up from below the fold + dim the world (EASE_OUT is
+	-- the 0.22s easeOut token — the bead's acceptance timing).
+	TweenService:Create(sheet, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
+	TweenService:Create(sheetBackdrop, EASE_OUT, { BackgroundTransparency = 0.45 }):Play()
+
+	-- Same lifetime contract as the desktop ContextMenu: hidePanels' single
+	-- activeContextMenu:destroy() call cleans this sheet up too.
+	activeContextMenu = { destroy = destroyImpl }
+end
+
 -- Bound per-row inside renderInventory (the fish reference rides the
 -- closure — no fake Instance properties, no list-level hit-testing).
 bindInventoryRowContextMenu = function(row, fish)
-	-- Mobile: long-press gesture (500ms hold) to open context menu
+	-- Mobile: long-press gesture (500ms hold) to open the action sheet
 	if IS_MOBILE then
 		local LONG_PRESS_DURATION = 0.5
 		local isPressed = false
@@ -4142,14 +4351,14 @@ bindInventoryRowContextMenu = function(row, fish)
 					--    state push (income ticks, remote pushes); if the row was
 					--    destroyed during the hold, bail to avoid stale fish data
 					if isPressed and myToken == pressToken and row.Parent then
-						-- Long-press detected — show context menu as bottom sheet
+						-- Long-press detected — open the touch-native bottom sheet
+						-- (harborheist-f0x8). Full-width + bottom-anchored, so no
+						-- viewport math at all: the old cursor-popup path dereffed
+						-- CurrentCamera here (and needed a nil guard); the sheet
+						-- needs no camera, which subsumes that guard entirely.
 						playHaptic("PressStart")
-						-- Calculate position (center-bottom of screen for mobile)
-						local viewport = workspace.CurrentCamera.ViewportSize
-						local x = viewport.X / 2
-						local y = viewport.Y - 100 -- Near bottom
-						createInventoryContextMenu(fish, x, y)
-						isPressed = false -- Reset after showing menu
+						showMobileActionSheet(fish)
+						isPressed = false -- Reset after showing sheet
 					end
 				end)
 			end
