@@ -1031,9 +1031,15 @@ describe("EPIC 44 client chrome source contracts", function()
 			expect(disconnectPos < fadePos).to.equal(true)
 		end)
 		it("exactly one toast AbsoluteSize connection exists (the stored one)", function()
-			local first = clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', 1, true)
+			-- harborheist-3mo7.1.3: pattern narrowed to the TOAST instance —
+			-- applyScrollAffordance legitimately connects AbsoluteSize on
+			-- ScrollingFrames (session-lifetime, tracked in its conns table),
+			-- which the old unscoped pattern would have forbidden. The
+			-- original intent: exactly one AbsoluteSize connection on the
+			-- per-toast lifecycle (the stored sizeConn).
+			local first = clientSource:find('toast:GetPropertyChangedSignal("AbsoluteSize")', 1, true)
 			expect(first).to.be.a("number")
-			expect(clientSource:find('GetPropertyChangedSignal("AbsoluteSize")', first + 1, true) == nil).to.equal(true)
+			expect(clientSource:find('toast:GetPropertyChangedSignal("AbsoluteSize")', first + 1, true) == nil).to.equal(true)
 		end)
 	end)
 

@@ -10624,6 +10624,117 @@ local function applyScrollbarAutoHide(scrollingFrame)
 	return conn
 end
 
+-- harborheist-3mo7.1.3: scroll affordance indicators. Auto-hidden scrollbars
+-- (kqbq.9) leave users no idle cue that a list scrolls — the bar only
+-- appears mid-scroll, after discovery. Add thin gradient fades at the
+-- top/bottom edges that are visible whenever content overflows in that
+-- direction, and fade out when the edge is reached.
+--
+-- Design notes:
+--   * Indicators are SIBLINGS of the ScrollingFrame, not children — a child
+--     inside a ScrollingFrame scrolls with the canvas. Positions derive
+--     from the list's UDim at construction (deterministic; AbsoluteSize is
+--     not valid until the next layout pass).
+--   * Appearance rides the FRAME's BackgroundTransparency (a plain float —
+--     always tweenable). The UIGradient keeps a STATIC transparency shape
+--     (opaque at the anchored edge, fading into the list); the frame
+--     transparency multiplies it in. This matches the TextFadeEdge pattern
+--     (~:2456) — tweening a gradient's NumberSequence property has no
+--     precedent in this codebase and would throw inside a scroll handler
+--     if the tween target were rejected.
+--   * EASE_FAST (0.12s) is the project's fast token — the bead's "0.15s"
+--     predates the Theme.motion rule (no bare TweenInfo literals).
+--   * Frames default to Active=false, so the indicators never intercept the
+--     touch scroll gesture.
+--   * Returns the connection table (same trackability contract as
+--     applyScrollbarAutoHide — lists are session-lifetime today).
+local SCROLL_AFFORDANCE_HEIGHT = 24
+
+local function applyScrollAffordance(scrollingFrame)
+	local parent = scrollingFrame.Parent
+
+	-- Static gradient shape: opaque at the anchored edge, transparent into
+	-- the list. Frame BackgroundTransparency (tweened) fades it in/out.
+	local VISIBLE = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+
+	local function makeIndicator(name, side)
+		local indicator = Instance.new("Frame")
+		indicator.Name = name
+		indicator.BorderSizePixel = 0
+		indicator.BackgroundColor3 = Theme.color.surface.primary
+		indicator.BackgroundTransparency = 1 -- hidden until refresh() shows it
+		indicator.Size = UDim2.new(
+			scrollingFrame.Size.X.Scale, scrollingFrame.Size.X.Offset,
+			0, SCROLL_AFFORDANCE_HEIGHT)
+		if side == "top" then
+			indicator.Position = UDim2.new(
+				scrollingFrame.Position.X.Scale, scrollingFrame.Position.X.Offset,
+				scrollingFrame.Position.Y.Scale, scrollingFrame.Position.Y.Offset)
+		else
+			indicator.Position = UDim2.new(
+				scrollingFrame.Position.X.Scale, scrollingFrame.Position.X.Offset,
+				scrollingFrame.Position.Y.Scale + scrollingFrame.Size.Y.Scale,
+				scrollingFrame.Position.Y.Offset + scrollingFrame.Size.Y.Offset - SCROLL_AFFORDANCE_HEIGHT)
+		end
+		indicator.ZIndex = scrollingFrame.ZIndex + 1
+		indicator.Parent = parent
+
+		local gradient = Instance.new("UIGradient")
+		gradient.Color = ColorSequence.new(Theme.color.surface.primary, Theme.color.surface.primary)
+		-- Rotation 90 = opaque at top fading down; 270 = opaque at bottom
+		-- fading up.
+		gradient.Rotation = side == "top" and 90 or 270
+		gradient.Transparency = VISIBLE
+		gradient.Parent = indicator
+		return indicator
+	end
+
+	local topIndicator = makeIndicator("ScrollAffordanceTop", "top")
+	local bottomIndicator = makeIndicator("ScrollAffordanceBottom", "bottom")
+
+	local topShown, bottomShown = false, false
+	local topTween, bottomTween = nil, nil
+
+	local function setState(indicator, shown, prevTween)
+		if prevTween then
+			prevTween:Cancel()
+		end
+		local tween = TweenService:Create(indicator, EASE_FAST,
+			{ BackgroundTransparency = shown and 0 or 1 })
+		tween:Play()
+		return tween
+	end
+
+	local function refresh()
+		-- AbsoluteCanvasSize settles post-layout with AutomaticCanvasSize;
+		-- both size signals and CanvasPosition feed this.
+		local canvasH = scrollingFrame.AbsoluteCanvasSize.Y
+		local viewH = scrollingFrame.AbsoluteSize.Y
+		local scrollY = scrollingFrame.CanvasPosition.Y
+		local canScroll = canvasH > viewH + 1
+		local showTop = canScroll and scrollY > 1
+		local showBottom = canScroll and scrollY &lt; canvasH - viewH - 1
+		if showTop ~= topShown then
+			topShown = showTop
+			topTween = setState(topIndicator, showTop, topTween)
+		end
+		if showBottom ~= bottomShown then
+			bottomShown = showBottom
+			bottomTween = setState(bottomIndicator, showBottom, bottomTween)
+		end
+	end
+
+	local conns = {}
+	table.insert(conns, scrollingFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(refresh))
+	table.insert(conns, scrollingFrame:GetPropertyChangedSignal("AbsoluteCanvasSize"):Connect(refresh))
+	table.insert(conns, scrollingFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(refresh))
+	refresh()
+	return conns
+end
+
 -- TASK 23.2 (hvfh.3.2): Unified overlay factory.
 -- TASK 21.4 (harborheist-7w5a): definition MOVED below the primitive helpers
 -- (screenGui/corner/stroke/vGradient/makeLabel). It was originally defined at
@@ -13097,7 +13208,14 @@ local function makePanel(title, titleColor, desktopSize)
 		dragSurface.BackgroundTransparency = 1
 		dragSurface.Text = ""
 		dragSurface.AutoButtonColor = false
-		dragSurface.ZIndex = 26
+		-- harborheist-3mo7.1.4 fresh-eyes fix: ZIndex 27, not 26. The content
+		-- frame starts at headerY+40 (=60px mobile) and is ZIndex 26; an 80px
+		-- drag zone overlaps it by 20px. At equal ZIndex the later-parented
+		-- content subtree (incl. questList/shopList ScrollingFrames that sit at
+		-- content-top) wins hit-testing and would swallow the drag gesture in
+		-- the overlap band. 27 keeps the drag surface on top there. The close
+		-- button is raised to 28 below so THIS transparent layer can't eat ✕.
+		dragSurface.ZIndex = 27
 		dragSurface.Parent = panel
 
 		local dragInput = nil
@@ -13165,7 +13283,11 @@ local function makePanel(title, titleColor, desktopSize)
 		TextSize = IS_MOBILE and 18 or Theme.type.sizes.sm,
 		BackgroundColor3 = Theme.color.surface.elevated,
 		TextColor3 = Theme.color.text.secondary,
-		ZIndex = 26,
+		-- harborheist-3mo7.1.4 fresh-eyes fix: 28 — the 80px drag surface is
+		-- ZIndex 27 and fully covers this button's vertical band (12–56px).
+		-- A transparent TextButton at a higher ZIndex captures input, so ✕
+		-- must sit above the drag surface or the primary sheet exit dies.
+		ZIndex = 28,
 		CornerRadius = Theme.corners.pill,
 	})
 
@@ -13676,6 +13798,7 @@ inventoryList.CanvasSize = UDim2.new(0, 0, 0, 0)
 inventoryList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 inventoryList.ZIndex = 26
 inventoryList.Parent = inventoryContent
+applyScrollAffordance(inventoryList) -- after Parent+ZIndex settle (reads both)
 
 local inventoryLayout = Instance.new("UIListLayout")
 inventoryLayout.Padding = UDim.new(0, 8)
@@ -14467,6 +14590,7 @@ collectionList.CanvasSize = UDim2.new(0, 0, 0, 0)
 collectionList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 collectionList.ZIndex = 26
 collectionList.Parent = collectionContent
+applyScrollAffordance(collectionList) -- after Parent+ZIndex settle (reads both)
 
 local collectionListLayout = Instance.new("UIListLayout")
 collectionListLayout.Padding = UDim.new(0, 14)
@@ -14878,6 +15002,7 @@ shopList.CanvasSize = UDim2.new(0, 0, 0, 0)
 shopList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 shopList.ZIndex = 26
 shopList.Parent = shopContent
+applyScrollAffordance(shopList) -- after Parent+ZIndex settle (reads both)
 
 local shopLayout = Instance.new("UIListLayout")
 shopLayout.Padding = UDim.new(0, 8)
@@ -15440,6 +15565,7 @@ questList.CanvasSize = UDim2.new(0, 0, 0, 0)
 questList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 questList.ZIndex = 26
 questList.Parent = questContent
+applyScrollAffordance(questList) -- after Parent+ZIndex settle (reads both)
 
 local questLayout = Instance.new("UIListLayout")
 questLayout.Padding = UDim.new(0, 8)
@@ -15627,6 +15753,7 @@ raidTargetList.CanvasSize = UDim2.new(0, 0, 0, 0)
 raidTargetList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 raidTargetList.ZIndex = 26
 raidTargetList.Parent = raidContent
+applyScrollAffordance(raidTargetList) -- after Parent+ZIndex settle (reads both)
 
 local raidTargetLayout = Instance.new("UIListLayout")
 raidTargetLayout.Padding = UDim.new(0, 8)
@@ -18904,6 +19031,7 @@ helpList.CanvasSize = UDim2.new(0, 0, 0, 0)
 helpList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 helpList.ZIndex = 26
 helpList.Parent = helpContent
+applyScrollAffordance(helpList) -- after Parent+ZIndex settle (reads both)
 
 local helpListLayout = Instance.new("UIListLayout")
 helpListLayout.FillDirection = Enum.FillDirection.Vertical

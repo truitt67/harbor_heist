@@ -70,5 +70,23 @@ return function(describe, it, expect)
 		it("drag start still requires the panel to be the active one", function()
 			has("input.UserInputType == Enum.UserInputType.Touch and activePanel == panel", "active-panel gate")
 		end)
+
+		it("drag surface renders above content in the overlap band (ZIndex 27), close button above it (28)", function()
+			-- Fresh-eyes regression pin: the 80px zone overlaps the content
+			-- frame (starts at headerY+40 = 60px, ZIndex 26) by 20px. At
+			-- equal ZIndex the later-parented content subtree — including
+			-- questList/shopList ScrollingFrames sitting at content-top —
+			-- wins hit-testing and swallows the drag in that band. The drag
+			-- surface must be 27, and the ✕ button 28 so the transparent
+			-- drag layer can't eat the primary sheet exit.
+			has("dragSurface.ZIndex = 27", "drag surface above content")
+			-- The close button's ZIndex lives in the makeButton props table;
+			-- pin the comment-anchored value so a future edit can't silently
+			-- drop it back to 26.
+			local commentPos = string.find(src, "harborheist-3mo7.1.4 fresh-eyes fix: 28", 1, true)
+			expect(commentPos).to.be.a("number")
+			local zIndexPos = string.find(src, "ZIndex = 28,", commentPos, true)
+			expect(zIndexPos).to.be.a("number")
+		end)
 	end)
 end
