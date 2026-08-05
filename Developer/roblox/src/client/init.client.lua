@@ -3094,7 +3094,14 @@ local function makePanel(title, titleColor, desktopSize)
 		dragSurface.BackgroundTransparency = 1
 		dragSurface.Text = ""
 		dragSurface.AutoButtonColor = false
-		dragSurface.ZIndex = 26
+		-- harborheist-3mo7.1.4 fresh-eyes fix: ZIndex 27, not 26. The content
+		-- frame starts at headerY+40 (=60px mobile) and is ZIndex 26; an 80px
+		-- drag zone overlaps it by 20px. At equal ZIndex the later-parented
+		-- content subtree (incl. questList/shopList ScrollingFrames that sit at
+		-- content-top) wins hit-testing and would swallow the drag gesture in
+		-- the overlap band. 27 keeps the drag surface on top there. The close
+		-- button is raised to 28 below so THIS transparent layer can't eat ✕.
+		dragSurface.ZIndex = 27
 		dragSurface.Parent = panel
 
 		local dragInput = nil
@@ -3162,7 +3169,11 @@ local function makePanel(title, titleColor, desktopSize)
 		TextSize = IS_MOBILE and 18 or Theme.type.sizes.sm,
 		BackgroundColor3 = Theme.color.surface.elevated,
 		TextColor3 = Theme.color.text.secondary,
-		ZIndex = 26,
+		-- harborheist-3mo7.1.4 fresh-eyes fix: 28 — the 80px drag surface is
+		-- ZIndex 27 and fully covers this button's vertical band (12–56px).
+		-- A transparent TextButton at a higher ZIndex captures input, so ✕
+		-- must sit above the drag surface or the primary sheet exit dies.
+		ZIndex = 28,
 		CornerRadius = Theme.corners.pill,
 	})
 
