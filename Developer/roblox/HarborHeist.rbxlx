@@ -13086,9 +13086,13 @@ local function makePanel(title, titleColor, desktopSize)
 		-- The grabber was decorative; now the header strip is a drag surface.
 		-- Pull down >90px (or fling) to dismiss; release short of that and
 		-- the sheet springs back. hidePanels is forward-declared above.
+		-- harborheist-3mo7.1.4: zone widened 60→80px — the 60px strip was
+		-- borderline for comfortable thumb interaction; 80px keeps clear
+		-- separation from the content below (list starts at headerY+40+12).
+		local DRAG_DISMISS_ZONE = 80
 		local dragSurface = Instance.new("TextButton")
 		dragSurface.Name = "DragDismiss"
-		dragSurface.Size = UDim2.new(1, 0, 0, 60)
+		dragSurface.Size = UDim2.new(1, 0, 0, DRAG_DISMISS_ZONE)
 		dragSurface.Position = UDim2.new(0, 0, 0, 0)
 		dragSurface.BackgroundTransparency = 1
 		dragSurface.Text = ""
@@ -13104,21 +13108,33 @@ local function makePanel(title, titleColor, desktopSize)
 				dragInput = input
 				dragStartY = input.Position.Y
 				dragDy = 0
+				-- harborheist-3mo7.1.4: confirm the gesture was recognized —
+				-- the pill brightens while the finger is down (restored on
+				-- TouchEnded). Restores run even on the dismiss path because
+				-- destroy() removes the whole panel, so no stale state leaks.
+				grabber.BackgroundTransparency = 0.25
 			end
 		end)
 		UserInputService.TouchMoved:Connect(function(input)
 			if input == dragInput then
 				dragDy = math.max(0, input.Position.Y - dragStartY)
 				panel.Position = UDim2.new(0.5, 0, 1, dragDy)
-				-- R4 polish #3b: the world lightens as the sheet descends —
-				-- sells the dismiss before it commits.
-				backdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
+					-- R4 polish #3b: the world lightens as the sheet descends —
+					-- sells the dismiss before it commits.
+					backdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
 			end
 		end)
 		UserInputService.TouchEnded:Connect(function(input)
 			if input == dragInput then
 				dragInput = nil
+				grabber.BackgroundTransparency = 0.5
 				if dragDy > 90 then
+					-- harborheist-3mo7.1.4: haptic confirms the committed
+					-- dismiss (bead acceptance). Play BEFORE hidePanels(),
+					-- not inside/after it — hidePanels tears down the context
+					-- menu and starts the exit animation; side effects must
+					-- not depend on ordering with that teardown.
+					playHaptic("PressEnd")
 					hidePanels()
 				else
 					TweenService:Create(panel, EASE_OUT, { Position = UDim2.new(0.5, 0, 1, 0) }):Play()
