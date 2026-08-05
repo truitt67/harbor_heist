@@ -59,23 +59,115 @@ def _slug(path: str) -> str:
     return "".join(c if c.isalnum() else "-" for c in path.lower().strip("/"))
 
 
+# MCP Streamable-HTTP session state (server >=2.13 requires a session handshake).
+_SESSION_ID: str | None = None
+_RPC_ID = 100
+
+
+def _raw_post(payload: bytes, extra_headers: dict | None = None, session_id: str | None = None):
+    """POST JSON-RPC payload; return (status, body_bytes, headers)."""
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if session_id:
+        headers["mcp-session-id"] = session_id
+    if extra_headers:
+        headers.update(extra_headers)
+    req = urllib.request.Request(
+        AGENT_MAIL_URL, data=payload, headers=headers, method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return resp.status, resp.read(), dict(resp.headers)
+
+
+def _parse_rpc_body(body: bytes) -> dict:
+    """Parse a JSON-RPC response body (plain JSON or a single SSE event)."""
+    text = body.decode("utf-8").strip()
+    if text.startswith("{"):
+        return json.loads(text)
+    # SSE framing: pull out the data: line(s)
+    data_lines = [
+        line[5:].strip() for line in text.splitlines() if line.startswith("data:")
+    ]
+    for line in data_lines:
+        if line:
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    return {}
+
+
+def _ensure_session() -> str:
+    """Perform the MCP initialize handshake once; cache the session id."""
+    global _SESSION_ID, _RPC_ID
+    if _SESSION_ID:
+        return _SESSION_ID
+    _RPC_ID += 1
+    init_payload = json.dumps(
+        {
+            "jsonrpc": "2.0",
+            "id": _RPC_ID,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {"name": "agent-mail-cli", "version": "1.1"},
+            },
+        }
+    ).encode("utf-8")
+    status, body, headers = _raw_post(init_payload)
+    session_id = headers.get("mcp-session-id") or headers.get("Mcp-Session-Id")
+    if not session_id:
+        raise RuntimeError("Server did not return mcp-session-id on initialize")
+    # Send the initialized notification (no response expected).
+    notif = json.dumps(
+        {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    ).encode("utf-8")
+    try:
+        _raw_post(notif, session_id=session_id)
+    except urllib.error.HTTPError:
+        pass  # 202 Accepted is ideal; some servers answer 200/204 — all fine.
+    _SESSION_ID = session_id
+    return session_id
+
+
 def _rpc(method: str, params: dict) -> dict:
     """Make a JSON-RPC 2.0 call to the Agent Mail MCP server."""
+    global _SESSION_ID, _RPC_ID
+    _RPC_ID += 1
     payload = json.dumps(
-        {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+        {"jsonrpc": "2.0", "id": _RPC_ID, "method": method, "params": params}
     ).encode("utf-8")
 
-    req = urllib.request.Request(
-        AGENT_MAIL_URL,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    try:
+        session_id = _ensure_session()
+    except Exception as e:
+        print(
+            f"Error: MCP handshake failed with Agent Mail server at {AGENT_MAIL_URL} - {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+        status, body, _headers = _raw_post(payload, session_id=session_id)
+        resp = _parse_rpc_body(body)
+        # A stale/unknown session id can surface as a 400/404; re-handshake once.
+        if not resp:
+            raise RuntimeError("empty JSON-RPC response body")
+        return resp
     except urllib.error.HTTPError as e:
+        if e.code in (400, 404) and _SESSION_ID is not None:
+            _SESSION_ID = None
+            try:
+                session_id = _ensure_session()
+                status, body, _headers = _raw_post(payload, session_id=session_id)
+                resp = _parse_rpc_body(body)
+                if resp:
+                    return resp
+            except Exception:
+                pass
         print(f"Error: HTTP {e.code} - {e.read().decode()}", file=sys.stderr)
         sys.exit(1)
     except urllib.error.URLError as e:
