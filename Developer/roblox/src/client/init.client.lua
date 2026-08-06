@@ -3070,15 +3070,52 @@ local sellStoreStoreBtn = makeButton(sellStorePrompt, {
 	ZIndex = 31,
 })
 
+-- harborheist-3mo7.2.4: dim backdrop + click-outside dismiss for the
+-- sell/store comparison prompt. The prompt is a modal (ZIndex 30) that
+-- floats above panels (25-29) and the HUD — but without a backdrop it
+-- violated modal dialog conventions: users had to find the small ✕ button
+-- to dismiss it. This TextButton sits at ZIndex 29 (just below the prompt,
+-- above panel content) and captures click-outside / touch-outside to
+-- dismiss. A semi-transparent dim (0.45) keeps the world visible — unlike
+-- the panel backdrop (ZIndex 20) which fades fully opaque for full-focus
+-- modals; the comparison prompt is lighter-weight, so its dim is too.
+-- If a panel is already open with its own backdrop (20), this stacks above
+-- it without conflict — dismissing the prompt leaves the panel untouched.
+local sellStoreBackdrop = Instance.new("TextButton")
+sellStoreBackdrop.Name = "SellStoreBackdrop"
+sellStoreBackdrop.Size = UDim2.new(1, 0, 1, 0)
+sellStoreBackdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+sellStoreBackdrop.BackgroundTransparency = 1
+sellStoreBackdrop.Text = ""
+sellStoreBackdrop.AutoButtonColor = false
+sellStoreBackdrop.Visible = false
+sellStoreBackdrop.ZIndex = 29
+sellStoreBackdrop.Parent = screenGui
+
 -- The FishInstance currently being offered by the comparison prompt.
 local sellStoreTargetFish = nil
 -- Whether the prompt has already been shown or dismissed this session.
 local sellStorePromptShown = false
 -- Carried count on the previous render, used to detect a new catch.
 local lastCarriedCount = 0
+-- harborheist-3mo7.2.4: rest dim for the backdrop (Pattern 20/23 — capture
+-- the rest value once so the exit fade and the next entrance agree).
+local SELL_STORE_BACKDROP_DIM = 0.45
 
 local function hideSellStorePrompt()
 	sellStorePrompt.Visible = false
+	-- harborheist-3mo7.2.4: fade the backdrop out, then hide. Deferred
+	-- via task.delay so the fade is visible (not an instant pop-off).
+	if sellStoreBackdrop.Visible then
+		TweenService:Create(sellStoreBackdrop, EASE_OUT, {
+			BackgroundTransparency = 1,
+		}):Play()
+		task.delay(Theme.motion.easeOut.duration, function()
+			if not sellStorePrompt.Visible then
+				sellStoreBackdrop.Visible = false
+			end
+		end)
+	end
 	sellStoreTargetFish = nil
 end
 
@@ -3105,6 +3142,13 @@ local function showSellStorePrompt(fish)
 	sellStoreTargetFish = fish
 	sellStoreSellBtn.Text = string.format("SELL $%s", formatCash(fish.BaseSellValue or 0))
 	sellStoreStoreBtn.Text = string.format("STORE $%s/min", formatCash(fish.IncomePerMinute or 0))
+	-- harborheist-3mo7.2.4: show + fade-in the backdrop before the prompt
+	-- pops, so the dim arrives with the modal (not after it).
+	sellStoreBackdrop.Visible = true
+	sellStoreBackdrop.BackgroundTransparency = 1
+	TweenService:Create(sellStoreBackdrop, EASE_OUT, {
+		BackgroundTransparency = SELL_STORE_BACKDROP_DIM,
+	}):Play()
 	sellStorePrompt.Visible = true
 	local scale = sellStorePrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 	scale.Parent = sellStorePrompt
@@ -3196,6 +3240,18 @@ end
 sellStoreClose.Activated:Connect(function()
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
+end)
+
+-- harborheist-3mo7.2.4: click-outside / touch-outside dismiss. The backdrop
+-- is a TextButton so .Activated fires on MouseButton1 AND Touch — no need
+-- for a separate InputBegan handler (matches the panel backdrop pattern at
+-- line ~3809). Fires only while the prompt is visible (its Visible gate
+-- plus the backdrop's own Visible gate prevent stale fires after hide).
+sellStoreBackdrop.Activated:Connect(function()
+	if sellStorePrompt.Visible then
+		hideSellStorePrompt()
+		markSellStoreComparisonSeen()
+	end
 end)
 
 sellStoreSellBtn.Activated:Connect(function()
