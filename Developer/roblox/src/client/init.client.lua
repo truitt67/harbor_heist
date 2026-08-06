@@ -6498,14 +6498,26 @@ end
 -- ============================================================
 -- Global raid window countdown HUD banner
 -- ============================================================
+-- harborheist-3mo7.3.38: rest positions for the two persistent top
+-- banners, shared by initial placement, the SAFE_TOP resize consumers,
+-- and the entrance/exit animations — a single source so a viewport
+-- resize mid-animation never strands a banner at a stale offset.
+local function raidBannerRest()
+	return IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+end
+
+local function dataStoreBannerRest()
+	return IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+end
+
 local raidBanner = Instance.new("Frame")
 raidBanner.Name = "RaidBanner"
 -- Desktop: top-center banner. Mobile: top-right to avoid overlapping the HUD.
 raidBanner.AnchorPoint = IS_MOBILE and Vector2.new(1, 0) or Vector2.new(0.5, 0)
 raidBanner.Size = UDim2.new(0, IS_MOBILE and 180 or 340, 0, 36)
-raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+raidBanner.Position = raidBannerRest()
 table.insert(safeTopConsumers, function()
-	raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+	raidBanner.Position = raidBannerRest()
 end)
 raidBanner.BackgroundColor3 = Theme.color.surface.primary
 raidBanner.BackgroundTransparency = 0.12
@@ -6550,9 +6562,9 @@ dataStoreBanner.Name = "DataStoreBanner"
 -- banner and the "?" help button (+50) on narrow (~320px) phones.
 dataStoreBanner.AnchorPoint = IS_MOBILE and Vector2.new(0, 0) or Vector2.new(0.5, 0)
 dataStoreBanner.Size = UDim2.new(0, IS_MOBILE and 240 or 360, 0, 70)
-dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+dataStoreBanner.Position = dataStoreBannerRest()
 table.insert(safeTopConsumers, function()
-	dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+	dataStoreBanner.Position = dataStoreBannerRest()
 end)
 dataStoreBanner.BackgroundColor3 = Theme.color.surface.primary
 dataStoreBanner.BackgroundTransparency = 0.12
@@ -6591,6 +6603,71 @@ makeLabel(dataStoreBanner, {
 	TextWrapped = true,
 	ZIndex = 19,
 })
+-- ============================================================
+-- harborheist-3mo7.3.38: entrance/exit animation for the two persistent
+-- top banners (raid + dataStore). Both previously hard-popped via raw
+-- .Visible toggles while every other popup in the game animates.
+--
+-- Entrance: banner starts one banner-height (+8px) above its rest slot
+-- fully transparent, slides down into place and fades in (EASE_OUT,
+-- 0.22s = Theme.motion.easeOut — same duration as every other entrance).
+-- Exit: reverse (EASE_IN), with Visible=false deferred to the tween's
+-- Completed callback so the wind-down actually renders.
+--
+-- CALLER CONTRACT (why the token gate exists): render() runs on every
+-- state push and updateRaidCountdown() runs every second, so both call
+-- sites gate on an intended-state FLAG, never on .Visible — during the
+-- exit tween .Visible is still true, and gating on it would re-trigger
+-- the hide (and the recovery toast) every push. The Completed callback
+-- checks the token so an entrance superseding a mid-flight exit never
+-- gets its banner hidden out from under it.
+-- ============================================================
+local bannerAnimTokens = { raid = 0, dataStore = 0 }
+-- Rest alpha captured before the first mutation (both banners are created
+-- Visible=false at 0.12 long before their first toggle) — re-reading the
+-- property would return the exit tween's 1 after the first hide.
+local bannerRestAlpha = {}
+-- Intended-state flags for the two banners. render() and the 1s ticker hit
+-- these call sites on EVERY push/tick, so they gate on these flags, never
+-- on .Visible (which stays true during the 0.22s exit tween). Declared
+-- here — before render()/updateRaidCountdown() — so both read the locals.
+local raidBannerShown = false
+local dataStoreBannerShown = false
+
+local function animateBanner(banner, key, restFn, show)
+	if bannerRestAlpha[key] == nil then
+		bannerRestAlpha[key] = banner.BackgroundTransparency
+	end
+	local restAlpha = bannerRestAlpha[key]
+	bannerAnimTokens[key] = bannerAnimTokens[key] + 1
+	local token = bannerAnimTokens[key]
+	local rest = restFn()
+	-- One banner-height + 8px: each banner starts fully above its slot.
+	local slide = UDim2.new(0, 0, 0, banner.Size.Y.Offset + 8)
+	if show then
+		banner.Visible = true
+		banner.Position = rest - slide
+		banner.BackgroundTransparency = 1
+		TweenService:Create(banner, EASE_OUT, {
+			Position = rest,
+			BackgroundTransparency = restAlpha,
+		}):Play()
+	else
+		local tween = TweenService:Create(banner, EASE_IN, {
+			Position = rest - slide,
+			BackgroundTransparency = 1,
+		})
+		tween.Completed:Connect(function()
+			-- Token mismatch = an entrance superseded this exit; the
+			-- entrance already re-showed the banner.
+			if bannerAnimTokens[key] == token then
+				banner.Visible = false
+			end
+		end)
+		tween:Play()
+	end
+end
+
 -- ============================================================
 -- [harborheist-a2ug.13] Mobile "?" help button — always-visible entry
 -- point to the SHORTCUTS / HOW TO PLAY panel. Desktop uses an ACTIONS
@@ -7927,10 +8004,17 @@ local function render()
 	-- handling — persistent banner while unhealthy (truthful per
 	-- docs/DATASTORE_DEGRADED_CONTRACT.md §3.2; the old toast's "your progress
 	-- is safe" was false). Recovery surfaces as a one-shot success toast.
+	-- harborheist-3mo7.3.38: flag-gated (render runs on EVERY state push;
+	-- .Visible stays true during the exit tween, so gating on it would
+	-- replay the hide + recovery toast every push).
 	if state.dataStoreHealthy == false then
-		dataStoreBanner.Visible = true
-	elseif dataStoreBanner.Visible then
-		dataStoreBanner.Visible = false
+		if not dataStoreBannerShown then
+			dataStoreBannerShown = true
+			animateBanner(dataStoreBanner, "dataStore", dataStoreBannerRest, true)
+		end
+	elseif dataStoreBannerShown then
+		dataStoreBannerShown = false
+		animateBanner(dataStoreBanner, "dataStore", dataStoreBannerRest, false)
 		showNotification("Saving restored — you're all caught up.", Theme.color.status.good)
 	end
 	animateCashTo(state.cash)
@@ -9382,13 +9466,23 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 -- NOTE (harborheist-akdb): formatRaidTime moved up next to formatCash — the
 -- declaration must precede renderRaidTargets (its earliest caller).
 local function updateRaidCountdown()
+	-- harborheist-3mo7.3.38: flag-gated entrance/exit. This function runs
+	-- every second from the countdown ticker, so the animation fires only
+	-- on the open/close EDGE, not every tick (.Visible would re-trigger
+	-- while the exit tween is still winding down).
 	if raidWindow.open then
-		raidBanner.Visible = true
+		if not raidBannerShown then
+			raidBannerShown = true
+			animateBanner(raidBanner, "raid", raidBannerRest, true)
+		end
 		local bannerPrefix = IS_MOBILE and "RAID OPEN " or "RAID WATERS OPEN "
 		raidBannerLabel.Text = bannerPrefix .. formatRaidTime(raidWindow.remainingSeconds)
 		raidCountdownLabel.Text = "Closes in " .. formatRaidTime(raidWindow.remainingSeconds)
 	else
-		raidBanner.Visible = false
+		if raidBannerShown then
+			raidBannerShown = false
+			animateBanner(raidBanner, "raid", raidBannerRest, false)
+		end
 		raidCountdownLabel.Text = "Next window in " .. formatRaidTime(raidWindow.nextWindowInSeconds)
 	end
 end

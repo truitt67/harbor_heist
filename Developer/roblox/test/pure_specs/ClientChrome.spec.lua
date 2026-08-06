@@ -1144,7 +1144,13 @@ describe("EPIC 44 client chrome source contracts", function()
 		end)
 		it("render() drives banner visibility off state.dataStoreHealthy", function()
 			local renderPos = clientSource:find("local function render()", 1, true)
-			local showPos = clientSource:find("dataStoreBanner.Visible = true", 1, true)
+			-- harborheist-3mo7.3.38: render now drives the banner through
+			-- the flag-gated animateBanner entrance (render runs on every
+			-- state push; a .Visible gate would replay the animation and
+			-- the recovery toast every push — .Visible stays true during
+			-- the exit tween). The entrance call inside render is the
+			-- mechanism that replaced the raw Visible=true toggle.
+			local showPos = clientSource:find('animateBanner(dataStoreBanner, "dataStore", dataStoreBannerRest, true)', 1, true)
 			expect(renderPos).to.be.a("number")
 			expect(showPos).to.be.a("number")
 			-- The banner must be defined BEFORE render() reads it (Luau
