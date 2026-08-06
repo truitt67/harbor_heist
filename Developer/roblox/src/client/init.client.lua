@@ -1035,6 +1035,11 @@ function ContextMenu.new(items, props)
 		-- matching the onboarding prompt's entrance) with a fade-in. The
 		-- exit fades EVERYTHING out, so every rest value must be restored
 		-- here or the second open renders with ghost transparency.
+		-- fresh-eyes fix: clear the exit flag — a hide→show→hide sequence
+		-- inside one exit-tween duration (0.12s) otherwise leaves _hiding
+		-- stale, the second hide() early-returns, and the superseded
+		-- exit's Completed refuses to hide (token mismatch) — stuck menu.
+		self._hiding = false
 		self._animToken = (self._animToken or 0) + 1
 		menuFrame.BackgroundTransparency = 1
 		menuStroke.Transparency = 1
@@ -1115,7 +1120,10 @@ function ContextMenu.new(items, props)
 		-- interrupting this exit wins on every property it retargets.
 		local token = self._animToken
 		for _, itemBtn in ipairs(self.itemFrames) do
-			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 1 }):Play()
+			-- fresh-eyes fix: fade the hover highlight back to rest too —
+			-- an item hovered at close-time would otherwise stay opaque
+			-- for the 0.12s exit while everything else fades.
+			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
 		end
 		for name in pairs(self._restShadowAlpha) do
 			local shadow = menuFrame:FindFirstChild(name)
@@ -3136,6 +3144,55 @@ local function friendlyFailureReason(verb, reason)
 	return "Could not " .. verb .. " — try again."
 end
 
+-- harborheist-3mo7.3.42: transient feedback host for Anim:success /
+-- Anim:error. AnimationSystem parents the indicator INTO the frame you
+-- pass — but the sell/store prompt hides the instant the action resolves
+-- (hideSellStorePrompt runs in every outcome), so an indicator parented
+-- to the prompt would die with it. This helper snapshots the anchor's
+-- screen geometry into a screenGui-level host and plays the indicator
+-- there, so it survives the anchor's dismissal and self-cleans after
+-- the fade. parentOverride keeps panel-anchored feedback (sell-all)
+-- inside its panel so it closes with it.
+local function showActionFeedback(anchor, kind, message, duration, parentOverride)
+	if not anchor then
+		return
+	end
+	local host = Instance.new("Frame")
+	host.Name = "ActionFeedbackHost"
+	host.BackgroundTransparency = 1
+	-- AnchorPoint left at its default (0, 0) — the screen-anchored branch
+	-- positions by top-left offset, the panel branch fills its parent.
+	host.ZIndex = 900
+	if parentOverride then
+		-- Panel-anchored: fill the parent so the indicator stays centered
+		-- in it and dies with it (panels are closed by hidePanels).
+		host.Position = UDim2.new(0, 0, 0, 0)
+		host.Size = UDim2.new(1, 0, 1, 0)
+		host.Parent = parentOverride
+	else
+		-- Screen-anchored: snapshot the anchor's geometry — the prompt is
+		-- hidden immediately after the action resolves, but its indicator
+		-- must survive the dismissal.
+		local absPos = anchor.AbsolutePosition
+		local absSize = anchor.AbsoluteSize
+		host.Position = UDim2.fromOffset(absPos.X, absPos.Y)
+		host.Size = UDim2.fromOffset(absSize.X, absSize.Y)
+		host.Parent = screenGui
+	end
+	if kind == "success" then
+		Anim:success(host, message, duration)
+	else
+		Anim:error(host, message, duration)
+	end
+	-- The indicator self-destroys after its fade (duration + ~0.55s);
+	-- retire the host after it so no orphan frames accumulate.
+	task.delay((duration or 2) + 0.75, function()
+		if host.Parent then
+			host:Destroy()
+		end
+	end)
+end
+
 sellStoreClose.Activated:Connect(function()
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
@@ -3144,14 +3201,26 @@ end)
 sellStoreSellBtn.Activated:Connect(function()
 	-- R3 audit #4: un-pcall'd invoke + no revalidation — a fish already
 	-- sold/stored elsewhere failed silently with no toast at all.
+	-- harborheist-3mo7.3.42: + Anim success/error micro-interaction on
+	-- top of the toast (snapshot-hosted — the prompt hides below, but
+	-- the indicator must outlive it).
 	if sellStoreTargetFish then
 		local ok, result = pcall(function()
 			return Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
+			showActionFeedback(sellStorePrompt, "error", "Try again", 1.5)
+			hapticError()
 			showNotification("Couldn't sell that fish — try again.", Theme.color.status.bad)
-		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
+		elseif result and not result.ok then
+			showActionFeedback(sellStorePrompt, "error", "Can't sell", 1.5)
+			hapticError()
+			if result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
+			end
+		else
+			showActionFeedback(sellStorePrompt, "success", "Sold!", 1.0)
+			hapticSuccess()
 		end
 	end
 	hideSellStorePrompt()
@@ -3159,14 +3228,24 @@ sellStoreSellBtn.Activated:Connect(function()
 end)
 
 sellStoreStoreBtn.Activated:Connect(function()
+	-- harborheist-3mo7.3.42: same snapshot-hosted Anim feedback as SELL.
 	if sellStoreTargetFish then
 		local ok, result = pcall(function()
 			return Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
+			showActionFeedback(sellStorePrompt, "error", "Try again", 1.5)
+			hapticError()
 			showNotification("Couldn't store that fish — try again.", Theme.color.status.bad)
-		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
+		elseif result and not result.ok then
+			showActionFeedback(sellStorePrompt, "error", "Can't store", 1.5)
+			hapticError()
+			if result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
+			end
+		else
+			showActionFeedback(sellStorePrompt, "success", "Stored!", 1.0)
+			hapticSuccess()
 		end
 	end
 	hideSellStorePrompt()
@@ -6595,8 +6674,10 @@ end
 -- ============================================================
 -- harborheist-3mo7.3.38: rest positions for the two persistent top
 -- banners, shared by initial placement, the SAFE_TOP resize consumers,
--- and the entrance/exit animations — a single source so a viewport
--- resize mid-animation never strands a banner at a stale offset.
+-- and the entrance/exit animations — one source of truth so a resize
+-- BETWEEN animations lands both on identical offsets (a resize mid-tween
+-- re-anchors via the consumer and the tween re-converges on the next
+-- resize; same behavior as every other SAFE_TOP consumer in this file).
 local function raidBannerRest()
 	return IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
 end
@@ -9155,7 +9236,22 @@ sellButton.Activated:Connect(function()
 	end
 	if sellArmed then
 		disarmSellButton()
-		Remotes.RequestSellFish:InvokeServer()
+		-- harborheist-3mo7.3.42: capture the result (was discarded) and
+		-- play panel-anchored success feedback — the aquarium panel stays
+		-- open through the sale, so the indicator can live inside it
+		-- (parentOverride = aquariumPanel). pcall per R3 audit #4
+		-- precedent; the failure reasons here (aquarium_locked / no fish)
+		-- are server-notified, so no duplicate client toast.
+		local ok, result = pcall(function()
+			return Remotes.RequestSellFish:InvokeServer()
+		end)
+		if ok and result and result.ok then
+			showActionFeedback(aquariumPanel, "success", "All fish sold!", 1.5, aquariumPanel)
+			hapticSuccess()
+		else
+			showActionFeedback(aquariumPanel, "error", "Can't sell", 1.5, aquariumPanel)
+			hapticError()
+		end
 	else
 		local payout = computeSellPayout()
 		if payout <= 0 then
