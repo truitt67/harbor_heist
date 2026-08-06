@@ -11907,6 +11907,74 @@ local function renderEmptyState(parent, cfg)
 	return card
 end
 
+-- harborheist-3mo7.3.34: compact empty state for SUBSECTIONS inside a list
+-- (e.g. the MILESTONES section of the collection panel). The full
+-- renderEmptyState hero card (200-220px, gradient icon tile) is designed
+-- for panel-level empties — dropping it under a subsection header would
+-- dwarf the rows around it. renderEmptyRow matches makeMilestoneRow's
+-- visual language (surface.secondary, corners.roomy, stroke 0.9) at a
+-- compact height with an accent icon tile + title + subtitle, so a
+-- subsection reads as "designed and intentional" instead of "bare label".
+local function renderEmptyRow(parent, cfg)
+	local rowH = IS_MOBILE and 64 or 58
+	local row = Instance.new("Frame")
+	row.Name = "EmptyRow"
+	row.Size = UDim2.new(1, 0, 0, rowH)
+	row.BackgroundColor3 = Theme.color.surface.secondary
+	row.BackgroundTransparency = 0.1
+	row.LayoutOrder = cfg.order or 1
+	row.ZIndex = 26
+	row.Parent = parent
+	corner(row, Theme.corners.roomy)
+	stroke(row, 0.9)
+
+	local accent = cfg.accent or Theme.color.accent.base
+	local tile = Instance.new("Frame")
+	tile.Size = UDim2.new(0, 32, 0, 32)
+	tile.Position = UDim2.new(0, 12, 0.5, -16)
+	tile.BackgroundColor3 = accent
+	tile.BackgroundTransparency = 0.20
+	tile.ZIndex = 27
+	tile.Parent = row
+	corner(tile, Theme.corners.snug)
+
+	makeLabel(tile, {
+		Size = UDim2.new(1, 0, 1, 0),
+		Text = cfg.icon or "○",
+		Font = Theme.type.fonts.body,
+		TextSize = 16,
+		TextColor3 = Theme.color.text.primary,
+		ZIndex = 28,
+	})
+
+	makeLabel(row, {
+		Size = UDim2.new(1, -72, 0, 20),
+		Position = UDim2.new(0, 56, 0, IS_MOBILE and 10 or 8),
+		Text = cfg.title,
+		Font = Theme.type.fonts.bold,
+		TextSize = Theme.type.sizes.sm,
+		TextColor3 = Theme.color.text.primary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+
+	makeLabel(row, {
+		Size = UDim2.new(1, -72, 0, 16),
+		Position = UDim2.new(0, 56, 0, IS_MOBILE and 32 or 30),
+		Text = cfg.subtitle,
+		Font = Theme.type.fonts.body,
+		TextSize = Theme.type.sizes.xs,
+		TextColor3 = Theme.color.text.secondary,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		ZIndex = 27,
+	})
+
+	staggerFadeIn(row, 1)
+	return row
+end
+
 -- harborheist-kqbq.22.2: single currency/income abbreviation policy.
 -- DECISION (recorded per the bead): values render in full, comma-separated,
 -- up to 999,999; at 1,000,000+ they abbreviate to M (one decimal, trailing
@@ -14903,7 +14971,16 @@ renderCollection = function()
 			order += 1
 		end
 	else
-		makeLabel(collectionList, { Size = UDim2.new(1, 0, 0, 44), Text = "No milestones available.", Font = Theme.type.fonts.body, TextSize = Theme.type.sizes.sm, TextColor3 = Theme.color.text.tertiary, LayoutOrder = order, ZIndex = 26 })
+		-- harborheist-3mo7.3.34: designed empty state instead of a bare
+		-- "No milestones available." label. Compact row variant — the full
+		-- hero card would dwarf the rows around it inside a subsection.
+		renderEmptyRow(collectionList, {
+			icon = "\u{1F3C6}",
+			title = "No milestones yet",
+			subtitle = "Keep catching and discovering — milestones appear as you progress.",
+			order = order,
+			accent = Theme.color.status.warn,
+		})
 	end
 end
 
