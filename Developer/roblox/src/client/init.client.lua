@@ -917,8 +917,32 @@ function ContextMenu.new(items, props)
 	menuFrame.ZIndex = 200 -- High Z to stay on top
 	menuFrame.Visible = false
 	corner(menuFrame, self.cornerRadius)
-	stroke(menuFrame, 0.8)
-	applyElevation(menuFrame, "high")
+	local menuStroke = stroke(menuFrame, 0.8)
+	-- harborheist-3mo7.3.40 BUGFIX: this was a bare applyElevation() call,
+	-- but applyElevation is a LOCAL defined ~600 lines below — the Luau
+	-- load-order trap (locals bind at definition site), so this line bound
+	-- a nil global and EVERY desktop context-menu open crashed with
+	-- "attempt to call a nil value". Theme.applyElevation is the design-
+	-- system export registered at module load; safe from any call site.
+	Theme.applyElevation(menuFrame, "high")
+	-- harborheist-3mo7.3.40: rest-state capture for the entrance/exit
+	-- animation — hide() tweens every visual toward transparent, so show()
+	-- must restore these exact values (stroke transparency + per-layer
+	-- shadow alphas) or the second open renders wrong.
+	self._restStroke = menuStroke.Transparency
+	self._restShadowAlpha = {}
+	for _, child in ipairs(menuFrame:GetChildren()) do
+		if child.Name:match("^Shadow_%d+$") then
+			self._restShadowAlpha[child.Name] = child.BackgroundTransparency
+		end
+	end
+	-- harborheist-3mo7.3.40: UIScale entrance (not a Size tween) — menu
+	-- items use absolute Y offsets, so animating the frame's Size would
+	-- leave the bottom items poking past a shrunken frame. UIScale scales
+	-- items, shadows, and stroke together, anchored at the top-left (the
+	-- frame's default AnchorPoint), so the menu grows out of the click.
+	self.scale = Instance.new("UIScale")
+	self.scale.Parent = menuFrame
 
 	-- Store menu items data
 	self.itemsData = {}
@@ -1007,6 +1031,37 @@ function ContextMenu.new(items, props)
 		menuFrame.Position = UDim2.new(0, posX, 0, posY)
 		menuFrame.Visible = true
 		self.isOpen = true
+		-- harborheist-3mo7.3.40: entrance — scale up from 0.92 (EASE_POP,
+		-- matching the onboarding prompt's entrance) with a fade-in. The
+		-- exit fades EVERYTHING out, so every rest value must be restored
+		-- here or the second open renders with ghost transparency.
+		self._animToken = (self._animToken or 0) + 1
+		menuFrame.BackgroundTransparency = 1
+		menuStroke.Transparency = 1
+		for name in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				shadow.BackgroundTransparency = 1
+			end
+		end
+		for _, itemBtn in ipairs(self.itemFrames) do
+			itemBtn.TextTransparency = 1
+			itemBtn.BackgroundTransparency = 1
+		end
+		self.scale.Scale = 0.92
+		self._entranceScaleTween = TweenService:Create(self.scale, EASE_POP, { Scale = 1 })
+		self._entranceScaleTween:Play()
+		TweenService:Create(menuFrame, EASE_FAST, { BackgroundTransparency = 0 }):Play()
+		TweenService:Create(menuStroke, EASE_FAST, { Transparency = self._restStroke }):Play()
+		for name, alpha in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = alpha }):Play()
+			end
+		end
+		for _, itemBtn in ipairs(self.itemFrames) do
+			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 0 }):Play()
+		end
 
 		-- Click-outside-to-close: connected on show, disconnected on hide.
 		-- Deferred so the same right-click that opened the menu can never be
@@ -1034,12 +1089,52 @@ function ContextMenu.new(items, props)
 	end
 
 	function self:hide()
-		menuFrame.Visible = false
+		-- harborheist-3mo7.3.40: exit animation. isOpen flips FIRST — the
+		-- outside-click handler and item activation gate on it, and the
+		-- exit tween keeps Visible=true for its whole duration (deferred
+		-- hide), so gating on Visible would double-fire the exit.
+		local wasOpen = self.isOpen
 		self.isOpen = false
 		if self._outsideConn then
 			self._outsideConn:Disconnect()
 			self._outsideConn = nil
 		end
+		if self._entranceScaleTween then
+			self._entranceScaleTween:Cancel()
+			self._entranceScaleTween = nil
+		end
+		-- Already winding down, or never shown (destroy() right after new())
+		-- — nothing to animate.
+		if self._hiding or not (wasOpen or menuFrame.Visible) then
+			return
+		end
+		self._hiding = true
+		-- Scale back to 0.92 + fade everything out. EASE_FAST (0.12s) —
+		-- dismissals exit faster than they enter (reveal-card precedent).
+		-- Roblox runs the LAST-started tween per property, so a show()
+		-- interrupting this exit wins on every property it retargets.
+		local token = self._animToken
+		for _, itemBtn in ipairs(self.itemFrames) do
+			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 1 }):Play()
+		end
+		for name in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+			end
+		end
+		TweenService:Create(menuFrame, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(menuStroke, EASE_FAST, { Transparency = 1 }):Play()
+		local tween = TweenService:Create(self.scale, EASE_FAST, { Scale = 0.92 })
+		tween.Completed:Connect(function()
+			self._hiding = false
+			-- Token mismatch = a show() superseded this exit. Parent nil =
+			-- destroy() already ran (Destroy cancels tweens synchronously).
+			if self._animToken == token and menuFrame.Parent ~= nil then
+				menuFrame.Visible = false
+			end
+		end)
+		tween:Play()
 	end
 
 	function self:destroy()
