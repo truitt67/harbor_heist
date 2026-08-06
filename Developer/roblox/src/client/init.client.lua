@@ -435,6 +435,12 @@ local OVERLAY_Z_MARKER = 43
 -- regardless of rarity. Local + deterministic — no server-flag race.
 local catchesThisSession = 0
 local questData = nil
+-- harborheist-3mo7.3.37: structural signature for the quest stagger gate.
+-- renderQuestPanel rebuilds on EVERY QuestProgressChanged push (each
+-- counted catch/sell while the panel is open); the cascade must replay
+-- only on structural change (open, rotation, claim) — same policy as the
+-- raid target rows' signature-gated stagger.
+local lastQuestSignature = nil
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "HarborHeistUI"
@@ -5705,6 +5711,9 @@ local function makeQuestRow(parent, quest, order)
 		TextColor3 = quest.claimed and Theme.color.status.good or Theme.color.accent.soft,
 		ZIndex = 28,
 	})
+	-- harborheist-3mo7.3.37: return the row so renderQuestPanel can apply
+	-- the same staggered entrance as inventory/collection/raid rows.
+	return row
 end
 
 local function renderQuestPanel(data)
@@ -5713,6 +5722,22 @@ local function renderQuestPanel(data)
 			child:Destroy()
 		end
 	end
+
+	-- harborheist-3mo7.3.37: stagger gate. Structural signature = per-quest
+	-- id + claimed flag (progress is deliberately excluded — it changes on
+	-- every QuestProgressChanged push). Reset on panel open so a fresh
+	-- open always cascades even if the data is structurally identical.
+	local sigParts = {}
+	for _, q in ipairs(data and data.dailyQuests or {}) do
+		table.insert(sigParts, (q.id or "?") .. ":" .. tostring(q.claimed))
+	end
+	table.insert(sigParts, "|")
+	for _, q in ipairs(data and data.weeklyQuests or {}) do
+		table.insert(sigParts, (q.id or "?") .. ":" .. tostring(q.claimed))
+	end
+	local questSig = table.concat(sigParts, ",")
+	local structuralChange = questSig ~= lastQuestSignature
+	lastQuestSignature = questSig
 
 	makeLabel(questList, {
 		Size = UDim2.new(1, 0, 0, 24),
@@ -5725,7 +5750,13 @@ local function renderQuestPanel(data)
 		ZIndex = 26,
 	})
 	for i, q in ipairs(data and data.dailyQuests or {}) do
-		makeQuestRow(questList, q, 10 + i)
+		local row = makeQuestRow(questList, q, 10 + i)
+		-- harborheist-3mo7.3.37: staggered entrance, per-section index so
+		-- the daily cascade stays tight (matches inventory/collection/raid).
+		-- Gated on structural change so progress pushes don't re-cascade.
+		if structuralChange then
+			staggerFadeIn(row, i)
+		end
 	end
 	-- harborheist-7h69.6: empty-state message when no daily quests.
 	if not data or not data.dailyQuests or #data.dailyQuests == 0 then
@@ -5751,7 +5782,11 @@ local function renderQuestPanel(data)
 		ZIndex = 26,
 	})
 	for i, q in ipairs(data and data.weeklyQuests or {}) do
-		makeQuestRow(questList, q, 110 + i)
+		local row = makeQuestRow(questList, q, 110 + i)
+		-- harborheist-3mo7.3.37: staggered entrance, per-section index.
+		if structuralChange then
+			staggerFadeIn(row, i)
+		end
 	end
 	-- harborheist-7h69.6: empty-state message when no weekly quests.
 	if not data or not data.weeklyQuests or #data.weeklyQuests == 0 then
@@ -8997,6 +9032,9 @@ local function toggleQuestPanel()
 		return
 	end
 	showPanel(questPanel)
+	-- harborheist-3mo7.3.37: reset the stagger gate on open — a fresh open
+	-- always cascades, even if the cached data is structurally identical.
+	lastQuestSignature = nil
 	-- harborheist-p8v7: ALWAYS ask the server for fresh quests on open
 	-- (fire-and-forget; QuestProgressChanged re-renders the panel). Cached
 	-- data renders immediately as a placeholder — previously a reopen after
