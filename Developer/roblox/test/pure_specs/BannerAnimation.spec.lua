@@ -44,7 +44,16 @@ return function(describe, it, expect)
 
 		it("exit defers Visible=false to the tween completion", function()
 			has("if bannerAnimTokens[key] == token then", "supersede token gate")
-			has("banner.Visible = false", "deferred hide")
+			-- The plain literal "banner.Visible = false" also appears in
+			-- both banners' initial declarations — scope the check to the
+			-- animateBanner body so it pins the DEFERRED hide, not the
+			-- never-shown initial state.
+			local helperPos = string.find(src, "local function animateBanner(banner, key, restFn, show)", 1, true)
+			expect(helperPos).to.be.a("number")
+			local body = string.sub(src, helperPos, helperPos + 1600)
+			if not string.find(body, "banner.Visible = false", 1, true) then
+				error("deferred hide not found inside animateBanner (harborheist-3mo7.3.38)")
+			end
 		end)
 
 		it("raid banner call site is flag-gated, not .Visible-gated", function()

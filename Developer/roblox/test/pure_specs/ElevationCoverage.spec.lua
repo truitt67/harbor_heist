@@ -70,12 +70,16 @@ return function(describe, it, expect)
 			-- UIListLayout parented to the SAME element would override
 			-- them. Bounded-window scan: from each element's creation
 			-- site, check every UIListLayout created within the next
-			-- ~8000 chars (~160 lines, covers each element's full child
-			-- block) for a .Parent = <element> assignment within its own
+			-- ~12000 chars (~240 lines, covers each element's full child
+			-- block incl. the reveal card's ~187-line constructor) for a
+			-- .Parent = <element> assignment within its own
 			-- declaration block. A plain file-wide lazy match would span
 			-- unrelated sections and false-positive.
+			-- fresh-eyes fix: "local card = Instance.new(\"Frame\")" is NOT
+			-- unique — renderEmptyState and makeCollectionCard use the same
+			-- local name. Anchor on the reveal card's unique .Name instead.
 			local checks = {
-				{ name = "card", create = 'local card = Instance.new("Frame")' },
+				{ name = "card", create = 'card.Name = "RevealCard"' },
 				{ name = "sellStorePrompt", create = 'local sellStorePrompt = Instance.new("Frame")' },
 				{ name = "onboardingPrompt", create = 'local onboardingPrompt = Instance.new("Frame")' },
 			}
@@ -86,7 +90,7 @@ return function(describe, it, expect)
 						"%s creation site not found — elevation target moved? (harborheist-3mo7.3.41)",
 						c.name))
 				end
-				local window = string.sub(src, s, s + 8000)
+				local window = string.sub(src, s, s + 12000)
 				local pos = 1
 				while true do
 					local ls = string.find(window, 'Instance.new("UIListLayout")', pos, true)
@@ -96,9 +100,10 @@ return function(describe, it, expect)
 					-- A layout's .Parent is set within a few lines of
 					-- creation; a 300-char segment is ample.
 					local seg = string.sub(window, ls, ls + 300)
-					-- %f[^%w_] word boundary so "card" never matches
-					-- "cardScale" etc.
-					if string.find(seg, "Parent = " .. c.name .. "%f[^%w_]") then
+					-- %f[^%w_] word boundaries on BOTH sides so "card"
+					-- never matches "cardScale", and an unrelated
+					-- "<x>.Parent = card" line can't fake a layout parent.
+					if string.find(seg, "%f[^%w_]Parent = " .. c.name .. "%f[^%w_]") then
 						error(string.format(
 							"%s gained a UIListLayout child — breaks applyElevation shadows (harborheist-3mo7.3.41)",
 							c.name))
