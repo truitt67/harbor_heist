@@ -1091,6 +1091,73 @@ function ContextMenu.new(items, props)
 				end
 			end)
 		end)
+
+		-- harborheist-3mo7.2.5: keyboard navigation. Up/Down move focus
+		-- (skipping disabled items, wrapping at boundaries), Enter activates
+		-- the focused item, Escape closes. Connected on show (deferred, same
+		-- window as the outside-click handler so the opening right-click is
+		-- never seen), disconnected on hide. Focus highlight uses the SAME
+		-- visual as mouse hover (BackgroundTransparency=0 + self.hoverColor)
+		-- so keyboard and mouse navigation are visually identical.
+		self._kbFocusIndex = nil
+		local function updateKbFocus()
+			for i, itemBtn in ipairs(self.itemFrames) do
+				if i == self._kbFocusIndex and not self.itemsData[i].disabled then
+					itemBtn.BackgroundTransparency = 0
+					itemBtn.BackgroundColor3 = self.hoverColor
+				else
+					itemBtn.BackgroundTransparency = 1
+				end
+			end
+		end
+
+		if self._kbConn then self._kbConn:Disconnect() end
+		task.defer(function()
+			if not self.isOpen then return end
+			if self._kbConn then self._kbConn:Disconnect() end
+			-- harborheist-3mo7.2.5: seed focus on the first non-disabled
+			-- item so the user can immediately press Enter.
+			self._kbFocusIndex = nil
+			for i, item in ipairs(self.itemsData) do
+				if not item.disabled then
+					self._kbFocusIndex = i
+					break
+				end
+			end
+			if self._kbFocusIndex then
+				updateKbFocus()
+			end
+			self._kbConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+				if gameProcessed or not self.isOpen then return end
+				local key = input.KeyCode
+				if key == Enum.KeyCode.Escape then
+					self:hide()
+				elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down then
+					if #self.itemsData == 0 then return end
+					local dir = key == Enum.KeyCode.Down and 1 or -1
+					local idx = self._kbFocusIndex or (dir == 1 and 0 or #self.itemsData + 1)
+					-- Walk in the given direction, skipping disabled items,
+					-- wrapping at boundaries (acceptance criteria: optional
+					-- but nice — standard context-menu behavior).
+					for _ = 1, #self.itemsData do
+						idx = idx + dir
+						if idx > #self.itemsData then idx = 1 end
+						if idx < 1 then idx = #self.itemsData end
+						if not self.itemsData[idx].disabled then
+							self._kbFocusIndex = idx
+							updateKbFocus()
+							break
+						end
+					end
+				elseif key == Enum.KeyCode.Return then
+					local item = self._kbFocusIndex and self.itemsData[self._kbFocusIndex]
+					if item and not item.disabled then
+						self:hide()
+						item.action()
+					end
+				end
+			end)
+		end)
 	end
 
 	function self:hide()
@@ -1103,6 +1170,11 @@ function ContextMenu.new(items, props)
 		if self._outsideConn then
 			self._outsideConn:Disconnect()
 			self._outsideConn = nil
+		end
+		-- harborheist-3mo7.2.5: disconnect keyboard navigation too.
+		if self._kbConn then
+			self._kbConn:Disconnect()
+			self._kbConn = nil
 		end
 		if self._entranceScaleTween then
 			self._entranceScaleTween:Cancel()
