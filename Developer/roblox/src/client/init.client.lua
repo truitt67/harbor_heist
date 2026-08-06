@@ -2347,7 +2347,7 @@ toastHost.Parent = screenGui
 
 local toastLayout = Instance.new("UIListLayout")
 toastLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-toastLayout.Padding = UDim.new(0, 6)
+toastLayout.Padding = UDim.new(0, Theme.spacing.sm)
 toastLayout.SortOrder = Enum.SortOrder.LayoutOrder
 toastLayout.Parent = toastHost
 
@@ -3866,7 +3866,7 @@ inventoryList.Parent = inventoryContent
 applyScrollAffordance(inventoryList) -- after Parent+ZIndex settle (reads both)
 
 local inventoryLayout = Instance.new("UIListLayout")
-inventoryLayout.Padding = UDim.new(0, 8)
+inventoryLayout.Padding = UDim.new(0, Theme.spacing.md)
 inventoryLayout.SortOrder = Enum.SortOrder.LayoutOrder
 inventoryLayout.Parent = inventoryList
 
@@ -4426,7 +4426,7 @@ local function showMobileActionSheet(fish)
 
 	local listLayout = Instance.new("UIListLayout")
 	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, 8)
+	listLayout.Padding = UDim.new(0, Theme.spacing.sm)
 	listLayout.Parent = rowContainer
 
 	for i, item in ipairs(items) do
@@ -4658,7 +4658,7 @@ collectionList.Parent = collectionContent
 applyScrollAffordance(collectionList) -- after Parent+ZIndex settle (reads both)
 
 local collectionListLayout = Instance.new("UIListLayout")
-collectionListLayout.Padding = UDim.new(0, 14)
+collectionListLayout.Padding = UDim.new(0, Theme.spacing.md)
 collectionListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 collectionListLayout.Parent = collectionList
 
@@ -4987,7 +4987,7 @@ end
 -- where a bare "Loading..." label reads as "broken". The animation loop
 -- self-terminates when clearCollectionList destroys the bars (refresh or
 -- error path). The factory detects collectionList's existing UIListLayout
--- (Padding=14) and preserves it.
+-- (Padding=Theme.spacing.md) and preserves it.
 local function showCollectionSkeleton()
 	clearCollectionList()
 	createSkeletonRows(collectionList, {
@@ -5079,7 +5079,7 @@ shopList.Parent = shopContent
 applyScrollAffordance(shopList) -- after Parent+ZIndex settle (reads both)
 
 local shopLayout = Instance.new("UIListLayout")
-shopLayout.Padding = UDim.new(0, 8)
+shopLayout.Padding = UDim.new(0, Theme.spacing.md)
 shopLayout.SortOrder = Enum.SortOrder.LayoutOrder
 shopLayout.Parent = shopList
 
@@ -5642,7 +5642,7 @@ questList.Parent = questContent
 applyScrollAffordance(questList) -- after Parent+ZIndex settle (reads both)
 
 local questLayout = Instance.new("UIListLayout")
-questLayout.Padding = UDim.new(0, 8)
+questLayout.Padding = UDim.new(0, Theme.spacing.md)
 questLayout.SortOrder = Enum.SortOrder.LayoutOrder
 questLayout.Parent = questList
 
@@ -5830,7 +5830,7 @@ raidTargetList.Parent = raidContent
 applyScrollAffordance(raidTargetList) -- after Parent+ZIndex settle (reads both)
 
 local raidTargetLayout = Instance.new("UIListLayout")
-raidTargetLayout.Padding = UDim.new(0, 8)
+raidTargetLayout.Padding = UDim.new(0, Theme.spacing.md)
 raidTargetLayout.SortOrder = Enum.SortOrder.LayoutOrder
 raidTargetLayout.Parent = raidTargetList
 
@@ -9111,7 +9111,7 @@ local helpListLayout = Instance.new("UIListLayout")
 helpListLayout.FillDirection = Enum.FillDirection.Vertical
 helpListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
 helpListLayout.VerticalAlignment = Enum.VerticalAlignment.Top
-helpListLayout.Padding = UDim.new(0, 6)
+helpListLayout.Padding = UDim.new(0, Theme.spacing.sm)
 helpListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 helpListLayout.Parent = helpList
 
