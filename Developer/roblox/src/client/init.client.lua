@@ -2797,6 +2797,10 @@ onboardingPrompt.ZIndex = 15
 onboardingPrompt.Parent = screenGui
 corner(onboardingPrompt, Theme.corners.md)
 stroke(onboardingPrompt, 0.7, Theme.color.accent.base, 1.5)
+-- harborheist-3mo7.3.41: low elevation — the coaching banner floats above
+-- the HUD with only stroke; 2 layers/4px spread adds a subtle depth cue
+-- without stealing focus from the action bar it coaches.
+applyElevation(onboardingPrompt, "low")
 
 local onboardingAccentBar = Instance.new("Frame")
 onboardingAccentBar.Size = UDim2.new(0, 4, 1, -14)
@@ -2903,6 +2907,10 @@ sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
 corner(sellStorePrompt, Theme.corners.spacious)
 stroke(sellStorePrompt, 0.7, Theme.color.accent.base, 1.5)
+-- harborheist-3mo7.3.41: medium elevation — the modal comparison prompt
+-- floats over the world with no depth cue; 3 layers/8px spread anchors
+-- it as a true modal above the HUD tier (ZIndex 30 vs HUD's 1).
+applyElevation(sellStorePrompt, "medium")
 
 makeLabel(sellStorePrompt, {
 	Size = UDim2.new(1, -20, 0, 24),
@@ -8473,6 +8481,11 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	card.Parent = screenGui
 	corner(card, Theme.corners.lg)
 	local cardStroke = stroke(card, 0.4, rarityColor, 2)
+	-- harborheist-3mo7.3.41: high elevation — the hero moment deserves the
+	-- deepest shadow in the game (4 layers/16px spread). Shadows are card
+	-- children, so they scale with the UIScale entrance and fade with the
+	-- dismiss tween loop automatically.
+	applyElevation(card, "high")
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
 	-- moment was the one flat card in the game.
