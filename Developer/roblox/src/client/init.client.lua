@@ -6411,7 +6411,20 @@ local function renderRaidTargets(data)
 					return
 				end
 				raidInProgress = true
-				local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+				-- harborheist-1pkj: pcall the invoke. A THROWN invoke (network
+				-- drop) otherwise kills this handler thread before any reset
+				-- runs — raidInProgress stays true forever and every future
+				-- RAID tap early-returns above: the button is silently dead
+				-- until rejoin. Same class as the debouncedAction pcall fix
+				-- for sell/store ("would leave Active=false FOREVER").
+				local invokeOk, result = pcall(function()
+					return Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+				end)
+				if not invokeOk then
+					raidInProgress = false
+					showNotification("Raid request failed — check your connection and try again.", Theme.color.status.bad)
+					return
+				end
 				if not result or not result.ok then
 					raidInProgress = false
 					-- P0 syntax fix: parenthesize constructor before indexing
