@@ -720,3 +720,12 @@ fi
 alias acfs-force-update='./scripts/lib/security.sh --update-checksums > checksums.yaml && acfs update --stack'
 
 alias acfs-sync='cd ~/.acfs/scripts/lib && ./security.sh --update-checksums > checksums.yaml && cp checksums.yaml ../checksums.yaml && cp checksums.yaml ~/.acfs/checksums.yaml'
+# >>> MCP Agent Mail br path /home/ubuntu/.cargo/bin
+if [[ ":$PATH:" != *":/home/ubuntu/.cargo/bin:"* ]]; then
+  export PATH="/home/ubuntu/.cargo/bin:$PATH"
+fi
+# <<< MCP Agent Mail br path
+
+# >>> MCP Agent Mail bd alias
+alias bd='br'
+# <<< MCP Agent Mail bd alias
