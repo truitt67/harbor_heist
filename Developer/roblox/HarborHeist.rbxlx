@@ -10920,8 +10920,32 @@ function ContextMenu.new(items, props)
 	menuFrame.ZIndex = 200 -- High Z to stay on top
 	menuFrame.Visible = false
 	corner(menuFrame, self.cornerRadius)
-	stroke(menuFrame, 0.8)
-	applyElevation(menuFrame, "high")
+	local menuStroke = stroke(menuFrame, 0.8)
+	-- harborheist-3mo7.3.40 BUGFIX: this was a bare applyElevation() call,
+	-- but applyElevation is a LOCAL defined ~600 lines below — the Luau
+	-- load-order trap (locals bind at definition site), so this line bound
+	-- a nil global and EVERY desktop context-menu open crashed with
+	-- "attempt to call a nil value". Theme.applyElevation is the design-
+	-- system export registered at module load; safe from any call site.
+	Theme.applyElevation(menuFrame, "high")
+	-- harborheist-3mo7.3.40: rest-state capture for the entrance/exit
+	-- animation — hide() tweens every visual toward transparent, so show()
+	-- must restore these exact values (stroke transparency + per-layer
+	-- shadow alphas) or the second open renders wrong.
+	self._restStroke = menuStroke.Transparency
+	self._restShadowAlpha = {}
+	for _, child in ipairs(menuFrame:GetChildren()) do
+		if child.Name:match("^Shadow_%d+$") then
+			self._restShadowAlpha[child.Name] = child.BackgroundTransparency
+		end
+	end
+	-- harborheist-3mo7.3.40: UIScale entrance (not a Size tween) — menu
+	-- items use absolute Y offsets, so animating the frame's Size would
+	-- leave the bottom items poking past a shrunken frame. UIScale scales
+	-- items, shadows, and stroke together, anchored at the top-left (the
+	-- frame's default AnchorPoint), so the menu grows out of the click.
+	self.scale = Instance.new("UIScale")
+	self.scale.Parent = menuFrame
 
 	-- Store menu items data
 	self.itemsData = {}
@@ -11010,6 +11034,42 @@ function ContextMenu.new(items, props)
 		menuFrame.Position = UDim2.new(0, posX, 0, posY)
 		menuFrame.Visible = true
 		self.isOpen = true
+		-- harborheist-3mo7.3.40: entrance — scale up from 0.92 (EASE_POP,
+		-- matching the onboarding prompt's entrance) with a fade-in. The
+		-- exit fades EVERYTHING out, so every rest value must be restored
+		-- here or the second open renders with ghost transparency.
+		-- fresh-eyes fix: clear the exit flag — a hide→show→hide sequence
+		-- inside one exit-tween duration (0.12s) otherwise leaves _hiding
+		-- stale, the second hide() early-returns, and the superseded
+		-- exit's Completed refuses to hide (token mismatch) — stuck menu.
+		self._hiding = false
+		self._animToken = (self._animToken or 0) + 1
+		menuFrame.BackgroundTransparency = 1
+		menuStroke.Transparency = 1
+		for name in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				shadow.BackgroundTransparency = 1
+			end
+		end
+		for _, itemBtn in ipairs(self.itemFrames) do
+			itemBtn.TextTransparency = 1
+			itemBtn.BackgroundTransparency = 1
+		end
+		self.scale.Scale = 0.92
+		self._entranceScaleTween = TweenService:Create(self.scale, EASE_POP, { Scale = 1 })
+		self._entranceScaleTween:Play()
+		TweenService:Create(menuFrame, EASE_FAST, { BackgroundTransparency = 0 }):Play()
+		TweenService:Create(menuStroke, EASE_FAST, { Transparency = self._restStroke }):Play()
+		for name, alpha in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = alpha }):Play()
+			end
+		end
+		for _, itemBtn in ipairs(self.itemFrames) do
+			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 0 }):Play()
+		end
 
 		-- Click-outside-to-close: connected on show, disconnected on hide.
 		-- Deferred so the same right-click that opened the menu can never be
@@ -11034,15 +11094,130 @@ function ContextMenu.new(items, props)
 				end
 			end)
 		end)
+
+		-- harborheist-3mo7.2.5: keyboard navigation. Up/Down move focus
+		-- (skipping disabled items, wrapping at boundaries), Enter activates
+		-- the focused item, Escape closes. Connected on show (deferred, same
+		-- window as the outside-click handler so the opening right-click is
+		-- never seen), disconnected on hide. Focus highlight uses the SAME
+		-- visual as mouse hover (BackgroundTransparency=0 + self.hoverColor)
+		-- so keyboard and mouse navigation are visually identical.
+		self._kbFocusIndex = nil
+		local function updateKbFocus()
+			for i, itemBtn in ipairs(self.itemFrames) do
+				if i == self._kbFocusIndex and not self.itemsData[i].disabled then
+					itemBtn.BackgroundTransparency = 0
+					itemBtn.BackgroundColor3 = self.hoverColor
+				else
+					itemBtn.BackgroundTransparency = 1
+				end
+			end
+		end
+
+		if self._kbConn then self._kbConn:Disconnect() end
+		task.defer(function()
+			if not self.isOpen then return end
+			if self._kbConn then self._kbConn:Disconnect() end
+			-- harborheist-3mo7.2.5: seed focus on the first non-disabled
+			-- item so the user can immediately press Enter.
+			self._kbFocusIndex = nil
+			for i, item in ipairs(self.itemsData) do
+				if not item.disabled then
+					self._kbFocusIndex = i
+					break
+				end
+			end
+			if self._kbFocusIndex then
+				updateKbFocus()
+			end
+			self._kbConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+				if gameProcessed or not self.isOpen then return end
+				local key = input.KeyCode
+				if key == Enum.KeyCode.Escape then
+					self:hide()
+				elseif key == Enum.KeyCode.Up or key == Enum.KeyCode.Down then
+					if #self.itemsData == 0 then return end
+					local dir = key == Enum.KeyCode.Down and 1 or -1
+					local idx = self._kbFocusIndex or (dir == 1 and 0 or #self.itemsData + 1)
+					-- Walk in the given direction, skipping disabled items,
+					-- wrapping at boundaries (acceptance criteria: optional
+					-- but nice — standard context-menu behavior).
+					for _ = 1, #self.itemsData do
+						idx = idx + dir
+						if idx > #self.itemsData then idx = 1 end
+						if idx &lt; 1 then idx = #self.itemsData end
+						if not self.itemsData[idx].disabled then
+							self._kbFocusIndex = idx
+							updateKbFocus()
+							break
+						end
+					end
+				elseif key == Enum.KeyCode.Return then
+					local item = self._kbFocusIndex and self.itemsData[self._kbFocusIndex]
+					if item and not item.disabled then
+						self:hide()
+						item.action()
+					end
+				end
+			end)
+		end)
 	end
 
 	function self:hide()
-		menuFrame.Visible = false
+		-- harborheist-3mo7.3.40: exit animation. isOpen flips FIRST — the
+		-- outside-click handler and item activation gate on it, and the
+		-- exit tween keeps Visible=true for its whole duration (deferred
+		-- hide), so gating on Visible would double-fire the exit.
+		local wasOpen = self.isOpen
 		self.isOpen = false
 		if self._outsideConn then
 			self._outsideConn:Disconnect()
 			self._outsideConn = nil
 		end
+		-- harborheist-3mo7.2.5: disconnect keyboard navigation too.
+		if self._kbConn then
+			self._kbConn:Disconnect()
+			self._kbConn = nil
+		end
+		if self._entranceScaleTween then
+			self._entranceScaleTween:Cancel()
+			self._entranceScaleTween = nil
+		end
+		-- Already winding down, or never shown (destroy() right after new())
+		-- — nothing to animate.
+		if self._hiding or not (wasOpen or menuFrame.Visible) then
+			return
+		end
+		self._hiding = true
+		-- Scale back to 0.92 + fade everything out. EASE_FAST (0.12s) —
+		-- dismissals exit faster than they enter (reveal-card precedent).
+		-- Roblox runs the LAST-started tween per property, so a show()
+		-- interrupting this exit wins on every property it retargets.
+		local token = self._animToken
+		for _, itemBtn in ipairs(self.itemFrames) do
+			-- fresh-eyes fix: fade the hover highlight back to rest too —
+			-- an item hovered at close-time would otherwise stay opaque
+			-- for the 0.12s exit while everything else fades.
+			TweenService:Create(itemBtn, EASE_FAST, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+		end
+		for name in pairs(self._restShadowAlpha) do
+			local shadow = menuFrame:FindFirstChild(name)
+			if shadow then
+				TweenService:Create(shadow, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+			end
+		end
+		TweenService:Create(menuFrame, EASE_FAST, { BackgroundTransparency = 1 }):Play()
+		TweenService:Create(menuStroke, EASE_FAST, { Transparency = 1 }):Play()
+		local tween = TweenService:Create(self.scale, EASE_FAST, { Scale = 0.92 })
+		tween.Completed:Connect(function()
+			self._hiding = false
+			-- Token mismatch = a show() superseded this exit. Parent nil =
+			-- destroy() already ran (Destroy cancels tweens synchronously).
+			if self._animToken == token and menuFrame.Parent ~= nil then
+				menuFrame.Visible = false
+			end
+		end)
+		tween:Play()
 	end
 
 	function self:destroy()
@@ -12800,6 +12975,10 @@ onboardingPrompt.ZIndex = 15
 onboardingPrompt.Parent = screenGui
 corner(onboardingPrompt, Theme.corners.md)
 stroke(onboardingPrompt, 0.7, Theme.color.accent.base, 1.5)
+-- harborheist-3mo7.3.41: low elevation — the coaching banner floats above
+-- the HUD with only stroke; 2 layers/4px spread adds a subtle depth cue
+-- without stealing focus from the action bar it coaches.
+applyElevation(onboardingPrompt, "low")
 
 local onboardingAccentBar = Instance.new("Frame")
 onboardingAccentBar.Size = UDim2.new(0, 4, 1, -14)
@@ -12906,6 +13085,10 @@ sellStorePrompt.ZIndex = 30
 sellStorePrompt.Parent = screenGui
 corner(sellStorePrompt, Theme.corners.spacious)
 stroke(sellStorePrompt, 0.7, Theme.color.accent.base, 1.5)
+-- harborheist-3mo7.3.41: medium elevation — the modal comparison prompt
+-- floats over the world with no depth cue; 3 layers/8px spread anchors
+-- it as a true modal above the HUD tier (ZIndex 30 vs HUD's 1).
+applyElevation(sellStorePrompt, "medium")
 
 makeLabel(sellStorePrompt, {
 	Size = UDim2.new(1, -20, 0, 24),
@@ -12962,15 +13145,52 @@ local sellStoreStoreBtn = makeButton(sellStorePrompt, {
 	ZIndex = 31,
 })
 
+-- harborheist-3mo7.2.4: dim backdrop + click-outside dismiss for the
+-- sell/store comparison prompt. The prompt is a modal (ZIndex 30) that
+-- floats above panels (25-29) and the HUD — but without a backdrop it
+-- violated modal dialog conventions: users had to find the small ✕ button
+-- to dismiss it. This TextButton sits at ZIndex 29 (just below the prompt,
+-- above panel content) and captures click-outside / touch-outside to
+-- dismiss. A semi-transparent dim (0.45) keeps the world visible — unlike
+-- the panel backdrop (ZIndex 20) which fades fully opaque for full-focus
+-- modals; the comparison prompt is lighter-weight, so its dim is too.
+-- If a panel is already open with its own backdrop (20), this stacks above
+-- it without conflict — dismissing the prompt leaves the panel untouched.
+local sellStoreBackdrop = Instance.new("TextButton")
+sellStoreBackdrop.Name = "SellStoreBackdrop"
+sellStoreBackdrop.Size = UDim2.new(1, 0, 1, 0)
+sellStoreBackdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+sellStoreBackdrop.BackgroundTransparency = 1
+sellStoreBackdrop.Text = ""
+sellStoreBackdrop.AutoButtonColor = false
+sellStoreBackdrop.Visible = false
+sellStoreBackdrop.ZIndex = 29
+sellStoreBackdrop.Parent = screenGui
+
 -- The FishInstance currently being offered by the comparison prompt.
 local sellStoreTargetFish = nil
 -- Whether the prompt has already been shown or dismissed this session.
 local sellStorePromptShown = false
 -- Carried count on the previous render, used to detect a new catch.
 local lastCarriedCount = 0
+-- harborheist-3mo7.2.4: rest dim for the backdrop (Pattern 20/23 — capture
+-- the rest value once so the exit fade and the next entrance agree).
+local SELL_STORE_BACKDROP_DIM = 0.45
 
 local function hideSellStorePrompt()
 	sellStorePrompt.Visible = false
+	-- harborheist-3mo7.2.4: fade the backdrop out, then hide. Deferred
+	-- via task.delay so the fade is visible (not an instant pop-off).
+	if sellStoreBackdrop.Visible then
+		TweenService:Create(sellStoreBackdrop, EASE_OUT, {
+			BackgroundTransparency = 1,
+		}):Play()
+		task.delay(Theme.motion.easeOut.duration, function()
+			if not sellStorePrompt.Visible then
+				sellStoreBackdrop.Visible = false
+			end
+		end)
+	end
 	sellStoreTargetFish = nil
 end
 
@@ -12997,6 +13217,13 @@ local function showSellStorePrompt(fish)
 	sellStoreTargetFish = fish
 	sellStoreSellBtn.Text = string.format("SELL $%s", formatCash(fish.BaseSellValue or 0))
 	sellStoreStoreBtn.Text = string.format("STORE $%s/min", formatCash(fish.IncomePerMinute or 0))
+	-- harborheist-3mo7.2.4: show + fade-in the backdrop before the prompt
+	-- pops, so the dim arrives with the modal (not after it).
+	sellStoreBackdrop.Visible = true
+	sellStoreBackdrop.BackgroundTransparency = 1
+	TweenService:Create(sellStoreBackdrop, EASE_OUT, {
+		BackgroundTransparency = SELL_STORE_BACKDROP_DIM,
+	}):Play()
 	sellStorePrompt.Visible = true
 	local scale = sellStorePrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
 	scale.Parent = sellStorePrompt
@@ -13036,22 +13263,95 @@ local function friendlyFailureReason(verb, reason)
 	return "Could not " .. verb .. " — try again."
 end
 
+-- harborheist-3mo7.3.42: transient feedback host for Anim:success /
+-- Anim:error. AnimationSystem parents the indicator INTO the frame you
+-- pass — but the sell/store prompt hides the instant the action resolves
+-- (hideSellStorePrompt runs in every outcome), so an indicator parented
+-- to the prompt would die with it. This helper snapshots the anchor's
+-- screen geometry into a screenGui-level host and plays the indicator
+-- there, so it survives the anchor's dismissal and self-cleans after
+-- the fade. parentOverride keeps panel-anchored feedback (sell-all)
+-- inside its panel so it closes with it.
+local function showActionFeedback(anchor, kind, message, duration, parentOverride)
+	if not anchor then
+		return
+	end
+	local host = Instance.new("Frame")
+	host.Name = "ActionFeedbackHost"
+	host.BackgroundTransparency = 1
+	-- AnchorPoint left at its default (0, 0) — the screen-anchored branch
+	-- positions by top-left offset, the panel branch fills its parent.
+	host.ZIndex = 900
+	if parentOverride then
+		-- Panel-anchored: fill the parent so the indicator stays centered
+		-- in it and dies with it (panels are closed by hidePanels).
+		host.Position = UDim2.new(0, 0, 0, 0)
+		host.Size = UDim2.new(1, 0, 1, 0)
+		host.Parent = parentOverride
+	else
+		-- Screen-anchored: snapshot the anchor's geometry — the prompt is
+		-- hidden immediately after the action resolves, but its indicator
+		-- must survive the dismissal.
+		local absPos = anchor.AbsolutePosition
+		local absSize = anchor.AbsoluteSize
+		host.Position = UDim2.fromOffset(absPos.X, absPos.Y)
+		host.Size = UDim2.fromOffset(absSize.X, absSize.Y)
+		host.Parent = screenGui
+	end
+	if kind == "success" then
+		Anim:success(host, message, duration)
+	else
+		Anim:error(host, message, duration)
+	end
+	-- The indicator self-destroys after its fade (duration + ~0.55s);
+	-- retire the host after it so no orphan frames accumulate.
+	task.delay((duration or 2) + 0.75, function()
+		if host.Parent then
+			host:Destroy()
+		end
+	end)
+end
+
 sellStoreClose.Activated:Connect(function()
 	hideSellStorePrompt()
 	markSellStoreComparisonSeen()
 end)
 
+-- harborheist-3mo7.2.4: click-outside / touch-outside dismiss. The backdrop
+-- is a TextButton so .Activated fires on MouseButton1 AND Touch — no need
+-- for a separate InputBegan handler (matches the panel backdrop pattern at
+-- line ~3809). Fires only while the prompt is visible (its Visible gate
+-- plus the backdrop's own Visible gate prevent stale fires after hide).
+sellStoreBackdrop.Activated:Connect(function()
+	if sellStorePrompt.Visible then
+		hideSellStorePrompt()
+		markSellStoreComparisonSeen()
+	end
+end)
+
 sellStoreSellBtn.Activated:Connect(function()
 	-- R3 audit #4: un-pcall'd invoke + no revalidation — a fish already
 	-- sold/stored elsewhere failed silently with no toast at all.
+	-- harborheist-3mo7.3.42: + Anim success/error micro-interaction on
+	-- top of the toast (snapshot-hosted — the prompt hides below, but
+	-- the indicator must outlive it).
 	if sellStoreTargetFish then
 		local ok, result = pcall(function()
 			return Remotes.SellFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
+			showActionFeedback(sellStorePrompt, "error", "Try again", 1.5)
+			hapticError()
 			showNotification("Couldn't sell that fish — try again.", Theme.color.status.bad)
-		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
+		elseif result and not result.ok then
+			showActionFeedback(sellStorePrompt, "error", "Can't sell", 1.5)
+			hapticError()
+			if result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification(friendlyFailureReason("sell", result.reason), Theme.color.status.bad)
+			end
+		else
+			showActionFeedback(sellStorePrompt, "success", "Sold!", 1.0)
+			hapticSuccess()
 		end
 	end
 	hideSellStorePrompt()
@@ -13059,14 +13359,24 @@ sellStoreSellBtn.Activated:Connect(function()
 end)
 
 sellStoreStoreBtn.Activated:Connect(function()
+	-- harborheist-3mo7.3.42: same snapshot-hosted Anim feedback as SELL.
 	if sellStoreTargetFish then
 		local ok, result = pcall(function()
 			return Remotes.StoreSingleFish:InvokeServer(sellStoreTargetFish.InstanceId)
 		end)
 		if not ok or result == nil then
+			showActionFeedback(sellStorePrompt, "error", "Try again", 1.5)
+			hapticError()
 			showNotification("Couldn't store that fish — try again.", Theme.color.status.bad)
-		elseif result and not result.ok and result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
-			showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
+		elseif result and not result.ok then
+			showActionFeedback(sellStorePrompt, "error", "Can't store", 1.5)
+			hapticError()
+			if result.reason and not SERVER_NOTIFIED_REASONS[result.reason] then
+				showNotification(friendlyFailureReason("store", result.reason), Theme.color.status.bad)
+			end
+		else
+			showActionFeedback(sellStorePrompt, "success", "Stored!", 1.0)
+			hapticSuccess()
 		end
 	end
 	hideSellStorePrompt()
@@ -16493,14 +16803,28 @@ end
 -- ============================================================
 -- Global raid window countdown HUD banner
 -- ============================================================
+-- harborheist-3mo7.3.38: rest positions for the two persistent top
+-- banners, shared by initial placement, the SAFE_TOP resize consumers,
+-- and the entrance/exit animations — one source of truth so a resize
+-- BETWEEN animations lands both on identical offsets (a resize mid-tween
+-- re-anchors via the consumer and the tween re-converges on the next
+-- resize; same behavior as every other SAFE_TOP consumer in this file).
+local function raidBannerRest()
+	return IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+end
+
+local function dataStoreBannerRest()
+	return IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+end
+
 local raidBanner = Instance.new("Frame")
 raidBanner.Name = "RaidBanner"
 -- Desktop: top-center banner. Mobile: top-right to avoid overlapping the HUD.
 raidBanner.AnchorPoint = IS_MOBILE and Vector2.new(1, 0) or Vector2.new(0.5, 0)
 raidBanner.Size = UDim2.new(0, IS_MOBILE and 180 or 340, 0, 36)
-raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+raidBanner.Position = raidBannerRest()
 table.insert(safeTopConsumers, function()
-	raidBanner.Position = IS_MOBILE and UDim2.new(1, -12, 0, SAFE_TOP + 6) or UDim2.new(0.5, 0, 0, SAFE_TOP + 6)
+	raidBanner.Position = raidBannerRest()
 end)
 raidBanner.BackgroundColor3 = Theme.color.surface.primary
 raidBanner.BackgroundTransparency = 0.12
@@ -16545,9 +16869,9 @@ dataStoreBanner.Name = "DataStoreBanner"
 -- banner and the "?" help button (+50) on narrow (~320px) phones.
 dataStoreBanner.AnchorPoint = IS_MOBILE and Vector2.new(0, 0) or Vector2.new(0.5, 0)
 dataStoreBanner.Size = UDim2.new(0, IS_MOBILE and 240 or 360, 0, 70)
-dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+dataStoreBanner.Position = dataStoreBannerRest()
 table.insert(safeTopConsumers, function()
-	dataStoreBanner.Position = IS_MOBILE and UDim2.new(0, 12, 0, SAFE_TOP + 48) or UDim2.new(0.5, 0, 0, SAFE_TOP + 48)
+	dataStoreBanner.Position = dataStoreBannerRest()
 end)
 dataStoreBanner.BackgroundColor3 = Theme.color.surface.primary
 dataStoreBanner.BackgroundTransparency = 0.12
@@ -16586,6 +16910,71 @@ makeLabel(dataStoreBanner, {
 	TextWrapped = true,
 	ZIndex = 19,
 })
+-- ============================================================
+-- harborheist-3mo7.3.38: entrance/exit animation for the two persistent
+-- top banners (raid + dataStore). Both previously hard-popped via raw
+-- .Visible toggles while every other popup in the game animates.
+--
+-- Entrance: banner starts one banner-height (+8px) above its rest slot
+-- fully transparent, slides down into place and fades in (EASE_OUT,
+-- 0.22s = Theme.motion.easeOut — same duration as every other entrance).
+-- Exit: reverse (EASE_IN), with Visible=false deferred to the tween's
+-- Completed callback so the wind-down actually renders.
+--
+-- CALLER CONTRACT (why the token gate exists): render() runs on every
+-- state push and updateRaidCountdown() runs every second, so both call
+-- sites gate on an intended-state FLAG, never on .Visible — during the
+-- exit tween .Visible is still true, and gating on it would re-trigger
+-- the hide (and the recovery toast) every push. The Completed callback
+-- checks the token so an entrance superseding a mid-flight exit never
+-- gets its banner hidden out from under it.
+-- ============================================================
+local bannerAnimTokens = { raid = 0, dataStore = 0 }
+-- Rest alpha captured before the first mutation (both banners are created
+-- Visible=false at 0.12 long before their first toggle) — re-reading the
+-- property would return the exit tween's 1 after the first hide.
+local bannerRestAlpha = {}
+-- Intended-state flags for the two banners. render() and the 1s ticker hit
+-- these call sites on EVERY push/tick, so they gate on these flags, never
+-- on .Visible (which stays true during the 0.22s exit tween). Declared
+-- here — before render()/updateRaidCountdown() — so both read the locals.
+local raidBannerShown = false
+local dataStoreBannerShown = false
+
+local function animateBanner(banner, key, restFn, show)
+	if bannerRestAlpha[key] == nil then
+		bannerRestAlpha[key] = banner.BackgroundTransparency
+	end
+	local restAlpha = bannerRestAlpha[key]
+	bannerAnimTokens[key] = bannerAnimTokens[key] + 1
+	local token = bannerAnimTokens[key]
+	local rest = restFn()
+	-- One banner-height + 8px: each banner starts fully above its slot.
+	local slide = UDim2.new(0, 0, 0, banner.Size.Y.Offset + 8)
+	if show then
+		banner.Visible = true
+		banner.Position = rest - slide
+		banner.BackgroundTransparency = 1
+		TweenService:Create(banner, EASE_OUT, {
+			Position = rest,
+			BackgroundTransparency = restAlpha,
+		}):Play()
+	else
+		local tween = TweenService:Create(banner, EASE_IN, {
+			Position = rest - slide,
+			BackgroundTransparency = 1,
+		})
+		tween.Completed:Connect(function()
+			-- Token mismatch = an entrance superseded this exit; the
+			-- entrance already re-showed the banner.
+			if bannerAnimTokens[key] == token then
+				banner.Visible = false
+			end
+		end)
+		tween:Play()
+	end
+end
+
 -- ============================================================
 -- [harborheist-a2ug.13] Mobile "?" help button — always-visible entry
 -- point to the SHORTCUTS / HOW TO PLAY panel. Desktop uses an ACTIONS
@@ -17922,10 +18311,17 @@ local function render()
 	-- handling — persistent banner while unhealthy (truthful per
 	-- docs/DATASTORE_DEGRADED_CONTRACT.md §3.2; the old toast's "your progress
 	-- is safe" was false). Recovery surfaces as a one-shot success toast.
+	-- harborheist-3mo7.3.38: flag-gated (render runs on EVERY state push;
+	-- .Visible stays true during the exit tween, so gating on it would
+	-- replay the hide + recovery toast every push).
 	if state.dataStoreHealthy == false then
-		dataStoreBanner.Visible = true
-	elseif dataStoreBanner.Visible then
-		dataStoreBanner.Visible = false
+		if not dataStoreBannerShown then
+			dataStoreBannerShown = true
+			animateBanner(dataStoreBanner, "dataStore", dataStoreBannerRest, true)
+		end
+	elseif dataStoreBannerShown then
+		dataStoreBannerShown = false
+		animateBanner(dataStoreBanner, "dataStore", dataStoreBannerRest, false)
 		showNotification("Saving restored — you're all caught up.", Theme.color.status.good)
 	end
 	animateCashTo(state.cash)
@@ -18476,6 +18872,11 @@ local function showRevealCard(speciesId, rarity, value, isNew)
 	card.Parent = screenGui
 	corner(card, Theme.corners.lg)
 	local cardStroke = stroke(card, 0.4, rarityColor, 2)
+	-- harborheist-3mo7.3.41: high elevation — the hero moment deserves the
+	-- deepest shadow in the game (4 layers/16px spread). Shadows are card
+	-- children, so they scale with the UIScale entrance and fade with the
+	-- dismiss tween loop automatically.
+	applyElevation(card, "high")
 	-- harborheist-s0yp: unified surface treatment — every other surface
 	-- (HUD, panels, overlays) carries the vertical gradient; the reveal
 	-- moment was the one flat card in the game.
@@ -18966,7 +19367,22 @@ sellButton.Activated:Connect(function()
 	end
 	if sellArmed then
 		disarmSellButton()
-		Remotes.RequestSellFish:InvokeServer()
+		-- harborheist-3mo7.3.42: capture the result (was discarded) and
+		-- play panel-anchored success feedback — the aquarium panel stays
+		-- open through the sale, so the indicator can live inside it
+		-- (parentOverride = aquariumPanel). pcall per R3 audit #4
+		-- precedent; the failure reasons here (aquarium_locked / no fish)
+		-- are server-notified, so no duplicate client toast.
+		local ok, result = pcall(function()
+			return Remotes.RequestSellFish:InvokeServer()
+		end)
+		if ok and result and result.ok then
+			showActionFeedback(aquariumPanel, "success", "All fish sold!", 1.5, aquariumPanel)
+			hapticSuccess()
+		else
+			showActionFeedback(aquariumPanel, "error", "Can't sell", 1.5, aquariumPanel)
+			hapticError()
+		end
 	else
 		local payout = computeSellPayout()
 		if payout &lt;= 0 then
@@ -19372,13 +19788,23 @@ Remotes.Notify.OnClientEvent:Connect(showNotification)
 -- NOTE (harborheist-akdb): formatRaidTime moved up next to formatCash — the
 -- declaration must precede renderRaidTargets (its earliest caller).
 local function updateRaidCountdown()
+	-- harborheist-3mo7.3.38: flag-gated entrance/exit. This function runs
+	-- every second from the countdown ticker, so the animation fires only
+	-- on the open/close EDGE, not every tick (.Visible would re-trigger
+	-- while the exit tween is still winding down).
 	if raidWindow.open then
-		raidBanner.Visible = true
+		if not raidBannerShown then
+			raidBannerShown = true
+			animateBanner(raidBanner, "raid", raidBannerRest, true)
+		end
 		local bannerPrefix = IS_MOBILE and "RAID OPEN " or "RAID WATERS OPEN "
 		raidBannerLabel.Text = bannerPrefix .. formatRaidTime(raidWindow.remainingSeconds)
 		raidCountdownLabel.Text = "Closes in " .. formatRaidTime(raidWindow.remainingSeconds)
 	else
-		raidBanner.Visible = false
+		if raidBannerShown then
+			raidBannerShown = false
+			animateBanner(raidBanner, "raid", raidBannerRest, false)
+		end
 		raidCountdownLabel.Text = "Next window in " .. formatRaidTime(raidWindow.nextWindowInSeconds)
 	end
 end
