@@ -5172,7 +5172,23 @@ local function makeMilestoneRow(parent, order, milestone)
 			ZIndex = 27,
 		})
 		claimBtn.Activated:Connect(function()
-			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
+			-- harborheist-oqbp: double-tap guard + pcall. The invoke yields, so
+			-- two fast taps fired two invokes (server rejects the loser with a
+			-- raw toast), and a THROWN invoke killed the handler thread with the
+			-- button left enabled-but-unresponsive-looking. Disable for the
+			-- invoke duration ("I registered your tap" feedback), restore after.
+			if not claimBtn.Active then
+				return
+			end
+			setButtonEnabled(claimBtn, false)
+			local invokeOk, result = pcall(function()
+				return Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
+			end)
+			setButtonEnabled(claimBtn, true)
+			if not invokeOk then
+				showNotification("Couldn't claim that — check your connection and try again.", Theme.color.status.bad)
+				return
+			end
 			if result and result.ok then
 				milestone.claimed = true
 				hapticTick() -- R4 polish #2: reward moment
@@ -5648,7 +5664,20 @@ local function buildShopRow(entry)
 			)
 			return
 		end
-		local result = Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
+		-- harborheist-oqbp: disable for the invoke duration (double-tap
+		-- window fired two purchases; server rejected the loser with a raw
+		-- toast) and pcall so a thrown invoke can't kill the handler
+		-- mid-purchase. Re-enabled below; a success rebuilds the row via
+		-- refreshShop anyway.
+		setButtonEnabled(buyButton, false)
+		local invokeOk, result = pcall(function()
+			return Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
+		end)
+		setButtonEnabled(buyButton, true)
+		if not invokeOk then
+			showNotification("Purchase failed — check your connection and try again.", Theme.color.status.bad)
+			return
+		end
 		if result and result.ok then
 			-- [harborheist-a2ug.10] Purchase-success flash: surface.secondary
 			-- → good → back over two chained tweens (EASE_FAST + EASE_OUT).
@@ -8838,7 +8867,12 @@ local function runMinigame(windowSeconds)
 				releaseOverlay("bite")
 				minigameFrame.Visible = false
 				setFishState("idle")
-				Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
+				-- harborheist-oqbp: pcall — a thrown invoke would kill this
+				-- sweep thread. No toast: the server's own bite timeout is
+				-- the backstop and the player already saw the miss.
+				pcall(function()
+					Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
+				end)
 				break
 			end
 
@@ -9477,7 +9511,11 @@ lockButton.Activated:Connect(function()
 		lockHintShown = true
 		showNotification("Locks always work; your first 3 each session recharge faster.", Theme.color.accent.soft, "lock")
 	end
-	Remotes.RequestActivateLock:InvokeServer()
+	-- harborheist-oqbp: pcall — a thrown invoke would kill this handler
+	-- thread (and with it any future feedback wired after the invoke).
+	pcall(function()
+		Remotes.RequestActivateLock:InvokeServer()
+	end)
 end)
 -- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
 -- TASK 9.2 (0jc.2): dismiss the raid explanation onboarding prompt when the
@@ -9497,9 +9535,13 @@ raidOptInButton.Activated:Connect(function()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
-	local result = Remotes.RequestClaimIncome:InvokeServer()
+	-- harborheist-oqbp: pcall — result is read for the cha-ching gate; an
+	-- unprotected throw killed the handler thread silently.
+	local invokeOk, result = pcall(function()
+		return Remotes.RequestClaimIncome:InvokeServer()
+	end)
 	-- harborheist-6qyq: cha-ching only when income actually landed.
-	if result and result.ok and (result.amount or 0) > 0 then
+	if invokeOk and result and result.ok and (result.amount or 0) > 0 then
 		playSound(SOUNDS.claimCoins, 0.6)
 	end
 end)
@@ -9566,8 +9608,12 @@ local function trySpawnBoat()
 		showNotification("Your boat is out — find it at your dock.", Theme.color.brand.boat)
 		return
 	end
-	local result = Remotes.SpawnBoat:InvokeServer()
-	if not result then
+	-- harborheist-oqbp: pcall — the debounce above throttles spam, but a
+	-- thrown invoke still killed the caller's thread outright.
+	local invokeOk, result = pcall(function()
+		return Remotes.SpawnBoat:InvokeServer()
+	end)
+	if not invokeOk or not result then
 		return
 	end
 	if not result.ok then
@@ -10135,7 +10181,24 @@ Remotes.QuestProgressChanged.OnClientEvent:Connect(function(data)
 end)
 
 task.spawn(function()
-	local snapshot = Remotes.GetState:InvokeServer()
+	-- harborheist-oqbp: pcall + one retry. An unprotected throw here left
+	-- the client stateless for the whole session (state=nil → every render
+	-- no-ops) with zero feedback. One 2s-later retry covers the transient
+	-- join-window drop; if both fail the StateChanged push can still
+	-- hydrate the client (render gates on state ~= nil).
+	local snapshot
+	for attempt = 1, 2 do
+		local invokeOk, result = pcall(function()
+			return Remotes.GetState:InvokeServer()
+		end)
+		if invokeOk and result then
+			snapshot = result
+			break
+		end
+		if attempt == 1 then
+			task.wait(2)
+		end
+	end
 	if snapshot and not state then
 		state = snapshot
 		render()

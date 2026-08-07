@@ -568,17 +568,13 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
           end
         end
       else
-        -- Outside scrollable: allow both horizontal and vertical swipes
-        if math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY) then
-          -- Horizontal swipe
-          if onDismiss then
-            onDismiss()
-          end
-        elseif deltaY > minSwipeDistance then
-          -- Swipe down (natural dismiss for bottom sheets)
-          if onDismiss then
-            onDismiss()
-          end
+        -- Outside scrollable: allow both horizontal and vertical swipes.
+        -- harborheist-oqbp: merged the two identical dismiss bodies
+        -- (selene if_same_then_else) — behavior unchanged.
+        local horizontal = math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY)
+        local pullDown = deltaY > minSwipeDistance -- natural bottom-sheet dismiss
+        if (horizontal or pullDown) and onDismiss then
+          onDismiss()
         end
       end
     end
@@ -798,10 +794,11 @@ function Transition:fadeSlide(element, visible, direction, duration)
     offset = UDim2.new(1, 0, 0, 0)
   elseif direction == "up" then
     offset = UDim2.new(0, 0, -1, 0)
-  elseif direction == "down" then
-    offset = UDim2.new(0, 0, 1, 0)
   else
-    offset = UDim2.new(0, 0, 1, 0)  -- default: slide down
+    -- "down" and any unrecognized direction: slide down (default).
+    -- harborheist-oqbp: collapsed the duplicated down/default branches
+    -- (selene if_same_then_else) — behavior unchanged.
+    offset = UDim2.new(0, 0, 1, 0)
   end
 
   local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
