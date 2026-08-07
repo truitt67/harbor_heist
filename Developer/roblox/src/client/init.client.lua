@@ -6694,7 +6694,10 @@ function startRaidMinigame(challenge)
 	-- Scale value the tween produced.
 	raidMinigameActive = true
 	local startTime = os.clock()
-	local sweepDuration = 1.7
+	-- harborheist-rj1x: read the sweep period from GameConfig (single source
+	-- of truth) — the server's timing-forgery check models this exact
+	-- motion; a hardcoded local here is what let the two silently drift.
+	local sweepDuration = (GameConfig.Raid.minigame.sweepDuration or 1.7)
 	task.spawn(function()
 		while raidMinigameActive do
 			local elapsed = os.clock() - startTime

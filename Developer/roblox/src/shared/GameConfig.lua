@@ -132,6 +132,15 @@ GameConfig.Raid = {
 	-- mobile-friendly sweep (full bar in 1.25s), not reflex-only.
 	minigame = {
 		durationSeconds = 8,
+		-- harborheist-rj1x: full ping-pong period (seconds) of the raid marker
+		-- sweep. SINGLE SOURCE OF TRUTH — the client sweep (startRaidMinigame)
+		-- and the server timing-forgery check (submitRaidResult) MUST read the
+		-- same value or the minimum-time math rejects honest taps (the yxdh
+		-- linear-sweep model silently broke when a2ug.11 switched to ping-pong).
+		sweepDuration = 1.7,
+		-- markerSpeed is DEAD CONFIG (yxdh): never consumed by client or server.
+		-- Kept only so old snapshots/tests referencing the key don't nil-index;
+		-- do not read it — motion is governed by sweepDuration.
 		markerSpeed = 0.8,
 		perfectZoneSize = 0.12,
 		goodZoneSize = 0.30,

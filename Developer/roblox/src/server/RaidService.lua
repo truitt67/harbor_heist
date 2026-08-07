@@ -836,25 +836,32 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	-- Clamp, then re-derive the tier from the SERVER's stored bounds — the
 	-- client can only report a raw position, never claim a tier (PVP-10).
 	local position = math.clamp(markerPosition, 0, 1)
-	-- harborheist-yxdh: minimum-time (timing-forgery) check. The client
-	-- tweens the marker from Scale 0 to 1 over `durationSeconds` linearly
-	-- (init.client.lua startRaidMinigame), so the marker's REAL speed is
-	-- 1/durationSeconds scale-units/sec — NOT markerSpeed (that config is
-	-- sent to the client but never consumed; the client only reads
-	-- durationSeconds). A submission arriving before the marker could
-	-- physically reach the reported position is impossible — a bot
-	-- intercepted the zone bounds and reported a forged perfect position
-	-- instantly. Reject it.
+	-- harborheist-yxdh: minimum-time (timing-forgery) check. A submission
+	-- arriving before the marker could PHYSICALLY reach the reported
+	-- position is impossible — a bot intercepted the zone bounds and
+	-- reported a forged position instantly. Reject it.
 	--
-	-- minNeeded = position * durationSeconds (time for a 0→1 sweep to
-	-- reach `position`). We allow a NETWORK_GRACE (0.5s) for round-trip
-	-- + client render latency so legitimate fast taps on early positions
-	-- are never falsely rejected.
-	local duration = raid.durationSeconds or 0
+	-- harborheist-rj1x (P0 fix): the marker motion model is the PING-PONG
+	-- triangular sweep (a2ug.11), period GameConfig.Raid.minigame.sweepDuration
+	-- — NOT the linear 0→1-over-durationSeconds tween yxdh was written
+	-- against. The stale linear model (minNeeded = position * 8s) rejected
+	-- nearly every HONEST tap as too_fast (a perfect-zone 0.5 tap is legal
+	-- at elapsed 0.425s; the linear model demanded 3.5s). With ping-pong the
+	-- marker first reaches `position` on the initial ascent at
+	-- position * (sweepDuration/2); every position is re-reachable each half
+	-- period after that, so the residual anti-forgery value is narrow (only
+	-- instant forgeries of extreme positions are caught) — that is the
+	-- honest physics of the current motion model, not a license to weaken it
+	-- further. sweepDuration is shared via GameConfig so client and server
+	-- can never drift again.
+	-- NETWORK_GRACE (0.5s) covers round-trip + client render latency, and the
+	-- server's raid.startTime precedes the client's sweep start (one-way
+	-- latency), so legitimate fast taps are never falsely rejected.
+	local sweepDuration = (GameConfig.Raid.minigame.sweepDuration or 1.7)
 	local elapsed = os.clock() - raid.startTime
 	local NETWORK_GRACE = 0.5
-	if duration > 0 then
-		local minNeeded = position * duration
+	if sweepDuration > 0 then
+		local minNeeded = position * (sweepDuration / 2)
 		if elapsed < (minNeeded - NETWORK_GRACE) then
 			remotes.notify(player, "That attempt didn't count — the marker hadn't reached that position.", "error", "raid-attacker")
 			return { ok = false, reason = "too_fast" }

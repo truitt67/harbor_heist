@@ -268,12 +268,14 @@ local function deriveRaidTier(position, raid)
 	end
 end
 
--- Timing-forgery check (lines 829-838, yxdh): a submission that arrives
--- before the marker could physically reach the reported position (minus
--- a 0.5s network grace) is impossible for an honest client → too_fast.
-local function isTooFast(position, durationSeconds, elapsed)
-	if durationSeconds > 0 then
-		local minNeeded = position * durationSeconds
+-- Timing-forgery check (yxdh, corrected to ping-pong physics by rj1x): a
+-- submission that arrives before the marker could physically reach the
+-- reported position (minus a 0.5s network grace) is impossible for an
+-- honest client → too_fast. The marker ping-pongs with period
+-- sweepDuration, so the first-ascent reach time is position * (sweepDuration/2).
+local function isTooFast(position, sweepDuration, elapsed)
+	if sweepDuration > 0 then
+		local minNeeded = position * (sweepDuration / 2)
 		if elapsed < (minNeeded - NETWORK_GRACE) then
 			return true
 		end
@@ -758,26 +760,34 @@ return function(describe, it, expect)
 	-- ════════════════════════════════════════════════════════════════════
 	-- Timing-forgery rejection (yxdh)
 	-- ════════════════════════════════════════════════════════════════════
-	describe("Timing-forgery rejection (yxdh)", function()
-		it("instant forged perfect (position 0.5, elapsed 0) is too fast", function()
-			expect(isTooFast(0.5, 8, 0)).to.equal(true)
+	describe("Timing-forgery rejection (yxdh, ping-pong physics per rj1x)", function()
+		it("instant forged extreme position (0.95, elapsed 0) is too fast", function()
+			-- 0.95 * 0.85 = 0.8075s needed; 0 elapsed is beyond the 0.5s grace.
+			expect(isTooFast(0.95, 1.7, 0)).to.equal(true)
 		end)
 
-		it("honest fast tap on early position is allowed by the grace", function()
-			-- position 0.1 needs 0.8s; 0.4s elapsed is inside grace (0.8-0.5=0.3)
-			expect(isTooFast(0.1, 8, 0.4)).to.equal(false)
+		it("honest fast tap on a mid-zone position is allowed", function()
+			-- 0.5 * 0.85 = 0.425s needed; inside the 0.5s grace even at elapsed 0.
+			expect(isTooFast(0.5, 1.7, 0.3)).to.equal(false)
 		end)
 
 		it("submission exactly at physical minimum minus grace is allowed", function()
-			expect(isTooFast(0.5, 8, 4 - NETWORK_GRACE)).to.equal(false)
+			expect(isTooFast(1.0, 1.7, 0.85 - NETWORK_GRACE)).to.equal(false)
 		end)
 
 		it("position 0 needs no time", function()
-			expect(isTooFast(0, 8, 0)).to.equal(false)
+			expect(isTooFast(0, 1.7, 0)).to.equal(false)
 		end)
 
-		it("zero duration disables the check", function()
+		it("zero sweep duration disables the check", function()
 			expect(isTooFast(0.9, 0, 0)).to.equal(false)
+		end)
+
+		it("regression pin (rj1x): the stale LINEAR model rejected honest taps", function()
+			-- Under the pre-rj1x linear model (minNeeded = position * 8s), this
+			-- perfectly legal ping-pong tap (perfect zone 0.5 at elapsed 1.0s)
+			-- was falsely rejected as a forgery. Ping-pong model must allow it.
+			expect(isTooFast(0.5, 1.7, 1.0)).to.equal(false)
 		end)
 	end)
 
@@ -957,9 +967,16 @@ return function(describe, it, expect)
 			expect(raidSource:find("position >= raid.perfectStart and position <= raid.perfectEnd", 1, true)).to.be.a("number")
 		end)
 
-		it("timing-forgery check uses position * duration minus grace", function()
-			expect(raidSource:find("local minNeeded = position * duration", 1, true)).to.be.a("number")
+		it("timing-forgery check models the ping-pong sweep (rj1x), not the stale linear tween", function()
+			expect(raidSource:find("local minNeeded = position * (sweepDuration / 2)", 1, true)).to.be.a("number")
 			expect(raidSource:find("elapsed < (minNeeded - NETWORK_GRACE)", 1, true)).to.be.a("number")
+			-- The stale linear model must be GONE — it falsely rejected honest taps.
+			expect(raidSource:find("local minNeeded = position * duration", 1, true)).to.equal(nil)
+		end)
+
+		it("server reads sweepDuration from GameConfig (shared source of truth)", function()
+			expect(raidSource:find("GameConfig.Raid.minigame.sweepDuration", 1, true)).to.be.a("number")
+			expect(gameConfigSource:find("sweepDuration = 1.7", 1, true)).to.be.a("number")
 		end)
 
 		it("success roll caps forged clients at the tier chance", function()
@@ -1065,7 +1082,9 @@ return function(describe, it, expect)
 
 		it("uses os.clock-based triangular wave for the ping-pong sweep", function()
 			expect(clientSource:find("Triangular wave: 0 -> 1 -> 0", 1, true)).to.be.a("number")
-			expect(clientSource:find("sweepDuration = 1.7", 1, true)).to.be.a("number")
+			-- rj1x: the period comes from GameConfig (shared with the server's
+			-- timing-forgery model), not a hardcoded local that can drift.
+			expect(clientSource:find("sweepDuration = (GameConfig.Raid.minigame.sweepDuration or 1.7)", 1, true)).to.be.a("number")
 		end)
 	end)
 

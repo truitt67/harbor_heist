@@ -512,18 +512,20 @@ return function()
 
 	-- ================================================================
 	-- CASE 6: Duration validation — minimum + maximum time checks.
-	-- harborheist-yxdh: the too_fast (minimum-time) guard is now
-	-- enforced. The client tweens the marker 0→1 over durationSeconds,
-	-- so reaching a position needs position*durationSeconds seconds
-	-- (minus a 0.5s network grace). A bot that intercepts zone bounds
-	-- and reports a perfect marker position instantly is rejected.
+	-- harborheist-yxdh: the too_fast (minimum-time) guard is enforced.
+	-- harborheist-rj1x: the marker motion is the a2ug.11 PING-PONG sweep
+	-- (period GameConfig.Raid.minigame.sweepDuration = 1.7s), so the
+	-- first-ascent reach time for a position is position * 0.85s (minus a
+	-- 0.5s network grace) — NOT the stale linear 0→1-over-8s model, which
+	-- falsely rejected honest taps. Only instant forgeries of EXTREME
+	-- positions exceed the grace under ping-pong physics.
 	-- ================================================================
 	describe("Duration validation (timing-forgery guard)", function()
 		it("rejects an impossibly-fast result with reason='too_fast'", function()
-			-- Fresh raid (startTime = NOW), duration 8s. The client
-			-- immediately reports position 0.50 (perfect-zone center).
-			-- The marker needs 0.50*8 = 4.0s to reach 0.50; even with
-			-- the 0.5s grace, an instant submit (elapsed ~0) is impossible.
+			-- Fresh raid (startTime = NOW), ping-pong sweep 1.7s. The client
+			-- immediately reports position 0.95 (near the right edge).
+			-- First-ascent reach time: 0.95*0.85 = 0.8075s; even with the
+			-- 0.5s grace, an instant submit (elapsed ~0) is impossible.
 			local player = makeFakePlayer()
 			sessions[player] = makeSession(player)
 			RaidService._activeRaids[player] = {
@@ -536,17 +538,17 @@ return function()
 				startTime = os.clock(), -- started just now
 				deadline = os.clock() + 999,
 			}
-			local result = RaidService.submitRaidResult(player, 0.50)
+			local result = RaidService.submitRaidResult(player, 0.95)
 			expect(result.ok).to.equal(false)
 			expect(result.reason).to.equal("too_fast")
 			player.Parent = nil
 		end)
 
 		it("accepts a result submitted after the minimum plausible time", function()
-			-- startTime = 5s ago, duration 8s. For position 0.50 the
-			-- minimum is 4.0s; with 0.5s grace the floor is 3.5s.
-			-- 5s elapsed clears it, so the submit is accepted (reaches
-			-- tier derivation → target_unavailable, but ok=true).
+			-- startTime = 5s ago. Under ping-pong physics position 0.50
+			-- needs 0.425s; 5s clears it easily. (The stale linear model
+			-- demanded 4.0s — a mid-window honest tap at elapsed 1-3s was
+			-- falsely rejected before rj1x.)
 			local player = makeFakePlayer()
 			sessions[player] = makeSession(player)
 			RaidService._activeRaids[player] = {
