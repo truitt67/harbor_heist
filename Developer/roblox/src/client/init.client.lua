@@ -8724,6 +8724,14 @@ corner(biteMarkerGlow, Theme.corners.sm)
 local minigameActive = false
 local minigameStartTime = 0
 local minigameWindow = 3.0
+-- harborheist-x7rd: generation counter for the minigame EXIT tween's
+-- deferred hide. onMinigameTap's exit defers Visible=false into
+-- Tween.Completed; without a token + playbackState guard, a new
+-- runMinigame starting inside the 0.16s exit window gets hidden by the
+-- STALE exit callback (its entrance tween cancels the exit, Completed
+-- still fires — deferred signal delivery means it can land AFTER the
+-- re-show). Same class as the ContextMenu stuck-menu fix (3mo7.3.40).
+local minigameExitGeneration = 0
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -8758,6 +8766,9 @@ local function runMinigame(windowSeconds)
 	minigameActive = true
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
+	-- harborheist-x7rd: invalidate any in-flight exit tween's deferred
+	-- hide BEFORE re-showing (see declaration comment above).
+	minigameExitGeneration += 1
 	minigameFrame.Visible = true
 	-- harborheist-3mo7.3.35: entrance animation matching cast overlay
 	-- Scale 0.9 → 1.0 with EASE_POP (0.28s Spring Out) for consistency
@@ -9124,16 +9135,40 @@ local function onMinigameTap()
 	-- Scale 1.0 → 0.9 with EASE_IN (0.16s Quad In) before hiding
 	local exitScale = minigameFrame:FindFirstChildOfClass("UIScale")
 	if exitScale then
+		-- harborheist-x7rd: playbackState + generation guards. A new
+		-- runMinigame inside this exit's 0.16s window cancels the exit
+		-- (new tween on the same UIScale) — Completed still fires with
+		-- Cancelled, and deferred delivery can land it AFTER the re-show.
+		-- Without both guards the stale callback hides the LIVE minigame.
+		minigameExitGeneration += 1
+		local generation = minigameExitGeneration
 		local exitTween = TweenService:Create(exitScale, EASE_IN, { Scale = 0.9 })
 		exitTween:Play()
-		exitTween.Completed:Connect(function()
-			minigameFrame.Visible = false
+		exitTween.Completed:Connect(function(playbackState)
+			if playbackState ~= Enum.PlaybackState.Completed then
+				return
+			end
+			if generation ~= minigameExitGeneration then
+				return
+			end
+			if minigameFrame.Parent then
+				minigameFrame.Visible = false
+			end
 		end)
 	else
 		minigameFrame.Visible = false
 	end
 	setFishState("idle")
-	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	-- harborheist-oqbp: pcall the invoke — a throw (network drop) otherwise
+	-- kills this input handler after the UI reset, silently dropping the
+	-- coaching/reveal path below. On failure: honest toast, no dead thread.
+	local invokeOk, result = pcall(function()
+		return Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	end)
+	if not invokeOk then
+		showNotification("Connection hiccup — that catch may not have registered. Try again.", Theme.color.status.warn)
+		return
+	end
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
 	-- so an on-zone tap can still be rejected — surface that honestly.
 	-- etj2.3.3 (docs/MINIGAME_FEEDBACK_MODEL.md §4.1): the invoke result is
