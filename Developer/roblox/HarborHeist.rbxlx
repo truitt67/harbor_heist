@@ -892,6 +892,15 @@ GameConfig.Raid = {
 	-- mobile-friendly sweep (full bar in 1.25s), not reflex-only.
 	minigame = {
 		durationSeconds = 8,
+		-- harborheist-rj1x: full ping-pong period (seconds) of the raid marker
+		-- sweep. SINGLE SOURCE OF TRUTH — the client sweep (startRaidMinigame)
+		-- and the server timing-forgery check (submitRaidResult) MUST read the
+		-- same value or the minimum-time math rejects honest taps (the yxdh
+		-- linear-sweep model silently broke when a2ug.11 switched to ping-pong).
+		sweepDuration = 1.7,
+		-- markerSpeed is DEAD CONFIG (yxdh): never consumed by client or server.
+		-- Kept only so old snapshots/tests referencing the key don't nil-index;
+		-- do not read it — motion is governed by sweepDuration.
 		markerSpeed = 0.8,
 		perfectZoneSize = 0.12,
 		goodZoneSize = 0.30,
@@ -8112,25 +8121,32 @@ function RaidService.submitRaidResult(player: Player, markerPosition: any): any
 	-- Clamp, then re-derive the tier from the SERVER's stored bounds — the
 	-- client can only report a raw position, never claim a tier (PVP-10).
 	local position = math.clamp(markerPosition, 0, 1)
-	-- harborheist-yxdh: minimum-time (timing-forgery) check. The client
-	-- tweens the marker from Scale 0 to 1 over `durationSeconds` linearly
-	-- (init.client.lua startRaidMinigame), so the marker's REAL speed is
-	-- 1/durationSeconds scale-units/sec — NOT markerSpeed (that config is
-	-- sent to the client but never consumed; the client only reads
-	-- durationSeconds). A submission arriving before the marker could
-	-- physically reach the reported position is impossible — a bot
-	-- intercepted the zone bounds and reported a forged perfect position
-	-- instantly. Reject it.
+	-- harborheist-yxdh: minimum-time (timing-forgery) check. A submission
+	-- arriving before the marker could PHYSICALLY reach the reported
+	-- position is impossible — a bot intercepted the zone bounds and
+	-- reported a forged position instantly. Reject it.
 	--
-	-- minNeeded = position * durationSeconds (time for a 0→1 sweep to
-	-- reach `position`). We allow a NETWORK_GRACE (0.5s) for round-trip
-	-- + client render latency so legitimate fast taps on early positions
-	-- are never falsely rejected.
-	local duration = raid.durationSeconds or 0
+	-- harborheist-rj1x (P0 fix): the marker motion model is the PING-PONG
+	-- triangular sweep (a2ug.11), period GameConfig.Raid.minigame.sweepDuration
+	-- — NOT the linear 0→1-over-durationSeconds tween yxdh was written
+	-- against. The stale linear model (minNeeded = position * 8s) rejected
+	-- nearly every HONEST tap as too_fast (a perfect-zone 0.5 tap is legal
+	-- at elapsed 0.425s; the linear model demanded 3.5s). With ping-pong the
+	-- marker first reaches `position` on the initial ascent at
+	-- position * (sweepDuration/2); every position is re-reachable each half
+	-- period after that, so the residual anti-forgery value is narrow (only
+	-- instant forgeries of extreme positions are caught) — that is the
+	-- honest physics of the current motion model, not a license to weaken it
+	-- further. sweepDuration is shared via GameConfig so client and server
+	-- can never drift again.
+	-- NETWORK_GRACE (0.5s) covers round-trip + client render latency, and the
+	-- server's raid.startTime precedes the client's sweep start (one-way
+	-- latency), so legitimate fast taps are never falsely rejected.
+	local sweepDuration = (GameConfig.Raid.minigame.sweepDuration or 1.7)
 	local elapsed = os.clock() - raid.startTime
 	local NETWORK_GRACE = 0.5
-	if duration > 0 then
-		local minNeeded = position * duration
+	if sweepDuration > 0 then
+		local minNeeded = position * (sweepDuration / 2)
 		if elapsed < (minNeeded - NETWORK_GRACE) then
 			remotes.notify(player, "That attempt didn't count — the marker hadn't reached that position.", "error", "raid-attacker")
 			return { ok = false, reason = "too_fast" }
@@ -13388,6 +13404,14 @@ end)
 -- Modal framework: dim backdrop + animated panel (desktop card /
 -- mobile bottom sheet)
 -- ============================================================
+-- harborheist-on3x: the panel backdrop's rest dim is 0.45 (R4 design,
+-- 4fbf163) — the game stays visible behind a modal. harborheist-pytn's
+-- AnimationSystem migration switched the show tween to Anim:fade, whose
+-- Transition:fade hardcodes target = visible and 0 or 1 → the backdrop
+-- regressed to fully opaque (0) and the mobile drag-lighten formula
+-- (which starts from this constant) popped 0 → 0.45 on the first pulled
+-- pixel. Single-source the dim so show/drag can never drift again.
+local PANEL_BACKDROP_DIM = 0.45
 local backdrop = Instance.new("TextButton")
 backdrop.Name = "Backdrop"
 backdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -13622,8 +13646,10 @@ local function makePanel(title, titleColor, desktopSize)
 				dragDy = math.max(0, input.Position.Y - dragStartY)
 				panel.Position = UDim2.new(0.5, 0, 1, dragDy)
 					-- R4 polish #3b: the world lightens as the sheet descends —
-					-- sells the dismiss before it commits.
-					backdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
+					-- sells the dismiss before it commits. Base is the shared
+					-- PANEL_BACKDROP_DIM (on3x) so the pull starts from the
+					-- backdrop's actual rest value with no discontinuity.
+					backdrop.BackgroundTransparency = math.clamp(PANEL_BACKDROP_DIM + dragDy / 400, PANEL_BACKDROP_DIM, 1)
 			end
 		end)
 		UserInputService.TouchEnded:Connect(function(input)
@@ -13872,8 +13898,12 @@ local function showPanel(panel)
 	local openToken = panelOpenToken
 	panelOpening = true
 	backdrop.Visible = true
-	-- harborheist-pytn: Use AnimationSystem fade for backdrop
-	Anim:fade(backdrop, true, EASE_OUT)
+	-- harborheist-on3x: direct tween to the semi-transparent rest dim.
+	-- Anim:fade(backdrop, true) targets 0 (fully opaque) — wrong for this
+	-- surface (Transition:fade cannot express a 0.45 target; see the
+	-- PANEL_BACKDROP_DIM declaration note). No re-seed to 1: R4's original
+	-- tweened from the current value, keeping show→hide→show switches smooth.
+	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = PANEL_BACKDROP_DIM }):Play()
 	panel.Visible = true
 	if IS_MOBILE then
 		-- harborheist-pytn: Use AnimationSystem slide transition for mobile show
@@ -15161,7 +15191,23 @@ local function makeMilestoneRow(parent, order, milestone)
 			ZIndex = 27,
 		})
 		claimBtn.Activated:Connect(function()
-			local result = Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
+			-- harborheist-oqbp: double-tap guard + pcall. The invoke yields, so
+			-- two fast taps fired two invokes (server rejects the loser with a
+			-- raw toast), and a THROWN invoke killed the handler thread with the
+			-- button left enabled-but-unresponsive-looking. Disable for the
+			-- invoke duration ("I registered your tap" feedback), restore after.
+			if not claimBtn.Active then
+				return
+			end
+			setButtonEnabled(claimBtn, false)
+			local invokeOk, result = pcall(function()
+				return Remotes.ClaimCollectionReward:InvokeServer(milestone.id)
+			end)
+			setButtonEnabled(claimBtn, true)
+			if not invokeOk then
+				showNotification("Couldn't claim that — check your connection and try again.", Theme.color.status.bad)
+				return
+			end
 			if result and result.ok then
 				milestone.claimed = true
 				hapticTick() -- R4 polish #2: reward moment
@@ -15637,7 +15683,20 @@ local function buildShopRow(entry)
 			)
 			return
 		end
-		local result = Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
+		-- harborheist-oqbp: disable for the invoke duration (double-tap
+		-- window fired two purchases; server rejected the loser with a raw
+		-- toast) and pcall so a thrown invoke can't kill the handler
+		-- mid-purchase. Re-enabled below; a success rebuilds the row via
+		-- refreshShop anyway.
+		setButtonEnabled(buyButton, false)
+		local invokeOk, result = pcall(function()
+			return Remotes.RequestPurchaseUpgrade:InvokeServer(entry.kind, entry.level)
+		end)
+		setButtonEnabled(buyButton, true)
+		if not invokeOk then
+			showNotification("Purchase failed — check your connection and try again.", Theme.color.status.bad)
+			return
+		end
 		if result and result.ok then
 			-- [harborheist-a2ug.10] Purchase-success flash: surface.secondary
 			-- → good → back over two chained tweens (EASE_FAST + EASE_OUT).
@@ -16414,7 +16473,20 @@ local function renderRaidTargets(data)
 					return
 				end
 				raidInProgress = true
-				local result = Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+				-- harborheist-1pkj: pcall the invoke. A THROWN invoke (network
+				-- drop) otherwise kills this handler thread before any reset
+				-- runs — raidInProgress stays true forever and every future
+				-- RAID tap early-returns above: the button is silently dead
+				-- until rejoin. Same class as the debouncedAction pcall fix
+				-- for sell/store ("would leave Active=false FOREVER").
+				local invokeOk, result = pcall(function()
+					return Remotes.RequestRaidAttempt:InvokeServer(target.userId)
+				end)
+				if not invokeOk then
+					raidInProgress = false
+					showNotification("Raid request failed — check your connection and try again.", Theme.color.status.bad)
+					return
+				end
 				if not result or not result.ok then
 					raidInProgress = false
 					-- P0 syntax fix: parenthesize constructor before indexing
@@ -16697,7 +16769,10 @@ function startRaidMinigame(challenge)
 	-- Scale value the tween produced.
 	raidMinigameActive = true
 	local startTime = os.clock()
-	local sweepDuration = 1.7
+	-- harborheist-rj1x: read the sweep period from GameConfig (single source
+	-- of truth) — the server's timing-forgery check models this exact
+	-- motion; a hardcoded local here is what let the two silently drift.
+	local sweepDuration = (GameConfig.Raid.minigame.sweepDuration or 1.7)
 	task.spawn(function()
 		while raidMinigameActive do
 			local elapsed = os.clock() - startTime
@@ -18724,6 +18799,14 @@ corner(biteMarkerGlow, Theme.corners.sm)
 local minigameActive = false
 local minigameStartTime = 0
 local minigameWindow = 3.0
+-- harborheist-x7rd: generation counter for the minigame EXIT tween's
+-- deferred hide. onMinigameTap's exit defers Visible=false into
+-- Tween.Completed; without a token + playbackState guard, a new
+-- runMinigame starting inside the 0.16s exit window gets hidden by the
+-- STALE exit callback (its entrance tween cancels the exit, Completed
+-- still fires — deferred signal delivery means it can land AFTER the
+-- re-show). Same class as the ContextMenu stuck-menu fix (3mo7.3.40).
+local minigameExitGeneration = 0
 -- Half-width of the current target zone, refreshed per cast from the
 -- equipped rod's minigameZoneSize (TASK 2.3). onMinigameTap validates
 -- against this — NOT the hardcoded [0.35, 0.65] band — so a wider-zone
@@ -18758,6 +18841,9 @@ local function runMinigame(windowSeconds)
 	minigameActive = true
 	minigameWindow = windowSeconds
 	minigameStartTime = os.clock()
+	-- harborheist-x7rd: invalidate any in-flight exit tween's deferred
+	-- hide BEFORE re-showing (see declaration comment above).
+	minigameExitGeneration += 1
 	minigameFrame.Visible = true
 	-- harborheist-3mo7.3.35: entrance animation matching cast overlay
 	-- Scale 0.9 → 1.0 with EASE_POP (0.28s Spring Out) for consistency
@@ -18800,7 +18886,12 @@ local function runMinigame(windowSeconds)
 				releaseOverlay("bite")
 				minigameFrame.Visible = false
 				setFishState("idle")
-				Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
+				-- harborheist-oqbp: pcall — a thrown invoke would kill this
+				-- sweep thread. No toast: the server's own bite timeout is
+				-- the backstop and the player already saw the miss.
+				pcall(function()
+					Remotes.SubmitCatchInput:InvokeServer({ hit = false, elapsed = elapsed })
+				end)
 				break
 			end
 
@@ -19124,16 +19215,40 @@ local function onMinigameTap()
 	-- Scale 1.0 → 0.9 with EASE_IN (0.16s Quad In) before hiding
 	local exitScale = minigameFrame:FindFirstChildOfClass("UIScale")
 	if exitScale then
+		-- harborheist-x7rd: playbackState + generation guards. A new
+		-- runMinigame inside this exit's 0.16s window cancels the exit
+		-- (new tween on the same UIScale) — Completed still fires with
+		-- Cancelled, and deferred delivery can land it AFTER the re-show.
+		-- Without both guards the stale callback hides the LIVE minigame.
+		minigameExitGeneration += 1
+		local generation = minigameExitGeneration
 		local exitTween = TweenService:Create(exitScale, EASE_IN, { Scale = 0.9 })
 		exitTween:Play()
-		exitTween.Completed:Connect(function()
-			minigameFrame.Visible = false
+		exitTween.Completed:Connect(function(playbackState)
+			if playbackState ~= Enum.PlaybackState.Completed then
+				return
+			end
+			if generation ~= minigameExitGeneration then
+				return
+			end
+			if minigameFrame.Parent then
+				minigameFrame.Visible = false
+			end
 		end)
 	else
 		minigameFrame.Visible = false
 	end
 	setFishState("idle")
-	local result = Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	-- harborheist-oqbp: pcall the invoke — a throw (network drop) otherwise
+	-- kills this input handler after the UI reset, silently dropping the
+	-- coaching/reveal path below. On failure: honest toast, no dead thread.
+	local invokeOk, result = pcall(function()
+		return Remotes.SubmitCatchInput:InvokeServer({ hit = hit, elapsed = elapsed, markerPos = markerPos })
+	end)
+	if not invokeOk then
+		showNotification("Connection hiccup — that catch may not have registered. Try again.", Theme.color.status.warn)
+		return
+	end
 	-- TASK 14.16: the server re-rolls claimed hits against the rod's zone size,
 	-- so an on-zone tap can still be rejected — surface that honestly.
 	-- etj2.3.3 (docs/MINIGAME_FEEDBACK_MODEL.md §4.1): the invoke result is
@@ -19415,7 +19530,11 @@ lockButton.Activated:Connect(function()
 		lockHintShown = true
 		showNotification("Locks always work; your first 3 each session recharge faster.", Theme.color.accent.soft, "lock")
 	end
-	Remotes.RequestActivateLock:InvokeServer()
+	-- harborheist-oqbp: pcall — a thrown invoke would kill this handler
+	-- thread (and with it any future feedback wired after the invoke).
+	pcall(function()
+		Remotes.RequestActivateLock:InvokeServer()
+	end)
 end)
 -- TASK 8.2/8.3: raid opt-in toggle (server validates new-player gate)
 -- TASK 9.2 (0jc.2): dismiss the raid explanation onboarding prompt when the
@@ -19435,9 +19554,13 @@ raidOptInButton.Activated:Connect(function()
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
-	local result = Remotes.RequestClaimIncome:InvokeServer()
+	-- harborheist-oqbp: pcall — result is read for the cha-ching gate; an
+	-- unprotected throw killed the handler thread silently.
+	local invokeOk, result = pcall(function()
+		return Remotes.RequestClaimIncome:InvokeServer()
+	end)
 	-- harborheist-6qyq: cha-ching only when income actually landed.
-	if result and result.ok and (result.amount or 0) > 0 then
+	if invokeOk and result and result.ok and (result.amount or 0) > 0 then
 		playSound(SOUNDS.claimCoins, 0.6)
 	end
 end)
@@ -19504,8 +19627,12 @@ local function trySpawnBoat()
 		showNotification("Your boat is out — find it at your dock.", Theme.color.brand.boat)
 		return
 	end
-	local result = Remotes.SpawnBoat:InvokeServer()
-	if not result then
+	-- harborheist-oqbp: pcall — the debounce above throttles spam, but a
+	-- thrown invoke still killed the caller's thread outright.
+	local invokeOk, result = pcall(function()
+		return Remotes.SpawnBoat:InvokeServer()
+	end)
+	if not invokeOk or not result then
 		return
 	end
 	if not result.ok then
@@ -20073,7 +20200,24 @@ Remotes.QuestProgressChanged.OnClientEvent:Connect(function(data)
 end)
 
 task.spawn(function()
-	local snapshot = Remotes.GetState:InvokeServer()
+	-- harborheist-oqbp: pcall + one retry. An unprotected throw here left
+	-- the client stateless for the whole session (state=nil → every render
+	-- no-ops) with zero feedback. One 2s-later retry covers the transient
+	-- join-window drop; if both fail the StateChanged push can still
+	-- hydrate the client (render gates on state ~= nil).
+	local snapshot
+	for attempt = 1, 2 do
+		local invokeOk, result = pcall(function()
+			return Remotes.GetState:InvokeServer()
+		end)
+		if invokeOk and result then
+			snapshot = result
+			break
+		end
+		if attempt == 1 then
+			task.wait(2)
+		end
+	end
 	if snapshot and not state then
 		state = snapshot
 		render()
@@ -20697,17 +20841,13 @@ function GestureAnimation:enableSwipeDismiss(panel, onDismiss)
           end
         end
       else
-        -- Outside scrollable: allow both horizontal and vertical swipes
-        if math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY) then
-          -- Horizontal swipe
-          if onDismiss then
-            onDismiss()
-          end
-        elseif deltaY > minSwipeDistance then
-          -- Swipe down (natural dismiss for bottom sheets)
-          if onDismiss then
-            onDismiss()
-          end
+        -- Outside scrollable: allow both horizontal and vertical swipes.
+        -- harborheist-oqbp: merged the two identical dismiss bodies
+        -- (selene if_same_then_else) — behavior unchanged.
+        local horizontal = math.abs(deltaX) > minSwipeDistance and math.abs(deltaX) > math.abs(deltaY)
+        local pullDown = deltaY > minSwipeDistance -- natural bottom-sheet dismiss
+        if (horizontal or pullDown) and onDismiss then
+          onDismiss()
         end
       end
     end
@@ -20927,10 +21067,11 @@ function Transition:fadeSlide(element, visible, direction, duration)
     offset = UDim2.new(1, 0, 0, 0)
   elseif direction == "up" then
     offset = UDim2.new(0, 0, -1, 0)
-  elseif direction == "down" then
-    offset = UDim2.new(0, 0, 1, 0)
   else
-    offset = UDim2.new(0, 0, 1, 0)  -- default: slide down
+    -- "down" and any unrecognized direction: slide down (default).
+    -- harborheist-oqbp: collapsed the duplicated down/default branches
+    -- (selene if_same_then_else) — behavior unchanged.
+    offset = UDim2.new(0, 0, 1, 0)
   end
 
   local tweenInfo = resolveTransitionInfo(duration, self, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
