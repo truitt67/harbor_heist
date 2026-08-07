@@ -3385,6 +3385,14 @@ end)
 -- Modal framework: dim backdrop + animated panel (desktop card /
 -- mobile bottom sheet)
 -- ============================================================
+-- harborheist-on3x: the panel backdrop's rest dim is 0.45 (R4 design,
+-- 4fbf163) — the game stays visible behind a modal. harborheist-pytn's
+-- AnimationSystem migration switched the show tween to Anim:fade, whose
+-- Transition:fade hardcodes target = visible and 0 or 1 → the backdrop
+-- regressed to fully opaque (0) and the mobile drag-lighten formula
+-- (which starts from this constant) popped 0 → 0.45 on the first pulled
+-- pixel. Single-source the dim so show/drag can never drift again.
+local PANEL_BACKDROP_DIM = 0.45
 local backdrop = Instance.new("TextButton")
 backdrop.Name = "Backdrop"
 backdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -3619,8 +3627,10 @@ local function makePanel(title, titleColor, desktopSize)
 				dragDy = math.max(0, input.Position.Y - dragStartY)
 				panel.Position = UDim2.new(0.5, 0, 1, dragDy)
 					-- R4 polish #3b: the world lightens as the sheet descends —
-					-- sells the dismiss before it commits.
-					backdrop.BackgroundTransparency = math.clamp(0.45 + dragDy / 400, 0.45, 1)
+					-- sells the dismiss before it commits. Base is the shared
+					-- PANEL_BACKDROP_DIM (on3x) so the pull starts from the
+					-- backdrop's actual rest value with no discontinuity.
+					backdrop.BackgroundTransparency = math.clamp(PANEL_BACKDROP_DIM + dragDy / 400, PANEL_BACKDROP_DIM, 1)
 			end
 		end)
 		UserInputService.TouchEnded:Connect(function(input)
@@ -3869,8 +3879,12 @@ local function showPanel(panel)
 	local openToken = panelOpenToken
 	panelOpening = true
 	backdrop.Visible = true
-	-- harborheist-pytn: Use AnimationSystem fade for backdrop
-	Anim:fade(backdrop, true, EASE_OUT)
+	-- harborheist-on3x: direct tween to the semi-transparent rest dim.
+	-- Anim:fade(backdrop, true) targets 0 (fully opaque) — wrong for this
+	-- surface (Transition:fade cannot express a 0.45 target; see the
+	-- PANEL_BACKDROP_DIM declaration note). No re-seed to 1: R4's original
+	-- tweened from the current value, keeping show→hide→show switches smooth.
+	TweenService:Create(backdrop, EASE_OUT, { BackgroundTransparency = PANEL_BACKDROP_DIM }):Play()
 	panel.Visible = true
 	if IS_MOBILE then
 		-- harborheist-pytn: Use AnimationSystem slide transition for mobile show
