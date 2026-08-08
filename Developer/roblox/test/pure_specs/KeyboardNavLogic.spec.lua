@@ -553,4 +553,199 @@ return function(describe, it, expect)
 			expect(clientSource:find("TweenService:Create(exitScale, EASE_IN, { Scale = 0.9 })", 1, true)).to.be.a("number")
 		end)
 	end)
+
+	-- harborheist-gx6h: Register suppresses the engine's default selection
+	-- ring (KeyboardNavBlankSelection), so the UIStroke ring must be drawn
+	-- from GuiService.SelectedObject no matter who sets it — Tab (ApplyFocus),
+	-- panel auto-focus/restore, or gamepad D-pad. Two pure-logic mirrors:
+	-- (1) the ring-dedupe rule (entry.ringTarget makes repeated renders for
+	-- the same state no-ops); (2) engine-first focus lookup.
+
+	describe("harborheist-gx6h: ring sync dedupe (pure logic mirror)", function()
+		local THICK = 3 -- mirrors FOCUS_INDICATOR_THICKNESS
+
+		local function makeRingSync()
+			local elements = {}
+			local tweenCount = 0
+
+			local function setRingThickness(entry, thickness)
+				if entry.ringTarget == thickness then
+					return
+				end
+				entry.ringTarget = thickness
+				tweenCount = tweenCount + 1
+			end
+
+			local function register(name)
+				elements[name] = { ringTarget = 0 }
+			end
+
+			local function render(selected)
+				for name, entry in pairs(elements) do
+					if name == selected then
+						setRingThickness(entry, THICK)
+					else
+						setRingThickness(entry, 0)
+					end
+				end
+			end
+
+			return {
+				register = register,
+				render = render,
+				entry = function(name) return elements[name] end,
+				tweens = function() return tweenCount end,
+			}
+		end
+
+		it("registers elements with a hidden ring (ringTarget = 0)", function()
+			local sync = makeRingSync()
+			sync.register("A")
+			expect(sync.entry("A").ringTarget).to.equal(0)
+		end)
+
+		it("render lights the selected ring and hides all others", function()
+			local sync = makeRingSync()
+			sync.register("A")
+			sync.register("B")
+			sync.render("A")
+			expect(sync.entry("A").ringTarget).to.equal(THICK)
+			expect(sync.entry("B").ringTarget).to.equal(0)
+		end)
+
+		it("repeat render with the same selection spawns no new tweens", function()
+			local sync = makeRingSync()
+			sync.register("A")
+			sync.register("B")
+			sync.render("A")
+			local after = sync.tweens()
+			sync.render("A")
+			sync.render("A")
+			expect(sync.tweens()).to.equal(after)
+		end)
+
+		it("switching selection tweens both the hide and the light", function()
+			local sync = makeRingSync()
+			sync.register("A")
+			sync.register("B")
+			sync.render("A")
+			local after = sync.tweens()
+			sync.render("B")
+			expect(sync.tweens()).to.equal(after + 2)
+			expect(sync.entry("A").ringTarget).to.equal(0)
+			expect(sync.entry("B").ringTarget).to.equal(THICK)
+		end)
+
+		it("render with no selection hides every ring", function()
+			local sync = makeRingSync()
+			sync.register("A")
+			sync.render("A")
+			sync.render(nil)
+			expect(sync.entry("A").ringTarget).to.equal(0)
+		end)
+	end)
+
+	describe("harborheist-gx6h: engine-first focus lookup (pure logic mirror)", function()
+		local function makeFocusLookup()
+			local focusableElements = {}
+			local currentFocusIndex = 0
+
+			local function register(elem, focusIndex)
+				focusableElements[#focusableElements + 1] = { element = elem }
+				if focusIndex then
+					currentFocusIndex = focusIndex
+				end
+			end
+
+			local function getFocused(engineSelected)
+				if engineSelected then
+					for _, entry in ipairs(focusableElements) do
+						if entry.element == engineSelected then
+							return engineSelected
+						end
+					end
+				end
+				if currentFocusIndex >= 1 and currentFocusIndex <= #focusableElements then
+					return focusableElements[currentFocusIndex].element
+				end
+				return nil
+			end
+
+			return { register = register, getFocused = getFocused }
+		end
+
+		it("engine selection wins over the Tab-managed index", function()
+			local lookup = makeFocusLookup()
+			lookup.register("TabFocused", 1)
+			lookup.register("PanelAutoFocused")
+			-- Engine says PanelAutoFocused is selected (panel auto-focus);
+			-- Tab index still points at TabFocused — engine truth must win.
+			expect(lookup.getFocused("PanelAutoFocused")).to.equal("PanelAutoFocused")
+		end)
+
+		it("falls back to Tab index when engine selection is unregistered", function()
+			local lookup = makeFocusLookup()
+			lookup.register("TabFocused", 1)
+			expect(lookup.getFocused("SomeUnregisteredGui")).to.equal("TabFocused")
+		end)
+
+		it("falls back to Tab index when engine selection is nil", function()
+			local lookup = makeFocusLookup()
+			lookup.register("TabFocused", 1)
+			expect(lookup.getFocused(nil)).to.equal("TabFocused")
+		end)
+
+		it("returns nil with no engine selection and no Tab index", function()
+			local lookup = makeFocusLookup()
+			lookup.register("A")
+			expect(lookup.getFocused(nil)).to.equal(nil)
+		end)
+	end)
+
+	describe("Source contract: harborheist-gx6h (focus indicator on every input path)", function()
+		it("declares selectionSyncConnection state", function()
+			expect(navSource:find("local selectionSyncConnection = nil", 1, true)).to.be.a("number")
+		end)
+
+		it("defines the ring authority setRingThickness", function()
+			expect(navSource:find("local function setRingThickness(entry, thickness)", 1, true)).to.be.a("number")
+		end)
+
+		it("defines the engine-selection ring renderer", function()
+			expect(navSource:find("local function renderSelectionRing()", 1, true)).to.be.a("number")
+		end)
+
+		it("defines shared scrollIntoView", function()
+			expect(navSource:find("local function scrollIntoView(element)", 1, true)).to.be.a("number")
+		end)
+
+		it("Register initializes ringTarget for tween dedupe", function()
+			expect(navSource:find("ringTarget = 0", 1, true)).to.be.a("number")
+		end)
+
+		it("Enable subscribes to SelectedObject changes via GetPropertyChangedSignal", function()
+			expect(navSource:find('GetPropertyChangedSignal("SelectedObject"):Connect(renderSelectionRing)', 1, true)).to.be.a("number")
+		end)
+
+		it("Enable renders the pre-existing selection immediately", function()
+			-- Property-change signals fire only on FUTURE changes; a selection
+			-- already present at Enable time must be rendered explicitly.
+			local enableStart = navSource:find("function KeyboardNav:Enable()", 1, true)
+			local disableStart = navSource:find("function KeyboardNav:Disable()", 1, true)
+			local enableBlock = navSource:sub(enableStart, disableStart)
+			expect(enableBlock:find("renderSelectionRing()", 1, true)).to.be.a("number")
+		end)
+
+		it("Disable disconnects the selection sync connection", function()
+			expect(navSource:find("selectionSyncConnection:Disconnect()", 1, true)).to.be.a("number")
+		end)
+
+		it("GetFocusedElement reads engine selection (engine-first)", function()
+			local start = navSource:find("function KeyboardNav:GetFocusedElement()", 1, true)
+			expect(start).to.be.a("number")
+			local clearAllStart = navSource:find("function KeyboardNav:ClearAll()", 1, true)
+			local block = navSource:sub(start, clearAllStart)
+			expect(block:find("GuiService.SelectedObject", 1, true)).to.be.a("number")
+		end)
+	end)
 end

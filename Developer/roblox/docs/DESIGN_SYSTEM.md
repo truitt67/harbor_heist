@@ -422,6 +422,66 @@ scripts/run_tests.sh --pure
 # Contrast.spec.lua and TouchTargets.spec.lua are part of the pure bucket
 ```
 
+### Focus Indicators (harborheist-gx6h)
+
+**Standard:** WCAG 2.4.7 — every focusable element must have a visible
+focus indicator, regardless of how focus arrived.
+
+`KeyboardNav.lua` is the single owner of the focus ring:
+
+- **One ring authority** — `setRingThickness(entry, thickness)` is the only
+  function that creates focus-ring tweens. Each registration stores its last
+  commanded thickness (`entry.ringTarget`), so repeated commands for the
+  same state are no-ops. This keeps Tab, panel auto-focus/restore, and
+  gamepad D-pad from spawning duplicate or conflicting tweens on the same
+  stroke.
+- **Every focus path is covered** — `Register()` suppresses the engine's
+  default selection ring (blank `SelectionImageObject`), so the UIStroke
+  ring is rendered from `GuiService.SelectedObject` via
+  `GetPropertyChangedSignal` on `Enable()`. It does not matter WHO sets the
+  selection: Tab/Shift+Tab (`ApplyFocus`), panel open/close focus
+  management in `init.client.lua`, or engine gamepad D-pad navigation all
+  converge on the same property and get the same accent-colored ring.
+- **Engine-first focus truth** — `GetFocusedElement()` prefers the engine's
+  current selection when it is a registered element (it is what receives
+  Enter/Space), falling back to the Tab-managed index. Consumers polling on
+  Heartbeat (keyboard-parity tooltips) therefore also see gamepad and
+  panel-managed focus, not just Tab focus.
+- **Scroll into view** — focusing an element inside a `ScrollingFrame`
+  scrolls it into the visible canvas on every focus path.
+
+**Tested by**: `test/pure_specs/KeyboardNavLogic.spec.lua` — pure-logic
+mirrors of the ring-dedupe rule and the engine-first lookup, plus source
+contracts pinning the sync wiring (`GetPropertyChangedSignal("SelectedObject")`,
+`renderSelectionRing`, disconnect-on-Disable).
+
+### Screen Reader Support — Evaluation (harborheist-gx6h)
+
+**Conclusion: not implementable from scripts; Roblox provides no
+script-accessible screen-reader API.**
+
+Evaluation performed 2026-08-08 against the current platform surface:
+
+1. **No scripting API.** There is no `ScreenReaderService`, no
+   accessibility-label property on `GuiObject`, and no documented
+   script-side hook to announce UI text to NVDA/VoiceOver/TalkBack.
+   (Contrast with `GuiService:GetGuiInset()` or `SelectionImageObject`,
+   which ARE script-accessible.)
+2. **Platform-side rendering only.** Roblox renders UI natively on each
+   client platform, so any screen-reader support would have to ship from
+   Roblox itself as an engine/OS integration, not from game code.
+3. **What we control instead** — the levers that reduce screen-reader
+   impact are indirect and already tracked:
+   - Focus visibility for keyboard/gamepad users (this section, gx6h).
+   - Non-color state communication: `docs/etj2.4.5_NON_COLOR_AUDIT.md`
+     (icons + labels alongside color, no color-only meaning).
+   - Text-as-text: all UI strings are real `TextLabel` text (never baked
+     into images), which is a prerequisite for any future engine-level
+     accessibility pass.
+4. **Follow-up:** re-evaluate when Roblox ships a scripting accessibility
+   API (track Roblox Creator roadmap / developer forum announcements). No
+   bead is filed — this is a platform dependency, not game code.
+
 ---
 
 ## 10. Feedback & Affordance (EPIC-44)

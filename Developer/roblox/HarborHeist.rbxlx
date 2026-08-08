@@ -21615,6 +21615,62 @@ local trappedElements = {}
 -- on UserInputService (the old connection's guard `if not isEnabled then
 -- return end` prevents functional issues, but the closure stays in memory).
 local inputConnection = nil
+-- harborheist-gx6h: same leak-safe pattern for the engine-selection sync
+-- connection (visual ring follows GuiService.SelectedObject from ANY path,
+-- not just Tab). Stored so Disable() disconnects and re-Enable doesn't stack.
+local selectionSyncConnection = nil
+
+-- harborheist-gx6h: single authority for the visual focus ring. Every entry
+-- remembers the thickness its stroke was last commanded toward (ringTarget)
+-- so repeated calls for the same state are no-ops — this keeps the Tab path,
+-- panel auto-focus/restore, and engine gamepad selection from spawning
+-- duplicate or conflicting tweens on the same stroke.
+local function setRingThickness(entry, thickness)
+	if entry.ringTarget == thickness then
+		return
+	end
+	entry.ringTarget = thickness
+	if entry.stroke then
+		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
+			Thickness = thickness,
+		}):Play()
+	end
+end
+
+-- harborheist-gx6h: extracted from ApplyFocus so non-Tab focus paths (panel
+-- auto-focus/restore, gamepad D-pad) also keep the focused element visible
+-- inside an ancestor ScrollingFrame's canvas.
+local function scrollIntoView(element)
+	local scrollFrame = element:FindFirstAncestorOfClass("ScrollingFrame")
+	if not scrollFrame then return end
+	local canvasY = scrollFrame.CanvasPosition.Y
+	local viewHeight = scrollFrame.AbsoluteWindowSize.Y
+	local elementTop = element.AbsolutePosition.Y - scrollFrame.AbsolutePosition.Y + canvasY
+	local elementBottom = elementTop + element.AbsoluteSize.Y
+	if elementTop < canvasY then
+		scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementTop)
+	elseif elementBottom > canvasY + viewHeight then
+		scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementBottom - viewHeight)
+	end
+end
+
+-- harborheist-gx6h: render the focus ring from the engine's current
+-- selection, whatever set it. Register() suppresses the engine's default
+-- ring (KeyboardNavBlankSelection), so without this sync, gamepad D-pad
+-- navigation and programmatic focus (panel auto-focus on open, focus restore
+-- on close) would leave the user with NO visible focus indicator — a WCAG
+-- 2.4.7 violation. Called on every SelectedObject change while enabled.
+local function renderSelectionRing()
+	local selected = GuiService.SelectedObject
+	for _, entry in ipairs(focusableElements) do
+		if entry.element == selected then
+			setRingThickness(entry, FOCUS_INDICATOR_THICKNESS)
+			scrollIntoView(entry.element)
+		else
+			setRingThickness(entry, 0)
+		end
+	end
+end
 
 --[[
 	Register a UI element as focusable via keyboard navigation.
@@ -21662,6 +21718,11 @@ function KeyboardNav:Register(element, tabOrder, onActivate)
 		element = element,
 		tabOrder = tabOrder or #focusableElements + 1,
 		stroke = stroke,
+		-- harborheist-gx6h: last commanded ring thickness (0 = hidden).
+		-- setRingThickness no-ops when the target is unchanged, so Tab,
+		-- panel auto-focus/restore, and gamepad paths never spawn
+		-- duplicate tweens on the same stroke.
+		ringTarget = 0,
 		-- harborheist-mdzl: onActivate is retained for backward compat but
 		-- is no longer the activation path — GuiService.SelectedObject (set
 		-- in ApplyFocus) makes the engine fire Activated on Enter/Space.
@@ -21848,11 +21909,10 @@ function KeyboardNav:ClearFocus()
 	-- registered elements (avoids clobbering selection set by other systems).
 	local selected = GuiService.SelectedObject
 	for _, entry in ipairs(focusableElements) do
-		if entry.stroke then
-			TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
-				Thickness = 0
-			}):Play()
-		end
+		-- harborheist-gx6h: route through the ring authority so ringTarget
+		-- stays in sync (a direct tween here would leave it stale and break
+		-- the duplicate-tween dedupe).
+		setRingThickness(entry, 0)
 		if entry.element == selected then
 			GuiService.SelectedObject = nil
 		end
@@ -21871,9 +21931,9 @@ function KeyboardNav:ApplyFocus()
 	
 	local entry = focusableElements[currentFocusIndex]
 	if entry and entry.stroke then
-		TweenService:Create(entry.stroke, FOCUS_TWEEN_INFO, {
-			Thickness = FOCUS_INDICATOR_THICKNESS
-		}):Play()
+		-- harborheist-gx6h: route through the ring authority (dedupe-safe)
+		-- instead of creating a tween directly.
+		setRingThickness(entry, FOCUS_INDICATOR_THICKNESS)
 
 		-- harborheist-mdzl: set GuiService.SelectedObject so the engine
 		-- natively handles Enter/Space activation (fires the button's
@@ -21883,18 +21943,7 @@ function KeyboardNav:ApplyFocus()
 
 		-- Ensure the focused element is visible inside any ancestor
 		-- ScrollingFrame (vertical lists).
-		local scrollFrame = entry.element:FindFirstAncestorOfClass("ScrollingFrame")
-		if scrollFrame then
-			local canvasY = scrollFrame.CanvasPosition.Y
-			local viewHeight = scrollFrame.AbsoluteWindowSize.Y
-			local elementTop = entry.element.AbsolutePosition.Y - scrollFrame.AbsolutePosition.Y + canvasY
-			local elementBottom = elementTop + entry.element.AbsoluteSize.Y
-			if elementTop < canvasY then
-				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementTop)
-			elseif elementBottom > canvasY + viewHeight then
-				scrollFrame.CanvasPosition = Vector2.new(scrollFrame.CanvasPosition.X, elementBottom - viewHeight)
-			end
-		end
+		scrollIntoView(entry.element)
 	end
 end
 
@@ -21933,6 +21982,21 @@ function KeyboardNav:Enable()
 		-- the focused button is SelectedObject, pressing Enter/Space fires
 		-- its Activated signal directly — no manual callback wiring needed.
 	end)
+
+	-- harborheist-gx6h: keep the visual ring in sync with the engine's
+	-- selection no matter WHO sets it. Tab (ApplyFocus), panel auto-focus on
+	-- open and focus restore on close (init.client.lua), and gamepad D-pad
+	-- all converge on GuiService.SelectedObject; GetPropertyChangedSignal
+	-- fires for every one of them. Without this, Register's blank
+	-- SelectionImageObject would leave gamepad/programmatic focus with no
+	-- visible indicator at all (WCAG 2.4.7).
+	if selectionSyncConnection then
+		selectionSyncConnection:Disconnect()
+	end
+	selectionSyncConnection = GuiService:GetPropertyChangedSignal("SelectedObject"):Connect(renderSelectionRing)
+	-- Defensive: if a selection already exists at enable time, render now —
+	-- the property-change signal only fires on FUTURE changes.
+	renderSelectionRing()
 end
 
 --[[
@@ -21948,20 +22012,42 @@ function KeyboardNav:Disable()
 		inputConnection:Disconnect()
 		inputConnection = nil
 	end
+	-- harborheist-gx6h: same for the selection-sync connection.
+	if selectionSyncConnection then
+		selectionSyncConnection:Disconnect()
+		selectionSyncConnection = nil
+	end
 	self:ClearFocus()
 	currentFocusIndex = 0
 end
 
 --[[
 	Get the currently focused element.
-	
+
+	Prefers the engine's selection (ground truth — it is what receives
+	Enter/Space) when it is a registered element, and falls back to the
+	Tab-managed index otherwise. This matters for consumers polling on
+	Heartbeat (e.g. the keyboard-parity tooltip loop in init.client.lua):
+	without engine-first lookup, focus set by panel auto-focus, focus
+	restore, or gamepad D-pad would read as stale or "no focus".
+
 	@return GuiButton? - The focused element, or nil if none
 ]]
 function KeyboardNav:GetFocusedElement()
-	if currentFocusIndex < 1 or currentFocusIndex > #focusableElements then
-		return nil
+	-- harborheist-gx6h: engine selection wins when it is one of ours —
+	-- Tab, panel auto-focus/restore, and gamepad all converge on it.
+	local selected = GuiService.SelectedObject
+	if selected then
+		for _, entry in ipairs(focusableElements) do
+			if entry.element == selected then
+				return selected
+			end
+		end
 	end
-	return focusableElements[currentFocusIndex].element
+	if currentFocusIndex >= 1 and currentFocusIndex <= #focusableElements then
+		return focusableElements[currentFocusIndex].element
+	end
+	return nil
 end
 
 --[[
