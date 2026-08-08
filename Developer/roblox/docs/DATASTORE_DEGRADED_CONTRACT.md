@@ -156,7 +156,7 @@ and firm (per EPIC 45 WS-D governance).
 | --- | --- | --- | --- | --- | --- |
 | F1 | harborheist-sde2 | P2 | Integrity (code) | **DONE** (2026-08-02) | Transactional checkpoint on quest reward grant in `QuestService.lua` (spawned `dataManager.save(session.player)` gated on granted flags) + source-contract pure spec |
 | F2 | harborheist-ux45-workflow-clarity-etj2.2.6 | P2 | Presentational (EPIC 45) | **DONE** (2026-08-02) | Persistent DataStoreBanner with §3.2 fitted copy; false toast removed; CLAIM-only disable + pulse-guard carve-out removed; recovery toast per §3.2 |
-| F3 | harborheist-ux45-workflow-clarity-etj2.2.7 | P3 | Presentational (EPIC 45) | OPEN | Proactive `stateSync` push on DataStore health transitions so idle/zero-income players see banner appear and clear promptly |
+| F3 | harborheist-ux45-workflow-clarity-etj2.2.7 | P3 | Presentational (EPIC 45) | **DONE** (2026-08-03) | Proactive `stateSync` push on DataStore health transitions (`DataManager.onHealthChange` callback → snapshot push) so idle/zero-income players see banner appear and clear promptly |
 
 F1 was scoped as integrity (server mutation durability), not copy. F2/F3 are
 purely presentational and belong under EPIC 45 WS-B/WS-D. None of these block
