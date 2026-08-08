@@ -2853,7 +2853,11 @@ function AquariumService.init(deps)
 		-- N5: route every coin write through clampCoins so the MAX_COINS cap
 		-- cannot be overflowed by claiming a large pool near the ceiling.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + unclaimed)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + unclaimed
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2: was
+		-- unbounded — a whale at the Coins cap could drift Earned past
+		-- MAX_COINS with no ceiling, and incremental writes could
+		-- accumulate float error. clampCoins floors and bounds to [0, MAX].
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + unclaimed)
 		session.profile.Aquarium.UnclaimedIncome = 0
 		if auditLog then
 			auditLog.logClaim(player, unclaimed)
@@ -2928,7 +2932,8 @@ function AquariumService.init(deps)
 			session.carried[i] = nil
 		end
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + payout)
 		if auditLog then
 			auditLog.logSell(player, soldCount, payout)
 		end
@@ -4226,7 +4231,8 @@ function CollectionService.init(deps)
 		local coinsGranted = (target.reward and target.reward.coins) or 0
 		if coinsGranted > 0 then
 			profile.Coins = PlayerProfile.clampCoins(profile.Coins + coinsGranted)
-			profile.TotalCoinsEarned = profile.TotalCoinsEarned + coinsGranted
+			-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+			profile.TotalCoinsEarned = PlayerProfile.clampCoins(profile.TotalCoinsEarned + coinsGranted)
 		end
 		-- Mark claimed BEFORE pushing state so the snapshot reflects it.
 		profile.Collection.MilestonesClaimed[milestoneId] = true
@@ -4467,7 +4473,9 @@ local function sanitize(data)
 		clean.Coins = PlayerProfile.clampCoins(data.Coins)
 	end
 	if type(data.TotalCoinsEarned) == "number" then
-		clean.TotalCoinsEarned = math.max(0, math.floor(data.TotalCoinsEarned))
+		-- harborheist-2f1p: upper-bound too — previously only floored, so a
+		-- corrupted huge value round-tripped forever.
+		clean.TotalCoinsEarned = PlayerProfile.clampCoins(data.TotalCoinsEarned)
 	end
 
 	-- Equipment
@@ -4486,6 +4494,19 @@ local function sanitize(data)
 					table.insert(clean.Equipment.OwnedRodLevels, lvl)
 				end
 			end
+		end
+		-- harborheist-2f1p: round-trip BaitInventory. Nothing mutates it yet
+		-- (bait is unlimited per DEC-5), but it is part of the schema and PRD
+		-- Open Decision #5 may add quantity mechanics — without this copy the
+		-- field silently reverted to default on every save/load (pattern #2).
+		if type(eq.BaitInventory) == "table" then
+			local bi = eq.BaitInventory
+			clean.Equipment.BaitInventory = {
+				level = (type(bi.level) == "number" and GameConfig.Baits[bi.level]) and bi.level
+					or clean.Equipment.BaitInventory.level,
+				quantity = type(bi.quantity) == "number" and math.floor(bi.quantity)
+					or clean.Equipment.BaitInventory.quantity,
+			}
 		end
 	end
 
@@ -6021,7 +6042,8 @@ function FishInventoryService.init(deps)
 		local payout = fish.BaseSellValue
 		-- N5: clampCoins on the per-fish sell path too.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + payout)
 
 		-- TASK 10.3 (fresh-eyes, 9mu.5): audit the single-fish money path too —
 		-- RequestSellFish logs every sale, but SellFish (carried AND aquarium sources)
@@ -7124,7 +7146,8 @@ local function processList(session, list, scope, predicate, incrFn)
 				-- AND credited nothing. Route through clampCoins + track lifetime
 				-- earnings, matching every other coin-grant path in the codebase.
 				session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + q.reward)
-				session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward
+				-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+				session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + q.reward)
 				if auditLog and session.player then
 					auditLog.logQuestReward(session.player, q.desc, q.reward)
 				end
@@ -7986,7 +8009,8 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		else
 			fenced = true
 			attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
-			attackerSession.profile.TotalCoinsEarned += stolenFish.BaseSellValue
+			-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2) — fenced path.
+			attackerSession.profile.TotalCoinsEarned = PlayerProfile.clampCoins(attackerSession.profile.TotalCoinsEarned + stolenFish.BaseSellValue)
 		end
 	end)
 	if not transferOk then
@@ -19637,7 +19661,14 @@ raidOptInPanelButton.Activated:Connect(function()
 	task.delay(1.5, function()
 		setButtonEnabled(raidOptInPanelButton, true)
 	end)
-	Remotes.RequestToggleRaidOptIn:InvokeServer()
+	-- harborheist-2f1p: pcall — oqbp missed both raid opt-in toggles.
+	-- The server sends its own notify on success/failure, so the result
+	-- is discarded. An unprotected throw (player leaves mid-request, or a
+	-- server-side error propagates) would kill this handler thread for the
+	-- rest of the session, leaving the button wedged after its 1.5s re-enable.
+	pcall(function()
+		Remotes.RequestToggleRaidOptIn:InvokeServer()
+	end)
 end)
 -- TASK 25.1 (hvfh.5.1): SELL ALL two-step confirmation guard.
 -- First tap arms the button with the exact payout + lock-scope; a 3s
@@ -19753,7 +19784,14 @@ raidOptInButton.Activated:Connect(function()
 	task.delay(1.5, function()
 		setButtonEnabled(raidOptInButton, true)
 	end)
-	Remotes.RequestToggleRaidOptIn:InvokeServer()
+	-- harborheist-2f1p: pcall — oqbp's sweep missed the aquarium-panel
+	-- twin of the raid opt-in toggle (same class as the panel-button site
+	-- above). R3 audit #19 fixed the double-tap guard on BOTH buttons but
+	-- the pcall gap was never re-scanned. An unprotected throw here would
+	-- kill the handler thread silently after the 1.5s re-enable.
+	pcall(function()
+		Remotes.RequestToggleRaidOptIn:InvokeServer()
+	end)
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
