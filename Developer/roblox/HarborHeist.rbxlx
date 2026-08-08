@@ -12969,6 +12969,165 @@ local DESKTOP_BAR_H = 58
 local PROMPT_BAR_GAP = 8
 
 -- ============================================================
+-- harborheist-3mo7.3.15: prompt exit-animation machinery. Both inline
+-- prompts (onboarding + sell/store comparison) ENTER with a UIScale
+-- 0.92→1 EASE_POP but hard-hid via raw Visible=false — the last
+-- asymmetric modals (panels/banners/context menu/toasts all animate
+-- out). The exit mirrors the entrance: UIScale 1→0.92 (EASE_IN —
+-- exits accelerate, R4 #7/#8 precedent) + fade every visual element,
+-- Visible=false deferred to the tween's Completed.
+--
+-- Rest-alpha capture/restore (context-menu precedent, 3mo7.3.40): an
+-- exit that fades children to transparency 1 must restore every rest
+-- value on re-show, or the second open renders as a ghost.
+-- ============================================================
+local PROMPT_EXIT_SCALE = 0.92 -- mirrors the entrance seed
+
+-- Capture the "at rest" alpha of every visual element in a subtree.
+-- GuiObject covers Frame/TextLabel/TextButton (BackgroundTransparency);
+-- text-bearing classes add TextTransparency; UIStroke uses Transparency.
+local function captureRestAlphas(root)
+	local rest = {}
+	local function capture(inst)
+		local entry = {}
+		if inst:IsA("GuiObject") then
+			entry.background = inst.BackgroundTransparency
+		end
+		if inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox") then
+			entry.text = inst.TextTransparency
+		end
+		if inst:IsA("UIStroke") then
+			entry.transparency = inst.Transparency
+		end
+		if next(entry) ~= nil then
+			rest[inst] = entry
+		end
+	end
+	capture(root)
+	for _, inst in ipairs(root:GetDescendants()) do
+		capture(inst)
+	end
+	return rest
+end
+
+-- Tween every captured rest alpha toward fully transparent. Returns the
+-- tween list so the caller can Cancel on re-show — a snap-restore alone
+-- can't stop an in-flight exit tween pulling back to 1.
+local function fadeAlphasToTransparent(rest, easing)
+	local tweens = {}
+	for inst, entry in pairs(rest) do
+		if inst.Parent then
+			local props = {}
+			if entry.background ~= nil then
+				props.BackgroundTransparency = 1
+			end
+			if entry.text ~= nil then
+				props.TextTransparency = 1
+			end
+			if entry.transparency ~= nil then
+				props.Transparency = 1
+			end
+			if next(props) ~= nil then
+				local tween = TweenService:Create(inst, easing, props)
+				table.insert(tweens, tween)
+				tween:Play()
+			end
+		end
+	end
+	return tweens
+end
+
+-- Snap every captured alpha back to its rest value (re-show after an
+-- exit or a canceled mid-exit — instant, the entrance does the motion).
+local function restoreAlphas(rest)
+	for inst, entry in pairs(rest) do
+		if inst.Parent then
+			if entry.background ~= nil then
+				inst.BackgroundTransparency = entry.background
+			end
+			if entry.text ~= nil then
+				inst.TextTransparency = entry.text
+			end
+			if entry.transparency ~= nil then
+				inst.Transparency = entry.transparency
+			end
+		end
+	end
+end
+
+-- Exit-animation state for one prompt. Fields: token (generation guard
+-- for the show/hide/show race), hiding, rest (captured alphas), tweens
+-- (in-flight exit tweens). captureRest() must run AFTER the prompt is
+-- fully constructed (buttons, stroke, applyElevation shadows).
+local function makePromptExit(prompt)
+	local exitState = {
+		token = 0,
+		hiding = false,
+		rest = nil,
+		tweens = {},
+	}
+	function exitState.captureRest()
+		exitState.rest = captureRestAlphas(prompt)
+	end
+	-- Cancel a wind-down and snap back to rest (re-show path).
+	function exitState.cancel()
+		exitState.token += 1
+		for _, tween in ipairs(exitState.tweens) do
+			tween:Cancel()
+		end
+		table.clear(exitState.tweens)
+		exitState.hiding = false
+		if exitState.rest then
+			restoreAlphas(exitState.rest)
+		end
+		-- The exit may have pulled the scale below 1 — snap it back so a
+		-- canceled wind-down doesn't strand the prompt mid-shrink.
+		local scale = prompt:FindFirstChildOfClass("UIScale")
+		if scale then
+			scale.Scale = 1
+		end
+	end
+	-- Scale 1→0.92 + fade everything; defer Visible=false to Completed.
+	-- Returns true if the exit started (false = already hiding/hidden,
+	-- so callers can run their own fallback for side effects).
+	function exitState.exit(onComplete)
+		if exitState.hiding or not prompt.Visible then
+			return false
+		end
+		exitState.hiding = true
+		exitState.token += 1
+		local token = exitState.token
+		local scale = prompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
+		scale.Parent = prompt
+		exitState.tweens = fadeAlphasToTransparent(exitState.rest, EASE_IN)
+		local tween = TweenService:Create(scale, EASE_IN, { Scale = PROMPT_EXIT_SCALE })
+		tween.Completed:Connect(function()
+			exitState.hiding = false
+			-- Token mismatch = a re-show superseded this exit; Parent nil
+			-- = the prompt was destroyed mid-wind-down.
+			if exitState.token == token and prompt.Parent ~= nil then
+				prompt.Visible = false
+				if onComplete then
+					onComplete()
+				end
+			end
+		end)
+		table.insert(exitState.tweens, tween)
+		tween:Play()
+		return true
+	end
+	return exitState
+end
+
+-- Forward declarations — the exit states are built AFTER both prompts
+-- are fully constructed (rest capture needs every child, including
+-- applyElevation's shadow layers). The show/dismiss/hide functions
+-- above/below reference these upvalues; assignment happens at module
+-- load before any runtime call (same pattern as hidePanels).
+local onboardingExit
+local sellStoreExit
+
+-- ============================================================
 -- Onboarding contextual prompts (TASK 9.2 / 0jc.2)
 -- Dismissible inline banners driven by OnboardingService flags.
 -- Shows one prompt at a time based on the player's progression stage.
@@ -13045,7 +13204,9 @@ onboardingDismiss.Activated:Connect(function()
 		dismissedPrompts[currentPromptStage] = true
 	end
 	currentPromptStage = nil
-	onboardingPrompt.Visible = false
+	-- harborheist-3mo7.3.15: animated exit — Visible=false is deferred to
+	-- the tween's Completed (was a raw hard-hide).
+	onboardingExit.exit()
 end)
 
 -- Show a contextual prompt for the given stage, unless already dismissed.
@@ -13059,6 +13220,16 @@ local function showOnboardingPrompt(stage, text, color)
 	currentPromptStage = stage
 	onboardingLabel.Text = text
 	onboardingAccentBar.BackgroundColor3 = color or Theme.color.accent.base
+	-- harborheist-3mo7.3.15: a re-show during the exit wind-down (Visible
+	-- still true) must cancel the exit — otherwise the deferred
+	-- Visible=false would strand the prompt invisible and the entrance
+	-- gate below would never fire again. cancel() snaps the alphas back
+	-- to rest; the prompt stays visible as-is (no entrance replay — it
+	-- never left).
+	if onboardingExit.hiding then
+		onboardingExit.cancel()
+		return
+	end
 	if not onboardingPrompt.Visible then
 		onboardingPrompt.Visible = true
 		local scale = onboardingPrompt:FindFirstChildOfClass("UIScale") or Instance.new("UIScale")
@@ -13072,7 +13243,8 @@ end
 local function dismissOnboardingPrompt(stage)
 	dismissedPrompts[stage] = true
 	currentPromptStage = nil
-	onboardingPrompt.Visible = false
+	-- harborheist-3mo7.3.15: animated exit (deferred Visible=false).
+	onboardingExit.exit()
 end
 
 -- ============================================================
@@ -13147,7 +13319,7 @@ local sellStoreSellBtn = makeButton(sellStorePrompt, {
 	Text = "SELL $0",
 	BackgroundColor3 = Theme.color.status.good,
 	TextColor3 = Theme.color.text.ink,
-	CornerRadius = 10,
+	CornerRadius = Theme.corners.roomy, -- harborheist-3mo7.3.16: was raw 10
 	ZIndex = 31,
 })
 
@@ -13157,9 +13329,20 @@ local sellStoreStoreBtn = makeButton(sellStorePrompt, {
 	Text = "STORE $0/min",
 	BackgroundColor3 = Theme.color.accent.base,
 	TextColor3 = Theme.color.text.ink,
-	CornerRadius = 10,
+	CornerRadius = Theme.corners.roomy, -- harborheist-3mo7.3.16: was raw 10
 	ZIndex = 31,
 })
+
+-- harborheist-3mo7.3.15: build the exit states NOW — both prompts are
+-- fully constructed (labels, buttons, stroke, applyElevation shadows),
+-- so captureRest() records every visual element that must fade on exit
+-- and snap back on re-show. Forward-declared upvalues (see above the
+-- onboarding section) are assigned here, at module load, before any
+-- runtime call touches them.
+onboardingExit = makePromptExit(onboardingPrompt)
+onboardingExit.captureRest()
+sellStoreExit = makePromptExit(sellStorePrompt)
+sellStoreExit.captureRest()
 
 -- harborheist-3mo7.2.4: dim backdrop + click-outside dismiss for the
 -- sell/store comparison prompt. The prompt is a modal (ZIndex 30) that
@@ -13194,7 +13377,11 @@ local lastCarriedCount = 0
 local SELL_STORE_BACKDROP_DIM = 0.45
 
 local function hideSellStorePrompt()
-	sellStorePrompt.Visible = false
+	-- harborheist-3mo7.3.15: animated exit — scale 1→0.92 + fade, with
+	-- Visible=false deferred to the tween's Completed (was a raw
+	-- hard-hide). exit() no-ops when the prompt isn't visible (e.g. the
+	-- render-path call on a hidden prompt).
+	sellStoreExit.exit()
 	-- harborheist-3mo7.2.4: fade the backdrop out, then hide. Deferred
 	-- via task.delay so the fade is visible (not an instant pop-off).
 	if sellStoreBackdrop.Visible then
@@ -13233,6 +13420,14 @@ local function showSellStorePrompt(fish)
 	sellStoreTargetFish = fish
 	sellStoreSellBtn.Text = string.format("SELL $%s", formatCash(fish.BaseSellValue or 0))
 	sellStoreStoreBtn.Text = string.format("STORE $%s/min", formatCash(fish.IncomePerMinute or 0))
+	-- harborheist-3mo7.3.15: a re-show during the exit wind-down (a new
+	-- catch landing while the prompt scales out) must cancel the exit —
+	-- the deferred Visible=false would otherwise strand it invisible.
+	-- cancel() snaps alphas + scale back to rest; the entrance below
+	-- re-seeds the pop from 0.92 either way.
+	if sellStoreExit.hiding then
+		sellStoreExit.cancel()
+	end
 	-- harborheist-3mo7.2.4: show + fade-in the backdrop before the prompt
 	-- pops, so the dim arrives with the modal (not after it).
 	sellStoreBackdrop.Visible = true
@@ -18633,7 +18828,8 @@ local function render()
 			dismissedPrompts.firstCast = true
 			if currentPromptStage == "firstCast" then
 				currentPromptStage = nil
-				onboardingPrompt.Visible = false
+				-- harborheist-3mo7.3.15: animated exit (no-ops when hidden)
+				onboardingExit.exit()
 			end
 		elseif currentPromptStage ~= "firstWait" then
 			showOnboardingPrompt("firstCast",
@@ -18654,7 +18850,8 @@ local function render()
 			-- so it reappears when they catch another fish and still get
 			-- the store guidance.
 			currentPromptStage = nil
-			onboardingPrompt.Visible = false
+			-- harborheist-3mo7.3.15: animated exit (no-ops when hidden)
+			onboardingExit.exit()
 		end
 	elseif not ob.HasClaimedIncome and (state.unclaimedIncome or 0) > 0 then
 		-- Stage 3: has stored fish earning income but hasn't claimed yet.
@@ -18670,7 +18867,8 @@ local function render()
 	else
 		-- All onboarding stages complete or dismissed — hide the prompt.
 		currentPromptStage = nil
-		onboardingPrompt.Visible = false
+		-- harborheist-3mo7.3.15: animated exit (no-ops when hidden)
+		onboardingExit.exit()
 	end
 
 	-- TASK 9.4 (0jc.4): sell-vs-store comparison prompt on first catch.
@@ -18696,10 +18894,15 @@ local function render()
 		end
 	end
 
+	-- harborheist-3mo7.3.15: the exit wind-down keeps .Visible true for
+	-- 0.16s (deferred hide) — treat a prompt mid-exit as already hidden
+	-- here, or a catch landing in that window would be skipped by the
+	-- gate and the comparison lost (lastCarriedCount already advanced).
+	local sellStoreEffectivelyHidden = not sellStorePrompt.Visible or sellStoreExit.hiding
 	if carriedCount > lastCarriedCount
 		and not sellStorePromptShown
 		and not (state.onboarding or {}).HasSeenSellStoreComparison
-		and not sellStorePrompt.Visible then
+		and sellStoreEffectivelyHidden then
 		local firstFish = carriedFish[1]
 		if firstFish then
 			showSellStorePrompt(firstFish)
