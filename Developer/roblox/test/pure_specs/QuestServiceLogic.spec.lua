@@ -576,7 +576,9 @@ return function(describe, it, expect)
 		end)
 
 		it("lifetime earnings track quest rewards", function()
-			expect(questSource:find("session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward", 1, true)).to.be.a("number")
+			-- harborheist-2f1p: the write is now clampCoins-wrapped (floor +
+			-- ceiling), matching every other TotalCoinsEarned grant site.
+			expect(questSource:find("session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + q.reward)", 1, true)).to.be.a("number")
 		end)
 
 		it("gt44: quest rewards are audit-logged", function()

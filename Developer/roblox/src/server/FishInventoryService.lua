@@ -132,7 +132,8 @@ function FishInventoryService.init(deps)
 		local payout = fish.BaseSellValue
 		-- N5: clampCoins on the per-fish sell path too.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + payout)
 
 		-- TASK 10.3 (fresh-eyes, 9mu.5): audit the single-fish money path too —
 		-- RequestSellFish logs every sale, but SellFish (carried AND aquarium sources)

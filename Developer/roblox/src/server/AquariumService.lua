@@ -121,7 +121,11 @@ function AquariumService.init(deps)
 		-- N5: route every coin write through clampCoins so the MAX_COINS cap
 		-- cannot be overflowed by claiming a large pool near the ceiling.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + unclaimed)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + unclaimed
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2: was
+		-- unbounded — a whale at the Coins cap could drift Earned past
+		-- MAX_COINS with no ceiling, and incremental writes could
+		-- accumulate float error. clampCoins floors and bounds to [0, MAX].
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + unclaimed)
 		session.profile.Aquarium.UnclaimedIncome = 0
 		if auditLog then
 			auditLog.logClaim(player, unclaimed)
@@ -196,7 +200,8 @@ function AquariumService.init(deps)
 			session.carried[i] = nil
 		end
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + payout)
-		session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + payout
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+		session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + payout)
 		if auditLog then
 			auditLog.logSell(player, soldCount, payout)
 		end

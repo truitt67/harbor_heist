@@ -104,7 +104,8 @@ local function processList(session, list, scope, predicate, incrFn)
 				-- AND credited nothing. Route through clampCoins + track lifetime
 				-- earnings, matching every other coin-grant path in the codebase.
 				session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + q.reward)
-				session.profile.TotalCoinsEarned = session.profile.TotalCoinsEarned + q.reward
+				-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+				session.profile.TotalCoinsEarned = PlayerProfile.clampCoins(session.profile.TotalCoinsEarned + q.reward)
 				if auditLog and session.player then
 					auditLog.logQuestReward(session.player, q.desc, q.reward)
 				end

@@ -202,7 +202,9 @@ local function sanitize(data)
 		clean.Coins = PlayerProfile.clampCoins(data.Coins)
 	end
 	if type(data.TotalCoinsEarned) == "number" then
-		clean.TotalCoinsEarned = math.max(0, math.floor(data.TotalCoinsEarned))
+		-- harborheist-2f1p: upper-bound too — previously only floored, so a
+		-- corrupted huge value round-tripped forever.
+		clean.TotalCoinsEarned = PlayerProfile.clampCoins(data.TotalCoinsEarned)
 	end
 
 	-- Equipment
@@ -221,6 +223,19 @@ local function sanitize(data)
 					table.insert(clean.Equipment.OwnedRodLevels, lvl)
 				end
 			end
+		end
+		-- harborheist-2f1p: round-trip BaitInventory. Nothing mutates it yet
+		-- (bait is unlimited per DEC-5), but it is part of the schema and PRD
+		-- Open Decision #5 may add quantity mechanics — without this copy the
+		-- field silently reverted to default on every save/load (pattern #2).
+		if type(eq.BaitInventory) == "table" then
+			local bi = eq.BaitInventory
+			clean.Equipment.BaitInventory = {
+				level = (type(bi.level) == "number" and GameConfig.Baits[bi.level]) and bi.level
+					or clean.Equipment.BaitInventory.level,
+				quantity = type(bi.quantity) == "number" and math.floor(bi.quantity)
+					or clean.Equipment.BaitInventory.quantity,
+			}
 		end
 	end
 

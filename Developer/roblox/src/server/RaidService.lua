@@ -701,7 +701,8 @@ local function resolveRaidSuccess(attacker: Player, attackerSession: any, victim
 		else
 			fenced = true
 			attackerSession.profile.Coins = PlayerProfile.clampCoins(attackerSession.profile.Coins + stolenFish.BaseSellValue)
-			attackerSession.profile.TotalCoinsEarned += stolenFish.BaseSellValue
+			-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2) — fenced path.
+			attackerSession.profile.TotalCoinsEarned = PlayerProfile.clampCoins(attackerSession.profile.TotalCoinsEarned + stolenFish.BaseSellValue)
 		end
 	end)
 	if not transferOk then

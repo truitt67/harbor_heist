@@ -268,7 +268,8 @@ function CollectionService.init(deps)
 		local coinsGranted = (target.reward and target.reward.coins) or 0
 		if coinsGranted > 0 then
 			profile.Coins = PlayerProfile.clampCoins(profile.Coins + coinsGranted)
-			profile.TotalCoinsEarned = profile.TotalCoinsEarned + coinsGranted
+			-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2).
+			profile.TotalCoinsEarned = PlayerProfile.clampCoins(profile.TotalCoinsEarned + coinsGranted)
 		end
 		-- Mark claimed BEFORE pushing state so the snapshot reflects it.
 		profile.Collection.MilestonesClaimed[milestoneId] = true

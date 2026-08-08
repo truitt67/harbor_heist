@@ -9618,7 +9618,14 @@ raidOptInPanelButton.Activated:Connect(function()
 	task.delay(1.5, function()
 		setButtonEnabled(raidOptInPanelButton, true)
 	end)
-	Remotes.RequestToggleRaidOptIn:InvokeServer()
+	-- harborheist-2f1p: pcall — oqbp missed both raid opt-in toggles.
+	-- The server sends its own notify on success/failure, so the result
+	-- is discarded. An unprotected throw (player leaves mid-request, or a
+	-- server-side error propagates) would kill this handler thread for the
+	-- rest of the session, leaving the button wedged after its 1.5s re-enable.
+	pcall(function()
+		Remotes.RequestToggleRaidOptIn:InvokeServer()
+	end)
 end)
 -- TASK 25.1 (hvfh.5.1): SELL ALL two-step confirmation guard.
 -- First tap arms the button with the exact payout + lock-scope; a 3s
@@ -9734,7 +9741,14 @@ raidOptInButton.Activated:Connect(function()
 	task.delay(1.5, function()
 		setButtonEnabled(raidOptInButton, true)
 	end)
-	Remotes.RequestToggleRaidOptIn:InvokeServer()
+	-- harborheist-2f1p: pcall — oqbp's sweep missed the aquarium-panel
+	-- twin of the raid opt-in toggle (same class as the panel-button site
+	-- above). R3 audit #19 fixed the double-tap guard on BOTH buttons but
+	-- the pcall gap was never re-scanned. An unprotected throw here would
+	-- kill the handler thread silently after the 1.5s re-enable.
+	pcall(function()
+		Remotes.RequestToggleRaidOptIn:InvokeServer()
+	end)
 end)
 -- TASK 5.1/14.1: claim accumulated aquarium income (was created but never wired)
 claimButton.Activated:Connect(function()
