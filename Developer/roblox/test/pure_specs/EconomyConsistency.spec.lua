@@ -34,7 +34,7 @@ local function countOccurrences(haystack, needle)
 			break
 		end
 		count += 1
-		init = found + 1
+		init = found + #needle
 	end
 	return count
 end
@@ -109,6 +109,14 @@ return function(describe, it, expect)
 			expect(source:find('type(eq.BaitInventory) == "table"', 1, true)).to.be.a("number")
 			expect(source:find("clean.Equipment.BaitInventory = {", 1, true)).to.be.a("number")
 			expect(source:find("math.floor(bi.quantity)", 1, true)).to.be.a("number")
+		end)
+
+		it("sanitize rejects NaN/Inf BaitInventory quantity (7n0n)", function()
+			-- NaN/Inf are unserializable; without this guard a corrupted blob
+			-- would put every subsequent SetAsync into a permanent failure loop.
+			local source = fs.readFile("src/server/DataManager.lua")
+			expect(source:find("bi.quantity == bi.quantity", 1, true)).to.be.a("number")
+			expect(source:find("math.abs(bi.quantity) ~= math.huge", 1, true)).to.be.a("number")
 		end)
 	end)
 

@@ -233,7 +233,15 @@ local function sanitize(data)
 			clean.Equipment.BaitInventory = {
 				level = (type(bi.level) == "number" and GameConfig.Baits[bi.level]) and bi.level
 					or clean.Equipment.BaitInventory.level,
-				quantity = type(bi.quantity) == "number" and math.floor(bi.quantity)
+				-- harborheist-7n0n: reject NaN/Inf quantity. NaN passes
+				-- type()=="number" (same trap clampCoins documents) and
+				-- math.floor(NaN)=NaN / math.floor(Inf)=Inf — both are
+				-- unserializable, so DataStore.SetAsync would reject EVERY
+				-- save for that player, and sanitize would re-admit the
+				-- value on each load: a permanent save-failure loop.
+				quantity = (type(bi.quantity) == "number" and bi.quantity == bi.quantity
+					and math.abs(bi.quantity) ~= math.huge)
+						and math.floor(bi.quantity)
 					or clean.Equipment.BaitInventory.quantity,
 			}
 		end

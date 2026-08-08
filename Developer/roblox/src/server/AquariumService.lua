@@ -121,7 +121,7 @@ function AquariumService.init(deps)
 		-- N5: route every coin write through clampCoins so the MAX_COINS cap
 		-- cannot be overflowed by claiming a large pool near the ceiling.
 		session.profile.Coins = PlayerProfile.clampCoins(session.profile.Coins + unclaimed)
-		-- harborheist-2f1p: floor + clamp TotalCoinsEarned (P2: was
+		-- harborheist-2f1p: floor + clamp TotalCoinsEarned. P2: was
 		-- unbounded — a whale at the Coins cap could drift Earned past
 		-- MAX_COINS with no ceiling, and incremental writes could
 		-- accumulate float error. clampCoins floors and bounds to [0, MAX].

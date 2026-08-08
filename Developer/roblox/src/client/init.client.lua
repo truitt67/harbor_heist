@@ -9741,9 +9741,9 @@ raidOptInButton.Activated:Connect(function()
 	task.delay(1.5, function()
 		setButtonEnabled(raidOptInButton, true)
 	end)
-	-- harborheist-2f1p: pcall — oqbp's sweep missed the aquarium-panel
-	-- twin of the raid opt-in toggle (same class as the panel-button site
-	-- above). R3 audit #19 fixed the double-tap guard on BOTH buttons but
+	-- harborheist-2f1p: pcall — oqbp's sweep missed BOTH raid opt-in
+	-- toggles (the raid-panel button above and this aquarium twin).
+	-- R3 audit #19 fixed the double-tap guard on BOTH buttons but
 	-- the pcall gap was never re-scanned. An unprotected throw here would
 	-- kill the handler thread silently after the 1.5s re-enable.
 	pcall(function()
