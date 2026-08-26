@@ -32,7 +32,7 @@
 	and profile state (not return values) is the assertion source.
 
 	NOTE: requires the _G.HARBORHEIST_TEST bridge (init.server.lua exposes it
-	when ServerScriptService contains E2ERunner or RunE2E). Without it the
+	when ServerScriptService contains the RunE2E bootstrap). Without it the
 	flow steps log a WARN and record no assertions (informational skip —
 	the original 19.4 silently ran only its setup asserts in that case).
 ]]

@@ -116,8 +116,9 @@ specifically, pair this runbook with TASK 16.5 (50+ casts per rod tier).
 
 ## Cross-references
 
-- Automated equivalents: E2E 19.2 (session), 19.3 (cast/bite), 19.4
-  (economy), 19.9 (forgery/rate-limits) — `scripts/run_e2e.sh`.
+- Automated equivalents: E2E scenarios 19.2 (session/Lifecycle), 19.3
+  (cast/bite/Fishing), 19.4 (economy/Aquarium), 19.9
+  (forgery/rate-limits/AntiExploit) — `scripts/run_e2e_scenarios.sh`.
 - Keybinds (client): F fish · G inventory · C collection · T aquarium ·
   Q quests · R raid panel · B boat.
 - docs/TESTING.md — environment caveats (DataStore, sign-in, fakes).

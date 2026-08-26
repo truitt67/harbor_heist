@@ -31,9 +31,9 @@
 	anyway; redundancy kept for behavioral parity).
 
 	NOTE: requires the _G.HARBORHEIST_TEST bridge. init.server.lua exposes it
-	when ServerScriptService contains E2ERunner (old monolithic place) or
-	RunE2E (scenario bootstrap). Without the bridge this scenario logs a WARN
-	and records no assertions (informational skip, matching the original).
+	when ServerScriptService contains the RunE2E bootstrap. Without the
+	bridge this scenario logs a WARN and records no assertions
+	(informational skip, matching the original).
 ]]
 
 local Players = game:GetService("Players")

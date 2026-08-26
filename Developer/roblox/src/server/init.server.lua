@@ -76,15 +76,12 @@ DataManager.onHealthChange(function(healthy)
 	end
 end)
 
--- E2E test bridge: expose internal service state for the E2E runner
--- (tests/e2e/runner.server.lua). The _G table is per-VM and never
--- replicates to clients. Guarded by a test-only server script existing
--- (only present in test/E2E places, not in production builds).
--- EPIC 43 (c4fs): the modular scenario place maps the bootstrap as RunE2E
--- (e2e_scenarios.project.json) with no E2ERunner script — without widening
--- this guard, bridge-dependent scenarios would silently skip there.
-local e2eHarnessScript = ServerScriptService:FindFirstChild("E2ERunner")
-	or ServerScriptService:FindFirstChild("RunE2E")
+-- E2E test bridge: expose internal service state for the E2E scenario
+-- harness (tests/e2e/bootstrap.server.lua). The _G table is per-VM and
+-- never replicates to clients. Guarded by a test-only server script
+-- existing (only present in test places, not production builds).
+-- e2e_scenarios.project.json maps the bootstrap as ServerScriptService.RunE2E.
+local e2eHarnessScript = ServerScriptService:FindFirstChild("RunE2E")
 if e2eHarnessScript then
 	_G.HARBORHEIST_TEST = {
 		activeBites = fishingInit._activeBites,

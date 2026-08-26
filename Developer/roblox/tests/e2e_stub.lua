@@ -2,7 +2,7 @@
 -- run-in-roblox (>= 0.3.0) executes this file in the PLUGIN context, where
 -- Studio is in EDIT mode — server Scripts under ServerScriptService do not
 -- run until the sim starts. RunService:Run() starts it, which boots
--- init.server.lua (services) and the E2ERunner script (tests/e2e).
+-- init.server.lua (services) and the E2E bootstrap (tests/e2e).
 --
 -- Keep this file in sync with any change to the suite's runtime — the wait
 -- below must outlast the slowest block (19.8's raid-minigame timing waits

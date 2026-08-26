@@ -66,44 +66,33 @@ run). Last verified: 410 passed, 0 failed.
 ## 3. E2E suite — needs Studio
 
 ```bash
-scripts/run_e2e.sh
-```
-
-- `tests/e2e/runner.server.lua`: 198 assertions (tasks 19.2–19.9).
-- Builds `HarborHeist_e2e.rbxlx` (e2e.project.json) and boots it via
-  `tests/e2e_stub.lua` (plugin context → `RunService:Run()` starts the
-  sim; server scripts run, including the runner).
-- Logs to `testlogs/run-<id>.log` + summary JSON; exit code derived from
-  the suite's `[E2E] SUMMARY` line.
-- Covers: session lifecycle (19.2), cast/bite flow (19.3), aquarium
-  economy (19.4), shop purchases (19.5), persistence + v1→v2 migration
-  (19.6), lock/defense (19.7), raids (19.8), abuse/anti-exploit (19.9).
-
-### Second, scenario-based harness (drives the REAL Studio player)
-
-There is a **separate, newer** e2e harness alongside `runner.server.lua`:
-`tests/e2e/bootstrap.server.lua` + `tests/e2e/scenarios/*.lua` (currently just
-`Lifecycle.lua`). It is mounted in `test.project.json` as
-`ServerScriptService.RunE2E` (+ `E2ETests`), requires `tests/e2e/TestLogger.lua`,
-and drives the **real** joining Studio Player through the production
-`onPlayerAdded` path (vs. the runner's table-fake players). It does NOT run
-during `--datamodel` (the datamodel log shows zero `[E2E]` output).
-
-Run it with:
-
-```bash
 scripts/run_e2e_scenarios.sh
 ```
 
-That builds `HarborHeist_scenarios.rbxlx` from `test.project.json` and boots it
-via `tests/e2e_stub.lua` (plugin context → `RunService:Run()`), the same
-mechanism as `run_e2e.sh`. Verdict comes from the bootstrap's
-`[E2E] complete: P/T scenarios passed, A asserts, F failures` line (plus a
-crash check); exit 0 pass / 1 fail-or-crash / 2 environment error. Logs land in
-`testlogs/scenarios-<id>.log`.
+- Scenario harness: `tests/e2e/bootstrap.server.lua` +
+  `tests/e2e/scenarios/*.lua`, mapped by `e2e_scenarios.project.json` to
+  `ServerScriptService.RunE2E` (+ `E2ETests` = TestLogger + scenarios);
+  drives the **real** joining Studio Player through the production
+  `onPlayerAdded` path.
+- Builds `HarborHeist_scenarios.rbxlx` and boots it via
+  `tests/e2e_stub.lua` (plugin context → `RunService:Run()` starts the
+  sim; server scripts run, including the bootstrap).
+- Verdict comes from the bootstrap's `[E2E] complete: P/T scenarios
+  passed, A asserts, F failures` line (plus a crash check); exit code
+  derived from it (0 pass / 1 fail-or-crash / 2 environment error).
+  Logs land in `testlogs/scenarios-<id>.log`.
+- Covers: session lifecycle (19.2), cast/bite flow (19.3), aquarium
+  economy (19.4), shop purchases (19.5), persistence + v1→v2 migration
+  (19.6), lock/defense (19.7), raids (19.8), abuse/anti-exploit (19.9).
+- Does NOT run during `--datamodel` (the datamodel log shows zero
+  `[E2E]` output).
 
-Requires the same Studio + run-in-roblox environment as `run_e2e.sh` — see the
-caveats below. Note: run-in-roblox can fail to start with a Winsock/listener
+The legacy monolithic runner (`tests/e2e/runner.server.lua`, 198
+assertions over tasks 19.2–19.9, table-fake players, built from the
+removed `e2e.project.json` via `scripts/run_e2e.sh`) was retired once all
+eight sections were migrated to scenarios (harborheist-1kns).
+
+Requires Studio + run-in-roblox — see the caveats below. Note: run-in-roblox can fail to start with a Winsock/listener
 error (`WSAStartup failed` / `error binding to 127.0.0.1:<port>`); that is a
 transient local sockets state, not a test failure — relaunch Studio once
 interactively (or reboot) and retry.

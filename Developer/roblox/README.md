@@ -48,7 +48,7 @@ live in `src/shared/FishDefinitions.lua` + `ZoneDefinitions.lua`.
 ```
 default.project.json      Rojo mapping for the playable place
 test.project.json         Rojo mapping for the TestEZ datamodel suite
-e2e.project.json          Rojo mapping for the E2E suite
+e2e_scenarios.project.json Rojo mapping for the E2E scenario suite
 selene.toml               Luau lint config
 
 src/shared/
@@ -89,7 +89,7 @@ src/client/
 
 test/                     Pure-Luau specs (lune), TestEZ specs, coverage gate
 tests/                    Datamodel + E2E stubs, e2e scenarios
-scripts/                  run_tests.sh, run_e2e.sh, contract gates, bead tooling
+scripts/                  run_tests.sh, run_e2e_scenarios.sh, contract gates, bead tooling
 docs/                     TESTING.md, runbooks, tuning, decisions
 ```
 
@@ -115,7 +115,7 @@ Three suites plus static gates — full details in **`docs/TESTING.md`**.
 ```bash
 scripts/run_tests.sh --pure        # 100 pure-Luau tests (lune) — runs anywhere, CI
 scripts/run_tests.sh --datamodel   # 410 TestEZ tests — needs Studio
-scripts/run_e2e.sh                 # E2E scenarios — needs Studio
+scripts/run_e2e_scenarios.sh      # E2E scenarios — needs Studio
 ```
 
 - The **pure** suite is portable and is what CI runs.

@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # scripts/run_e2e_scenarios.sh — run the scenario-based e2e harness.
 #
-# This is the SECOND, newer e2e harness (tests/e2e/bootstrap.server.lua +
-# tests/e2e/scenarios/*.lua), distinct from the original suite in
-# tests/e2e/runner.server.lua (driven by scripts/run_e2e.sh). Unlike the
-# runner — which uses table-fake players inside e2e.project.json — this
-# harness drives the REAL joining Studio Player through the production
-# onPlayerAdded path, so DataManager.load / leaderstats / dock claim all run
-# for real.
+# The harness (tests/e2e/bootstrap.server.lua + tests/e2e/scenarios/*.lua)
+# drives the REAL joining Studio Player through the production onPlayerAdded
+# path, so DataManager.load / leaderstats / dock claim all run for real.
+# (It replaces the retired monolithic runner tests/e2e/runner.server.lua,
+# which drove table-fake players.)
 #
 # The harness is mounted in test.project.json as ServerScriptService.RunE2E
 # (+ ServerScriptService.E2ETests). This script builds that place
-# (HarborHeist_scenarios.rbxlx) and boots it via tests/e2e_stub.lua, which
-# runs in the plugin context and starts the sim with RunService:Run() —
-# exactly the same mechanism run_e2e.sh uses (TASK 19.10).
+# (HarborHeist_scenarios.rbxlx) and boots it via tests/e2e_stub.lua, which runs
+# in the plugin context and starts the sim with RunService:Run() (TASK 19.10).
 #
 # Usage:
 #   scripts/run_e2e_scenarios.sh
@@ -54,7 +51,7 @@ to_native() { command -v cygpath >/dev/null 2>&1 && cygpath -w "$1" || printf '%
 # context — they require plugin context). Also maps E2ETests as only
 # TestLogger + scenarios instead of the whole tests/e2e/ directory, preventing
 # bootstrap.server.lua from running twice (once as E2ETests.bootstrap, once as
-# RunE2E) and runner.server.lua from running without _G.HARBORHEIST_TEST.
+# RunE2E).
 TEST_PLACE="$PROJECT_ROOT/HarborHeist_scenarios.rbxlx"
 
 echo "=== Building scenario e2e place (e2e_scenarios.project.json) ===" | tee "$LOG_FILE"

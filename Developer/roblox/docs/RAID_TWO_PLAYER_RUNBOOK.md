@@ -1,7 +1,9 @@
 # Raid System — Two-Player Manual Verification Runbook (TASK 19.8.2)
 
-Manual companion to the automated 19.8.1 E2E block (`tests/e2e/runner.server.lua`,
-36 assertions). The E2E proves the server logic end-to-end with fake players;
+Manual companion to the automated 19.8.1 E2E coverage (now
+`tests/e2e/scenarios/Raid.lua`; formerly the retired `runner.server.lua`
+block with 36 assertions). The scenarios prove the server logic end-to-end
+with fake players;
 this runbook verifies the parts fakes cannot: real client UI, real remotes,
 notifications, stun WalkSpeed gating, and the raid minigame feel.
 

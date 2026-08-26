@@ -85,7 +85,8 @@ evaluation (13.3) during the closed test itself.
 
 ## Evidence index
 
-- E2E suite (198 assertions): `scripts/run_e2e.sh` — tasks 19.2-19.9
+- E2E suite (198 assertions): legacy `scripts/run_e2e.sh` runner, tasks 19.2-19.9 — retired,
+  superseded by `scripts/run_e2e_scenarios.sh`
 - Datamodel suite (410): `scripts/run_tests.sh --datamodel`
 - Pure suite + gates (100): `scripts/run_tests.sh --pure` (CI: .github/workflows/tests.yml)
 - Runbooks: docs/CATCH_FLOW_RUNBOOK.md (21.3), docs/RAID_TWO_PLAYER_RUNBOOK.md (19.8.2)

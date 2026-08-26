@@ -7,7 +7,7 @@
 	ServerScriptService.E2ETests.scenarios, then prints a summary and exits
 	non-zero on any failure so run-in-roblox propagates exit 1.
 
-	Invoke:  scripts/run_e2e.sh ServerScriptService.RunE2E
+	Invoke:  scripts/run_e2e_scenarios.sh
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,7 +33,7 @@ assert(e2eFolder, "ServerScriptService.E2ETests missing — test place mapping b
 local TestLogger = require(e2eFolder:WaitForChild("TestLogger"))
 local scenariosFolder = e2eFolder:WaitForChild("scenarios")
 
--- run id shared with the file sink naming (matches run_e2e.sh's RUN_ID format).
+-- Run id for the TestLogger file sink naming (UTC timestamp).
 local runId = os.date("!%Y%m%dT%H%M%SZ", os.time())
 
 -- The real test player is the first (only) Studio player. onPlayerAdded in
