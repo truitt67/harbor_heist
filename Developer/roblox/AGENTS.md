@@ -2,11 +2,21 @@
 
 ## Purpose & Scope
 
-Operating instructions for autonomous coding agents and humans in the harbor_heist repository. Project-local instructions take precedence over shared skill-library defaults.
+Operating instructions for autonomous coding agents and humans working in the **harbor_heist** repository. This file reflects the CURRENT checkout: a standalone clone whose root **is** `/data/projects/harbor_heist` (the game lives in `Developer/roblox/`). It supersedes all instructions written for the original `/home/ubuntu` shared-host layout; where an old path or server is referenced anywhere else, treat this file as authoritative.
 
 ## Project Overview
 
-**harbor_heist** — Server-authoritative multiplayer fishing/aquarium tycoon game with PvP raids. 17 server services, persistence, analytics, anti-exploit hardening, mobile UI. Closed V1 test phase; ready for launch pending final balance/decision finalization.
+**harbor_heist** — Server-authoritative multiplayer fishing/aquarium tycoon with PvP raids. 17 server services, persistence, analytics, anti-exploit hardening, mobile UI. Closed V1 test phase; launch-pending final balance/decision finalization.
+
+**Current program (2026-08-26):** a nine-slice full-app audit produced EPIC 47 — *Pre-Launch Remediation* (epic bead `harborheist-v0ud`) — spanning data integrity, PvP fairness, economic truth, premium interaction quality, motion polish, docs truthing, and a verification funnel. 57 beads with evidence-grounded bodies, dependency graph, estimates, and three ⚑DECISION gates awaiting the user:
+
+| Gate | Bead | Question |
+| --- | --- | --- |
+| DeepWater rebalance approach | `harborheist-8h9r` | rod-gate+cut vs intermediate zone vs cut-only |
+| Dead canonical motion modules | `harborheist-v0ud.31` | adopt PanelAnimation vs delete + repoint DESIGN_SYSTEM |
+| Destructive hygiene deletions | `harborheist-v0ud.41` items 3–4 | dead bead-seeding scripts, DESIGN_SYSTEM.docx |
+
+Provenance digests (per-slice verdicts and finding→bead mapping) are posted as comments on the epic bead. Read them before re-auditing anything.
 
 ## Absolute Safety Rules
 
@@ -14,261 +24,83 @@ Operating instructions for autonomous coding agents and humans in the harbor_hei
 
 Forbidden without explicit approval: `git reset --hard`, `git clean -fd`, `rm -rf`, and ANY command that can delete/overwrite code or data, or perform a destructive git operation. If unsure, ask first. Prefer `git status`, `git diff`, `git stash`.
 
+## Environment & Toolchain (this machine)
+
+| Tool | Status | Notes |
+| --- | --- | --- |
+| `br`, `bv`, `ubs` | ✅ `~/.local/bin` | Beads tracking, graph triage, bug scanner |
+| `lune` 0.10.5 | ✅ `~/.local/bin` | Runs the pure suite headless |
+| `rojo` 7.7.0 | ✅ `~/.local/bin` | Place builds |
+| `selene` 0.31.0 | ✅ `~/.local/bin` | Luau lint gate |
+| `rg`, `ast-grep` | ✅ | Textual / structural search |
+| `python3`, `uv`, `git`, `gh` | ✅ | Scripting + tooling |
+| `cass` | ✅ | Session memory search |
+| Roblox Studio | ❌ never | Datamodel + E2E suites are NOT-runnable here |
+| `run-in-roblox` | ❌ | Requires Studio; install only on Windows hosts |
+| `luau-analyze` | ❌ not installed | `selene` is the lint gate here |
+| Agent Mail server | ❌ absent | See Appendix A — coordination degraded to solo |
+| `~/cm-context-prompt.sh`, `/home/ubuntu/SKILLS` | ❌ old-host artifacts | Ignore any reference elsewhere |
+
+Ensure `export PATH="$HOME/.local/bin:$PATH"` before running builds/tests. Tools were installed as direct release binaries (lune/rojo/selene from GitHub releases); rokit is NOT set up on this machine.
+
 ## Required Session Startup Workflow
 
-### 1. Register and Check Coordination State
+1. `cd /data/projects/harbor_heist/Developer/roblox`
+2. **Pick work from the tracker, not from memory:** `br ready` (unblocked, priority-ordered) or `bv --robot-next` (graph-aware recommendation). Respect decision gates — do not start beads downstream of `harborheist-8h9r` / `harborheist-v0ud.31` until they close.
+3. **Claim:** `br update <id> --status in_progress`.
+4. **Read the whole bead.** Bodies are self-contained: GOAL / EVIDENCE (file:line) / WHY IT MATTERS / APPROACH / CONSIDERATIONS (including rejected alternatives) / SOURCE slice, plus structured acceptance criteria. If a claim seems wrong, verify against source before editing either.
+5. Do the work under the quality gates below; close out per Session Completion.
 
-Agent Mail is the multi-agent coordination server (messaging + advisory file reservations). Use the project-local CLI `agent_mail_cli.py` (repo root) for all operations. It returns JSON and handles project-key resolution. Do NOT use the legacy `am_*` shell helpers.
+Multi-agent registration/reservation protocol is in **Appendix A** — currently UNAVAILABLE on this host; skip unless the health check passes.
 
-**Key facts:**
+## Build, Test, and Verification (Luau / Roblox)
 
-| Fact | Value |
-| --- | --- |
-| Server URL | `http://127.0.0.1:8765/mcp/` (override: `AGENT_MAIL_URL`) |
-| Project key | `home-ubuntu-developer-roblox` (CLI default; override: `AGENT_MAIL_PROJECT`) |
-| Agent name | ASSIGNED BY THE SERVER — may differ from your hint. Always use the returned name. |
-| Token | `registration_token` returned ONCE at registration. Required for `inbox`/`send`/`reserve`/`release`. Cannot be recovered — persist it. |
+- Source layout: `src/server/`, `src/client/`, `src/shared/`, mapped by `default.project.json` (Rojo). Rebuild after script edits:
+  ```bash
+  rojo build -o HarborHeist.rbxlx
+  ```
+- **Pure-Luau suite is the mandatory gate** (runs headless, includes function-call coverage threshold AND source-contract specs that assert against module SOURCE TEXT — even comment-only edits can fail tests):
+  ```bash
+  scripts/run_tests.sh --pure        # 1239 tests + coverage gate; all-pass required
+  ```
+- Static checks: `selene .` — compare error/warning counts before vs after; NEVER add new errors (a small known warning set pre-exists, e.g. deliberate `_G.HARBORHEIST_TEST` bridge usage). `luau-analyze` is unavailable here.
+- TestEZ datamodel suite (`scripts/run_tests.sh --datamodel`, 410 tests last verified) and the scenario-E2E harness (`scripts/run_e2e_scenarios.sh`) require Studio + run-in-roblox: record results as NOT-verified-on-Linux. See `docs/TESTING.md`; on Windows see its Git-Bash/CRLF notes.
+- The legacy monolithic E2E runner (`runner.server.lua`, `e2e.project.json`, `run_e2e.sh`) was retired (`harborheist-1kns`); the scenario architecture (`tests/e2e/bootstrap.server.lua` + `tests/e2e/scenarios/*.lua`) is the only E2E path.
+- UBS has no Lua scanner — N/A for `.lua`-only changes; still run it on shell/python/markdown you touch.
 
-#### Step 0 — Verify server is up
+## Git Repo Layout & Commit Protocol
 
-```bash
-python3 agent_mail_cli.py health
-```
-
-Expected: `"status": "healthy"`. If `Connection refused`, start the server (needs SQLite, NOT the global PostgreSQL which crashes it):
-
-```bash
-cd ~/mcp_agent_mail && DATABASE_URL="sqlite+aiosqlite:///$HOME/.mcp_agent_mail/storage.sqlite3" \
-  nohup uv run python -m mcp_agent_mail.cli serve-http > /tmp/agent_mail_server.log 2>&1 &
-cd - && sleep 8 && python3 agent_mail_cli.py health
-```
-
-Never run `mcp-agent-mail` or `agent-mail` directly — they are launchers that only print a usage banner.
-
-#### Step 1 — Resume or register identity
-
-Check saved credentials first (`.agent_mail_env` persists identity across sessions):
-
-```bash
-cat .agent_mail_env
-```
-
-If it names an ACTIVE (non-retired) agent, source and verify it:
-```bash
-source .agent_mail_env
-python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN" 10 false true
-```
-A JSON inbox = identity resumed. An auth error = stale creds; re-register below. Never assume the file is yours — it may hold a retired agent's creds.
-
-Otherwise register fresh (register + list agents + inbox check in one shot):
-
-```bash
-python3 agent_mail_cli.py session-start "YourNameHint" "abacusai"
-```
-
-Persist the assigned `agent_name` and `registration_token` IMMEDIATELY by overwriting `.agent_mail_env`:
-```bash
-export AGENT_MAIL_PROJECT='home-ubuntu-developer-roblox'
-export AGENT_NAME='<assigned-name>'
-export REGISTRATION_TOKEN='<token>'
-```
-
-**Name-taken recovery:** re-using an existing hint fails with "requires registration_token". Pick a fresh unique hint (e.g. `RainyLynx-Jul24`), save new creds, move on. The old identity's inbox is unreachable; its file reservations expire by TTL.
-
-#### Step 2 — Discover active agents and check inbox
-
-```bash
-python3 agent_mail_cli.py agents          # ignore entries with non-null "retired_at"
-python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN" 10 false true
-```
-
-#### Step 3 — Introduce yourself
-
-Send a short intro to each ACTIVE agent by name:
-```bash
-python3 agent_mail_cli.py send "$AGENT_NAME" "OtherAgent1,OtherAgent2" \
-  "Introduction: $AGENT_NAME joining" "Who you are, what you plan to work on."
-```
-
-#### Known gotchas
-
-1. **No broadcast.** Explicit recipient names only — `send ... "All"` is rejected.
-2. **Contact approval.** First message to a never-contacted agent fails with "Contact approval required" but auto-creates the request. Wait ~15s and retry once.
-3. **Token required.** Keep `registration_token` in `.agent_mail_env`.
-4. **Project key.** Canonical key is `home-ubuntu-developer-roblox`. `home-ubuntu-developer-roblox-games` does NOT exist.
-5. **Assigned name.** Use the server-assigned name, not your hint.
-6. **No list-reservations command.** Conflicts surface in the `conflicts` array of a `reserve` response. Reserve before editing and read that array.
-
-#### Full command reference
-
-```bash
-python3 agent_mail_cli.py health
-python3 agent_mail_cli.py session-start "NameHint" "abacusai" [project_key]
-python3 agent_mail_cli.py agents [project_key]
-python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN" [limit] [urgent_only] [include_bodies]
-python3 agent_mail_cli.py send "$AGENT_NAME" "Recipient1,Recipient2" "Subject" "Body" ["$REGISTRATION_TOKEN"]
-python3 agent_mail_cli.py reserve "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/Foo.lua" 3600 true --reason "br-123"
-python3 agent_mail_cli.py release "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/Foo.lua"
-```
-
-Reservation TTL is in seconds (min 60, default 3600). Reserve the narrowest paths covering your edit.
-
-### 2. Gather Context and Priorities
-
-```bash
-~/cm-context-prompt.sh "your task description"
-bv --robot-triage | jq '.recommendations[0:3]'
-```
-
-### 3. Use the Shared Skills Library for Non-Trivial Tasks
-
-Shared skills at `/home/ubuntu/SKILLS`. Before non-trivial tasks: classify into a category, consult `/home/ubuntu/SKILLS/registry/skills-index.json`, select a primary skill, read its `SKILL.md`. Minimize context — never scan the full tree.
-
-| Task Type | Preferred Skill |
-| --- | --- |
-| Debugging | `investigate` |
-| Code review | `review` |
-| Quality verification | `qa` |
-| Risky/destructive work | `guard`, `careful` |
-| Planning-heavy work | `autoplan` |
-
-Hermes runtime native skills (`skill_view`) take precedence over shared skills. Follow routing in `/home/ubuntu/SKILLS/AGENTS.md`.
-
-## Project Stack and Key Tools
-
-### Languages and Runtimes
-
-Luau (Roblox) for all game code; Python via `uv` for tooling and scripts.
-
-### Build, Test, and Verification (Luau / Roblox)
-
-- Source layout: `src/server/`, `src/client/`, `src/shared/`, mapped by `default.project.json` (Rojo).
-- Rebuild after script edits: `rojo build -o HarborHeist.rbxlx`.
-- Pure-Luau specs (headless, Linux-safe): `scripts/run_tests.sh --pure` — runs `pure_specs/` under lune with an integrated coverage gate. All-pass required before committing.
-- TestEZ specs in `specs/` need Roblox Studio (unavailable on Linux — record as NOT-verified-on-Linux). On Windows with Studio, see `docs/TESTING.md` for Git-Bash/CRLF gotchas.
-- Static checks: `luau-analyze` / `selene` — compare error counts before vs after; never add NEW errors (a known set pre-exists on the client).
-- UBS has no Lua scanner (N/A for `.lua`-only changes). The pure-spec suite + coverage gate is the quality bar.
-
-### Git Repo Layout — read before staging
-
-- The git repo ROOT is `/home/ubuntu`; this project lives at `Developer/roblox/`. `git status` shows `../../` home-directory noise — that is expected.
-- NEVER `git add -A`, `git add .`, or `git commit -a` from the repo root — you would sweep in unrelated home files and other agents' WIP. Stage explicit paths only.
-- Landing work in a shared file with ANOTHER agent's uncommitted changes? Use partial staging (`git apply --cached` with only your hunks) and leave their hunks unstaged.
-
-### Core Tools
-
-| Tool | Purpose |
-| --- | --- |
-| `br` | Beads issue tracking |
-| `bv` | Graph-aware planning and triage for Beads |
-| `ubs` | Ultimate Bug Scanner quality gate |
-| `agent_mail_cli.py` | Multi-agent reservations and messaging |
-| `cass` | Session search and memory |
-| `ast-grep` | Structural code search and safe rewrites |
-| `rg` | Fast textual search |
-| `mcp__morph-mcp__warp_grep` | Exploratory AI-powered code search |
-
-## Multi-Agent Coordination
-
-### Canonical Identifiers
-
-Use Beads issue IDs as the cross-tool identifier. Mail subject prefix: `[br-###]`. File reservation reason: `br-###`. Commit messages: include `br-###` when working from a bead.
-
-### Claim, Reserve, and Announce Work
-
-Assumes `AGENT_NAME` and `REGISTRATION_TOKEN` are exported (see Session Startup). Run from the repo root.
-
-```bash
-TASK_ID="br-123"
-br update $TASK_ID --status in_progress
-python3 agent_mail_cli.py reserve "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/server/FishingService.lua" 3600 true --reason "$TASK_ID"
-python3 agent_mail_cli.py send "$AGENT_NAME" "ActiveAgent1,ActiveAgent2" "[br-123] Start: Fix widget" "Starting work on br-123."
-```
-
-During work: `python3 agent_mail_cli.py inbox "$AGENT_NAME" "$REGISTRATION_TOKEN"`
-
-Follow-up work: `br create "New subtask" --deps discovered-from:$TASK_ID`
-
-When done:
-```bash
-python3 agent_mail_cli.py release "$AGENT_NAME" "$REGISTRATION_TOKEN" "src/server/FishingService.lua"
-br close $TASK_ID --reason "Completed: [what you did]"
-python3 agent_mail_cli.py send "$AGENT_NAME" "ActiveAgent1,ActiveAgent2" "[br-123] Completed" "Task complete. Changed files: [list]."
-```
-
-Rules: reserve shared files before editing (narrowest paths); release promptly; use `[br-###]` subject prefix; check mail periodically during longer sessions.
+- The git repo ROOT is the clone root `/data/projects/harbor_heist`; the game project lives at `Developer/roblox/`. There is no home-directory noise in `git status` on this checkout — the old warnings about sweeping unrelated home files no longer apply, BUT explicit-path staging remains mandatory:
+  - NEVER `git add -A`, `git add .`, or `git commit -a`. Stage the exact files you touched.
+  - Landing work in a shared file with another stream's uncommitted changes? Use partial staging (`git apply --cached`) and leave their hunks unstaged.
+- Commit messages carry bead IDs: `[harborheist-xxxx] what changed`. After tracker mutations: `br sync --flush-only && git add .beads/issues.jsonl` (export is passive; `.beads/beads.db*` sidecars are local-only and slated for gitignore in `v0ud.41`).
+- **Push reality (as of 2026-08-26):** GitHub credentials are NOT configured on this host (`gh auth login` pending). Commits queue locally on `main` (`322a823`, `702cdac`, `588bab6`, `02a9ab9`, …). Until auth lands: finish everything else in Session Completion, leave a clean committed tree, and report push as blocked — NEVER claim pushed when it isn't, and never fabricate remotes.
 
 ## Beads Issue Tracking
 
-`br` manages issues in `.beads/` and is the single source of truth for task status, dependencies, and priorities. The project also has `bd (beads)` — a separate Go binary with overlapping commands (e.g. `bd ready`, `bd show`, `bd update --claim`, `bd close`). Use `br` as the primary CLI; `bd` is an alternative interface.
-
-### Quick Reference
+`br` manages issues in `.beads/` and is the single source of truth for task status, dependencies, priorities, and estimates. `bd` exists as an alternative interface; prefer `br`.
 
 ```bash
-br ready                        # Find available work
+br ready                        # unblocked work, priority-ordered
 br ready --json                 # JSON for scripting
-br show <id>                    # View issue details
-br create --title="..." --type=task --priority=2
-br update <id> --status in_progress
-br close <id> --reason "Completed"
-br sync --flush-only            # Export to issues.jsonl
+br show <id>                    # full self-contained brief + acceptance criteria
+br create --title="..." --type=bug --priority=2 --parent=<id> --estimate=3
+br dep add <issue> <depends-on>            # blocks edge (default)
+br dep add <child> <parent> -t parent-child
+br update <id> --status in_progress | --description ... | --estimate N
+br comments add <id> -m "..."   # provenance, decisions, review notes
+br close <id> --reason "Completed: ..."
+br sync --flush-only            # export to issues.jsonl (then git add manually)
 ```
 
-### Conventions
+Conventions:
 
-- Priority: P0 critical, P1 high, P2 medium, P3 low, P4 backlog. Types: `task`, `bug`, `feature`, `epic`, `question`, `docs`.
-- Add dependencies: `br dep add <issue> <depends-on>`.
-- `br` is non-invasive — does not execute git commands. After `br sync --flush-only`, manually: `git add .beads/ && git commit -m "[br-123] sync beads"`.
-- Use JSON/robot flags when parsing programmatically: `br list --json | jq '.[0]'`. Do not parse human output in scripts.
-- Use `br` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists. Use `br remember` for persistent knowledge, not MEMORY.md files.
-- Architecture: issues live in a local Dolt DB; sync uses `refs/dolt/data` on your remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md.
-
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
-## Session Completion
-
-**When ending a work session**, complete ALL steps below. Work is NOT complete until `git push` succeeds.
-
-**MANDATORY WORKFLOW:**
-
-1. File `br` issues for remaining work; close finished issues; update in-progress items.
-2. Run quality gates if code changed: tests, linters, builds, UBS on changed files.
-3. Release file reservations.
-4. Sync Beads: `br sync --flush-only && git add .beads/`.
-5. Commit all intended changes (bead ID in message), then `git pull --rebase && git push`.
-6. Verify `git status` shows a clean tree, up to date with origin.
-7. Hand off clear context for the next session.
-
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds. NEVER stop before pushing.
-- NEVER say "ready to push when you are" — YOU must push. If push fails, resolve and retry until it succeeds.
-- Clear stashes and prune remote branches only when safe and appropriate.
-<!-- END BEADS INTEGRATION -->
-
-## BV Triage Engine
-
-Use `bv` to choose and plan work from the Beads graph.
-
-```bash
-bv --robot-triage              # Full triage report
-bv --robot-next                # Single top recommendation
-bv --robot-plan --label backend
-bv --robot-insights --as-of HEAD~30
-```
-
-Use `--robot-*` modes for automation (do not use interactive TUI output). Useful fields: `recommendations`, `quick_wins`, `blockers_to_clear`, `commands`.
-
-## UBS Quality Gate
-
-Run `ubs` on changed files before every commit. Exit code `0` = safe to commit; `>0` = fix and re-run.
-
-```bash
-ubs file.ts file2.py
-ubs $(git diff --name-only --cached)
-```
-
-**Severity:** Critical (null safety, XSS, injection, async misuse, resource leaks) — always fix. Important (type narrowing, division-by-zero, unwrap panics, unclosed resources) — fix production-impacting issues. Contextual (TODOs, debug prints) — use judgment.
-
-Note: UBS has no Lua scanner — N/A for `.lua`-only changes. Install: `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/master/install.sh | bash`
+- Priority P0 critical … P4 backlog. Types: `task`, `bug`, `feature`, `epic`, `question`, `docs`. Estimates are coarse hours.
+- Program structure: EPIC 47 streams are encoded in title prefixes and labels — `47.A*` DATA, `47.B*` RAID, `47.C*` CLIENT, `47.D*` FISH, `47.E*` MOTION, `47.F*` ECON, `47.G*` DOCS, plus `V1` verification funnel. Labels mirror streams (`audit-data`, `audit-raid`, …) with `decision-needed` marking gates.
+- Finding-head beads (e.g. `6b4d`, `hdl8`, `1t0k`) are problem statements; their children decompose execution. Close heads only when every child closes.
+- Use JSON flags when parsing: `br list --json | jq`. Never parse human output in scripts.
+- After `br sync --flush-only`, manually `git add .beads/issues.jsonl && git commit -m "[bead-id] sync beads"`.
+- Do NOT use TodoWrite-style external trackers for project work — beads are canonical. `br remember` stores persistent knowledge.
 
 ## Code Search and Rewrites
 
@@ -276,76 +108,58 @@ Note: UBS has no Lua scanner — N/A for `.lua`-only changes. Install: `curl -sS
 | --- | --- |
 | Fast textual search / exact symbol lookup | `rg` |
 | Structural matching or safe rewrites | `ast-grep` |
-| Exploratory architecture questions | `mcp__morph-mcp__warp_grep` |
-
-Do not use `warp_grep` for exact symbol lookup. Do not use plain text search for deep architecture questions when AI search is available.
+| Deep exploratory questions | reason over the code yourself; no AI-search MCP is wired on this host |
 
 ```bash
 rg -n 'FireClient' src/server
 ast-grep run -l lua -p '$REMOTE:FireServer($$$)' src/client
 ```
 
+## UBS Quality Gate
+
+Run `ubs` on changed non-Lua files before commit (exit 0 = safe). Severity ladder and workflow unchanged from prior guidance; scope scans to changed files (`ubs <files>`), never full-project for small edits. No Lua scanner — skip for `.lua`-only diffs.
+
 ## Code Change Quality Requirements
 
 1. Understand the root cause before editing.
-2. Make minimal, focused changes. Keep style consistent with surrounding code.
-3. Run targeted tests first when available.
-4. Run the full applicable quality suite before finalizing code changes.
-5. Run UBS on changed files before committing.
-6. Prefer `review` or `qa` skills before merging substantial changes.
+2. Minimal, focused changes; style consistent with surrounding code.
+3. Targeted tests first when available.
+4. Full applicable quality suite before finalizing: `--pure` green + coverage gate + selene delta + `rojo build` for touched mappings. Source-contract specs mean DOC-COMMENT edits can break tests — always run the suite.
+5. UBS on changed non-Lua files.
+6. Prefer a review pass (fresh-eyes style, like slices documented on EPIC 47) before merging substantial changes.
 
 Unless explicitly instructed otherwise, always run the full test suite before finalizing code changes.
 
 ## Practical End-to-End Workflow
 
-Register → gather context (CASS/BV/`br ready`) → claim bead → reserve files → announce → load skill → implement → check mail → run quality gates → release reservations → close beads → sync/commit/push → hand off. See each section above for exact commands.
+Pick bead from `br ready` → read fully → claim → implement → gates (`--pure`, coverage, selene delta, `rojo build`) → release/close bead with completion reason → `br sync --flush-only` → stage explicit paths → commit `[bead-id]` → attempt push (see blocked-push reality above) → hand off context.
 
-````markdown
-## UBS Quick Reference for AI Agents
+## Session Completion
 
-UBS stands for "Ultimate Bug Scanner": **The AI Coding Agent's Secret Weapon: Flagging Likely Bugs for Fixing Early On**
+When ending a work session, complete ALL steps below. With credentials configured, work is NOT complete until `git push` succeeds; while push is credential-blocked on this host, the bar is: **clean committed tree, tracker synced, blocker explicitly reported** — never silently skipped.
 
-**Install:** `curl -sSL https://raw.githubusercontent.com/Dicklesworthstone/ultimate_bug_scanner/main/install.sh | bash`
+1. File `br` issues for remaining work; close finished issues; update in-progress items.
+2. Run quality gates if code changed: `--pure` + coverage, selene delta, `rojo build`, UBS on non-Lua diffs.
+3. Sync Beads: `br sync --flush-only && git add .beads/issues.jsonl`.
+4. Commit intended changes (explicit paths, bead ID in message).
+5. Attempt `git pull --rebase && git push`. On auth failure: report the queued commits and stop — do not retry-loop, do not claim success.
+6. Verify `git status` shows a clean tree.
+7. Hand off clear context for the next session.
 
-**Golden Rule:** `ubs <changed-files>` before every commit. Exit 0 = safe. Exit >0 = fix & re-run.
+---
 
-**Commands:**
+## Appendix A — Multi-Agent Coordination (Agent Mail): UNAVAILABLE ON THIS HOST
+
+The original workflow required registering with a local Agent Mail server (`http://127.0.0.1:8765/mcp/`, project key `home-ubuntu-developer-roblox`, credentials persisted in `.agent_mail_env`). That server's source is ABSENT on this machine (only stale launcher binaries remain under `~/mcp_agent_mail`), and the project key referenced the old host layout. Registration therefore cannot succeed; sessions operate solo by default.
+
+If the server is ever rehosted:
+
 ```bash
-ubs file.ts file2.py                    # Specific files (< 1s) — USE THIS
-ubs $(git diff --name-only --cached)    # Staged files — before commit
-ubs --only=js,python src/               # Language filter (3-5x faster)
-ubs --ci --fail-on-warning .            # CI mode — before PR
-ubs --help                              # Full command reference
-ubs sessions --entries 1                # Tail the latest install session log
-ubs .                                   # Whole project (ignores things like .venv and node_modules automatically)
+python3 agent_mail_cli.py health          # if unhealthy, do NOT improvise a start command; ask
+python3 agent_mail_cli.py session-start "YourNameHint" "abacusai"
+# persist returned name+token to .agent_mail_env (gitignored), then:
+#   reserve narrowest paths before editing shared files (TTL seconds, default 3600)
+#   announce claims with subject prefix [br-###]; release reservations on completion
 ```
 
-**Output Format:**
-```
-⚠️  Category (N errors)
-    file.ts:42:5 – Issue description
-    💡 Suggested fix
-Exit code: 1
-```
-Parse: `file:line:col` → location | 💡 → how to fix | Exit 0/1 → pass/fail
-
-**Fix Workflow:**
-1. Read finding → category + fix suggestion
-2. Navigate `file:line:col` → view context
-3. Verify real issue (not false positive)
-4. Fix root cause (not symptom)
-5. Re-run `ubs <file>` → exit 0
-6. Commit
-
-**Speed Critical:** Scope to changed files. `ubs src/file.ts` (< 1s) vs `ubs .` (30s). Never full scan for small edits.
-
-**Bug Severity:**
-- **Critical** (always fix): Null safety, XSS/injection, async/await, memory leaks
-- **Important** (production): Type narrowing, division-by-zero, resource leaks
-- **Contextual** (judgment): TODO/FIXME, console logs
-
-**Anti-Patterns:**
-- ❌ Ignore findings → ✅ Investigate each
-- ❌ Full scan per edit → ✅ Scope to file
-- ❌ Fix symptom (`if (x) { x.y }`) → ✅ Root cause (`x?.y`)
-````
+Historic gotchas that will apply again after a rehost: no broadcast sends (explicit recipients only), first-contact approval delay (~15s retry), tokens shown once, assigned names differ from hints, reservation conflicts surface in the `reserve` response `conflicts` array.
