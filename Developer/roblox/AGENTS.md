@@ -74,7 +74,7 @@ Multi-agent registration/reservation protocol is in **Appendix A** — currently
   - NEVER `git add -A`, `git add .`, or `git commit -a`. Stage the exact files you touched.
   - Landing work in a shared file with another stream's uncommitted changes? Use partial staging (`git apply --cached`) and leave their hunks unstaged.
 - Commit messages carry bead IDs: `[harborheist-xxxx] what changed`. After tracker mutations: `br sync --flush-only && git add .beads/issues.jsonl` (export is passive; `.beads/beads.db*` sidecars are local-only and slated for gitignore in `v0ud.41`).
-- **Push reality (as of 2026-08-26):** GitHub credentials are NOT configured on this host (`gh auth login` pending). Commits queue locally on `main` (`322a823`, `702cdac`, `588bab6`, `02a9ab9`, …). Until auth lands: finish everything else in Session Completion, leave a clean committed tree, and report push as blocked — NEVER claim pushed when it isn't, and never fabricate remotes.
+- **Push (configured 2026-08-26):** pushes run through the `gh` credential helper (`!gh auth git-credential`, global gitconfig) as GitHub account `pineridge-it` (`push: true` on this repo). Standard flow: `git pull --rebase && git push`. If a future auth error appears, check `gh auth status` first — token expiry/rotation is the usual cause; re-run `gh auth login` interactively rather than improvising credential files.
 
 ## Beads Issue Tracking
 
@@ -136,13 +136,13 @@ Pick bead from `br ready` → read fully → claim → implement → gates (`--p
 
 ## Session Completion
 
-When ending a work session, complete ALL steps below. With credentials configured, work is NOT complete until `git push` succeeds; while push is credential-blocked on this host, the bar is: **clean committed tree, tracker synced, blocker explicitly reported** — never silently skipped.
+When ending a work session, complete ALL steps below. Work is NOT complete until `git push` succeeds.
 
 1. File `br` issues for remaining work; close finished issues; update in-progress items.
 2. Run quality gates if code changed: `--pure` + coverage, selene delta, `rojo build`, UBS on non-Lua diffs.
 3. Sync Beads: `br sync --flush-only && git add .beads/issues.jsonl`.
 4. Commit intended changes (explicit paths, bead ID in message).
-5. Attempt `git pull --rebase && git push`. On auth failure: report the queued commits and stop — do not retry-loop, do not claim success.
+5. `git pull --rebase && git push`. On auth failure: run `gh auth status`; if the token is dead, report and stop — never retry-loop, never claim success.
 6. Verify `git status` shows a clean tree.
 7. Hand off clear context for the next session.
 
